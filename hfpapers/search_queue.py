@@ -166,9 +166,30 @@ class SearchDispatcher:
         self._verify_enabled = True
         self._code_matcher: Optional[CodeMatcher] = None
         self._code_match_enabled = True
+        self._local_ids: set[str] = self._load_local_ids()
 
         # Ensure searchers are registered
         init_registry()
+
+    @staticmethod
+    def _load_local_ids() -> set[str]:
+        """Pre-load all arXiv IDs from local FTS5 index (cached, ~1s)"""
+        ids = set()
+        try:
+            import sqlite3
+            from pathlib import Path
+
+            from hfpapers.config import get as cfg_get
+
+            base = Path(__file__).parent.parent
+            db_path = str(base / cfg_get("paths.data_dir", "data") / "arxiv_meta.db")
+            conn = sqlite3.connect(db_path)
+            for row in conn.execute("SELECT arxiv_id FROM arxiv_meta"):
+                ids.add(row[0])
+            conn.close()
+        except Exception:
+            pass
+        return ids
 
     def add_task(self, query: str, category: str = "", limit: int = 30, priority: int = 5):
         task = SearchTask(
@@ -246,23 +267,6 @@ class SearchDispatcher:
         4. arXiv ID → title verification (local FTS5 first, remote API fallback)
         5. Title similarity check (trigram Jaccard)
         """
-        # Build local index pre-filter (one-time)
-        local_ids = set()
-        try:
-            import sqlite3
-            from pathlib import Path
-
-            from hfpapers.config import get as cfg_get
-
-            base = Path(__file__).parent.parent
-            db_path = str(base / cfg_get("paths.data_dir", "data") / "arxiv_meta.db")
-            conn = sqlite3.connect(db_path)
-            for row in conn.execute("SELECT arxiv_id FROM arxiv_meta"):
-                local_ids.add(row[0])
-            conn.close()
-        except Exception:
-            pass
-
         verified = []
 
         for r in results:
@@ -273,7 +277,7 @@ class SearchDispatcher:
                 continue
 
             # Skip if already in local 3M-paper index (prevents re-download)
-            if aid in local_ids:
+            if aid in self._local_ids:
                 self._seen_ids.add(aid)
                 continue
 
