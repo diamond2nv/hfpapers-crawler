@@ -151,6 +151,37 @@ def load_config(reload: bool = False) -> dict:
     cfg_path = os.environ.get("_TEST_HFPAPERS_CONFIG") or CONFIG_PATH
     cfg_path = Path(cfg_path)
 
+    # config.yaml 不存在时返回默认配置
+    if not cfg_path.exists():
+        default_cfg = {
+            "search": {
+                "max_per_dim": 50,
+                "queries": [
+                    {"query": "neural operator", "category": "neural-operator", "priority": 1},
+                ],
+            },
+            "keywords": {
+                "include_high": ["neural operator", "pde"],
+                "exclude": ["quantum", "llm"],
+            },
+            "classification": {
+                "threshold_pass": 30,
+                "title_similarity_min": 0.40,
+            },
+            "paths": {
+                "data_dir": "data",
+                "pdf_dir": "pdfs",
+                "md_dir": "mds",
+                "global_dedup": "crawled.json",
+            },
+            "db": {
+                "path": "data/arxiv_meta.db",
+            },
+        }
+        _config_cache = default_cfg
+        logger.info("使用默认配置（无 config.yaml）")
+        return default_cfg
+
     with open(cfg_path) as f:
         cfg = yaml.safe_load(f)
 

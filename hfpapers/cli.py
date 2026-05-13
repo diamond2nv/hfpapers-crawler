@@ -651,7 +651,7 @@ def audit(
         import json as json_mod
         console.print(json_mod.dumps(report, indent=2, ensure_ascii=False))
     else:
-        if full:
+        if not arxiv_meta and not paper_store:
             console.print(format_full_audit_report(report))
         elif paper_store:
             console.print(format_paper_store_report(report))

@@ -22,7 +22,10 @@ class TestCLI:
         assert result.exit_code == 0
 
     def test_search_dry_run(self, test_env):
-        result = runner.invoke(app, ["search", "--dry-run"])
+        """dry-run 搜索（mock 网络避免 hang）"""
+        from unittest.mock import patch
+        with patch("hfpapers.evolved.HFPapersCrawler.crawl", return_value=[]):
+            result = runner.invoke(app, ["search", "--dry-run"])
         assert result.exit_code == 0
 
     def test_store_stats(self, test_env):

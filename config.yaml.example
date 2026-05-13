@@ -1,0 +1,55 @@
+# hfpclawer 配置文件
+# 拷贝到项目根目录: cp config.yaml.example config.yaml
+
+search:
+  max_per_dim: 50
+  queries:
+    - query: "neural operator"
+      category: neural-operator
+      priority: 1
+    - query: "physics informed"
+      category: pinn
+      priority: 2
+    - query: "pde solver"
+      category: pde-solver
+      priority: 3
+    - query: "fourier neural operator"
+      category: neural-operator
+      priority: 4
+    - query: "deep operator network"
+      category: deeponet
+      priority: 5
+
+keywords:
+  include_high:
+    - "neural operator"
+    - "fourier neural operator"
+    - "deep operator network"
+    - "physics informed"
+    - "pde"
+    - "partial differential equation"
+    - "operator learning"
+  include_medium:
+    - "scientific machine learning"
+    - "sciML"
+    - "numerical solver"
+    - "meshfree"
+  exclude:
+    - "quantum"
+    - "large language model"
+    - "llm"
+    - "reinforcement learning"
+
+classification:
+  threshold_pass: 30
+  threshold_high: 70
+  title_similarity_min: 0.40
+
+paths:
+  data_dir: "data"
+  pdf_dir: "pdfs"
+  md_dir: "mds"
+  global_dedup: "crawled.json"
+
+db:
+  path: "data/arxiv_meta.db"

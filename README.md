@@ -20,10 +20,12 @@ pip install hfpclawer
 
 ### Dependencies
 
-- **Core** (auto-installed): pyyaml, requests, beautifulsoup4, typer, litellm, etc.
-- **Scrapy** (optional): `pip install hfpclawer[scrapy]`
-- **PDF conversion**: `pip install pymupdf4llm` (or `pip install hfpclawer[pymupdf]`)
+- **Core** (auto-installed): pyyaml, requests, beautifulsoup4, typer, etc.
+- **LLM features** (optional): `pip install hfpclawer[llm]` — for `sniff` / `analyze` commands
+- **PDF conversion** (optional): `pip install hfpclawer[pdf]`
+- **Scrapy spiders** (optional): `pip install hfpclawer[scrapy]`
 - **Dev** (testing): `pip install hfpclawer[dev]`
+- **arXiv local search** (optional): `pip install hfpclawer[arxiv]` — requires access to private GitLab repo
 
 ### Local Development
 

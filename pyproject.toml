@@ -32,14 +32,23 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=4.9",
     "typer>=0.9",
-    "litellm",
-    "pymupdf4llm",
 ]
 
 [project.optional-dependencies]
-dev = [
+llm = [
+    "litellm",
+]
+pdf = [
+    "pymupdf4llm",
+]
+scrapy = [
     "scrapy>=2.10",
     "scrapy-redis",
+]
+dev = [
+    "hfpclawer[scrapy]",
+    "hfpclawer[llm]",
+    "hfpclawer[pdf]",
     "ruff",
     "pyright",
     "pytest>=7.0",
