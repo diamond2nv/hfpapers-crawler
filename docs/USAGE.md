@@ -1,167 +1,167 @@
-# hfpapers-clawler 使用指南
+# hfpapers-clawler Usage Guide
 
-## 安装
+## Installation
 
 ```bash
-# 克隆项目
+# Clone project
 cd ~/Gitlab/Agentic4Sci/hfpapers-clawler
 
-# 创建虚拟环境（Python >= 3.10）
+# Create virtual environment (Python >= 3.10)
 python -m venv venv
 source venv/bin/activate
 
-# 安装依赖
-pip install -e .          # 基础安装
-pip install -e ".[scrapy]"  # 含 Scrapy（需额外依赖）
-pip install -e ".[dev]"     # 含开发工具
+# Install dependencies
+pip install -e .          # Base installation
+pip install -e ".[scrapy]"  # With Scrapy (requires extra dependencies)
+pip install -e ".[dev]"     # With development tools
 
-# 配置
+# Configuration
 cp env.template .env
-# 编辑 .env 填入 API keys
+# Edit .env to fill in API keys
 
-# 验证
+# Verify
 hfpclawer --help
 ```
 
-## CLI 命令
+## CLI Commands
 
-`hfpclawer` 提供 10+ 子命令：
+`hfpclawer` provides 10+ subcommands:
 
-### 搜索与爬取
+### Search & Crawl
 
 ```bash
-# 搜索新论文（HF CLI → arXiv验证 → 关键词分类）
-hfpclawer search                     # 默认 3 页，阈值 30
-hfpclawer search --max-pages 5       # 搜索更多
-hfpclawer search --threshold 50      # 更高相关度阈值
-hfpclawer search --dry-run           # 仅显示，不保存
+# Search for new papers (HF CLI → arXiv verification → keyword classification)
+hfpclawer search                     # Default: 3 pages, threshold 30
+hfpclawer search --max-pages 5       # Search more
+hfpclawer search --threshold 50      # Higher relevance threshold
+hfpclawer search --dry-run           # Display only, don't save
 
-# 完整流程：search → download → convert
+# Full pipeline: search → download → convert
 hfpclawer full
 
-# 多源搜索（配置驱动）
+# Multi-source search (config-driven)
 hfpclawer crawl
 ```
 
-### 存储管理
+### Storage Management
 
 ```bash
-# SQLite Paper Store 操作
-hfpclawer store stats                # 存储统计
-hfpclawer store search --keyword "FNO"  # 搜索论文
-hfpclawer store search               # 列出所有论文
-hfpclawer store ensure --aid 2301.11167 --title "..."  # 确保论文存在
-hfpclawer store verify --aid 2301.11167 --title "..."  # CrossRef 交叉验证
-hfpclawer store ids --aid 2301.11167  # 查论文所有标识符
+# SQLite Paper Store operations
+hfpclawer store stats                # Storage statistics
+hfpclawer store search --keyword "FNO"  # Search papers
+hfpclawer store search               # List all papers
+hfpclawer store ensure --aid 2301.11167 --title "..."  # Ensure paper exists
+hfpclawer store verify --aid 2301.11167 --title "..."  # CrossRef cross-verification
+hfpclawer store ids --aid 2301.11167  # Lookup paper identifiers
 ```
 
-### 下载与转换
+### Download & Convert
 
 ```bash
-# 下载候选论文 PDF
-hfpclawer download                    # 下载 TOP-20
-hfpclawer download --limit 50         # 下载更多
+# Download candidate paper PDFs
+hfpclawer download                    # Download TOP-20
+hfpclawer download --limit 50         # Download more
 
-# PDF → Markdown 转换
-hfpclawer convert                     # pymupdf4llm 批量转换
+# PDF → Markdown conversion
+hfpclawer convert                     # Batch pymupdf4llm conversion
 
-# 查看论文列表
-hfpclawer list                        # 列出已爬取论文
-hfpclawer info 2301.11167             # 单篇论文详情
+# List papers
+hfpclawer list                        # List crawled papers
+hfpclawer info 2301.11167             # Single paper details
 ```
 
-### 其他
+### Other
 
 ```bash
-hfpclawer dedup                       # 去重统计
-hfpclawer config                      # 查看当前配置
-hfpclawer mcp                         # 启动 MCP Server (默认 :8765)
+hfpclawer dedup                       # Dedup statistics
+hfpclawer config                      # View current configuration
+hfpclawer mcp                         # Start MCP Server (default :8765)
 
-# 数据库操作
-hfpclawer paper-stats                 # paper_store 统计
-hfpclawer check                       # 完整性检查
-hfpclawer wiki                        # Wiki 集成（生成 wiki 页面）
+# Database operations
+hfpclawer paper-stats                 # paper_store statistics
+hfpclawer check                       # Integrity check
+hfpclawer wiki                        # Wiki integration (generate wiki pages)
 ```
 
-## 配置
+## Configuration
 
 ### config.yaml
 
-项目根目录 `config.yaml` 是主配置，分为 8 个部分：
+The project root `config.yaml` is the main configuration, divided into 8 sections:
 
-1. **search** — 搜索源配置、搜索维度、关键词
-2. **keywords** — 关键词白名单 (high/medium/low) + 黑名单
-3. **anti_crawl** — 反爬策略参数
-4. **classification** — 分类阈值
-5. **hardware** — 硬件资源预算
-6. **budget** — Token/费用预算
-7. **wiki** — Wiki 集成配置
-8. **paths** — 数据/输出路径
+1. **search** — Search source config, search dimensions, keywords
+2. **keywords** — Keyword whitelist (high/medium/low) + blacklist
+3. **anti_crawl** — Anti-crawl strategy parameters
+4. **classification** — Classification thresholds
+5. **hardware** — Hardware resource budget
+6. **budget** — Token/cost budget
+7. **wiki** — Wiki integration configuration
+8. **paths** — Data/output paths
 
 ### .env
 
 ```bash
 # API Keys
-DEEPSEEK_API_KEY=sk-...
-HF_TOKEN=hf_...                      # HuggingFace Token
+DEEPSEEK_API_KEY=***
+HF_TOKEN=***                      # HuggingFace Token
 
-# 代理
+# Proxy
 HTTP_PROXY=http://127.0.0.1:7890
 HTTPS_PROXY=http://127.0.0.1:7890
 
-# Ollama 本地模型（降级备用）
+# Ollama local model (fallback)
 OLLAMA_API_BASE=http://localhost:11434
 
 # LiteLLM Proxy
 LITELLM_PROXY=http://localhost:4000
-LITELLM_API_KEY=sk-...
+LITELLM_API_KEY=***
 ```
 
-## Scrapy 使用
+## Scrapy Usage
 
 ```bash
-# 单机模式
-scrapy crawl arxiv_search            # arXiv API 搜索
-scrapy crawl openreview              # OpenReview 搜索
-scrapy crawl hfpapers                # HF Papers 页面爬取
-scrapy crawl multi_source            # 多源统一调度
+# Standalone mode
+scrapy crawl arxiv_search            # arXiv API search
+scrapy crawl openreview              # OpenReview search
+scrapy crawl hfpapers                # HF Papers page crawling
+scrapy crawl multi_source            # Multi-source unified dispatch
 
-# 分布式模式（需要 Redis）
+# Distributed mode (requires Redis)
 scrapy crawl multi_source -s SETTINGS_MODULE=hfpapers.settings_redis
 ```
 
-## MCP 远程调用
+## MCP Remote Invocation
 
-MCP Server 通过 stdio 协议与 Hermes Agent / OpenCode 集成：
+MCP Server integrates with Hermes Agent / OpenCode via the stdio protocol:
 
 ```bash
-# 启动 MCP Server
+# Start MCP Server
 hfpclawer mcp
 
-# 或指定端口
+# Or specify port
 hfpclawer mcp --port 8765 --host 0.0.0.0
 ```
 
-### 可用工具
+### Available Tools
 
-| 工具名称 | 描述 |
-|----------|------|
-| `hfpclawer_search` | 搜索新论文 |
-| `hfpclawer_download` | 下载 PDF |
+| Tool Name | Description |
+|-----------|-------------|
+| `hfpclawer_search` | Search for new papers |
+| `hfpclawer_download` | Download PDF |
 | `hfpclawer_convert` | PDF → Markdown |
-| `hfpclawer_info` | 查论文详情 |
-| `hfpclawer_list` | 列出已爬取论文 |
-| `hfpclawer_stats` | 爬虫统计 |
-| `hfpclawer_full` | 全流程 pipeline |
+| `hfpclawer_info` | Lookup paper details |
+| `hfpclawer_list` | List crawled papers |
+| `hfpclawer_stats` | Crawler statistics |
+| `hfpclawer_full` | Full pipeline |
 
-## 数据目录
+## Data Directory
 
 ```
 hfpapers-clawler/
-├── data/           # SQLite DB + JSON 候选列表
+├── data/           # SQLite DB + JSON candidate list
 │   └── papers.db  # SQLite paper_store
-├── pdfs/           # 已下载 PDF
-├── mds/            # Markdown 转换结果
-├── logs/           # Scrapy 日志
-└── md_extracts/    # 备用 MD 提取目录
+├── pdfs/           # Downloaded PDFs
+├── mds/            # Markdown conversion results
+├── logs/           # Scrapy logs
+└── md_extracts/    # Fallback MD extraction directory
 ```

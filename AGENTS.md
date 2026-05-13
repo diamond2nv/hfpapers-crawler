@@ -1,205 +1,275 @@
-# hfpapers-clawler — AI Agent 开发指南
+# hfpapers-clawler — AI Agent Development Guide
 
-此文件适用于 AI 编码助手（Hermes Agent、OpenCode、Claude Code 等）在该项目上工作时读取。
-提供了项目结构、关键模式、坑点和约束。
+This file is for AI coding assistants (Hermes Agent, OpenCode, Claude Code, etc.)
+working on this project. It describes the project structure, key patterns, pitfalls, and constraints.
 
-## 快速导航
+## Quick Navigation
 
 ```
 ~/Gitlab/Agentic4Sci/hfpapers-clawler/
-├── hfpapers/             # 主 Python 包
-├── tests/                # pytest 测试
-├── docs/                 # 文档
-├── config.yaml           # 主配置（YAML + .env 覆盖）
-├── pyproject.toml        # 包配置（setuptools）
-├── AGENTS.md             # ← 本文档
+├── hfpapers/             # Main Python package
+├── hfpclawer/            # Download pipeline (OAI-PMH, Kaggle, monitor)
+├── tests/                # pytest tests
+├── scripts/              # Utility scripts (publish, OAI download)
+├── docs/                 # English documentation
+│   └── cn/               # 中文文档 (Chinese docs)
+├── config.yaml           # Main config (YAML + .env override)
+├── pyproject.toml        # Package config (setuptools)
+├── run.sh                # One-click pipeline runner
+├── AGENTS.md             # ← This file
 └── .gitignore
 ```
 
-## 核心架构约定
+## Core Architecture
 
-### 3 层存储
+### 3-Tier Storage
 
-| 层 | 位置 | 用途 | 持久性 |
-|----|------|------|--------|
-| SQLite | `data/papers.db` | 主存储 (3 表) | 持久 |
-| JSON | `data/candidates_latest.json` | 快速查询缓存 | 覆盖写 |
-| 文件 | `pdfs/` `mds/` | 下载结果 | 持久 |
+| Tier | Location | Purpose | Persistence |
+|------|----------|---------|-------------|
+| SQLite | `data/papers.db` | Primary store (3 tables) | Persistent |
+| JSON | `data/candidates_latest.json` | Fast query cache | Overwrite |
+| Files | `pdfs/` `mds/` | Download results | Persistent |
 
-### 关键数据流
+### Key Data Flow
 
 ```
-HF CLI → arXiv验证 → 关键词分类 → Dedup → paper_store (SQLite)
+HF CLI → arXiv verify → Keyword classify → Dedup → paper_store (SQLite)
                                                       ↓
-                                              PDF下载 → MD转换
+                                              PDF download → MD convert
 ```
 
-### 模块依赖链
+### Module Dependency Chain
 
 ```
-sources.py       — 多源搜索 (HF/OpenReview/PwC/arXiv)
+sources.py       — Multi-source search (HF/OpenReview/PwC/arXiv)
        ↓
-paper_store.py   — SQLite 存储 (Snowflake + Crossref)
+paper_store.py   — SQLite store (Snowflake + Crossref)
        ↓
-evolved.py       — 爬虫引擎 (HFPapersCrawler / DedupEngine / PaperDownloader)
+evolved.py       — Crawl engine (HFPapersCrawler / DedupEngine / PaperDownloader)
        ↓
-cli.py           — Typer CLI (10+ 子命令)
-mcp_server.py    — MCP Server (7 工具)
+cli.py           — Typer CLI (10+ subcommands)
+mcp_server.py    — MCP Server (7 tools)
 ```
 
-### 配置加载
+### Config Loading
 
 ```python
 from hfpapers.config import load_config, get
 
-cfg = load_config()        # 加载 YAML + .env
-val = get("search.queries")  # 点号分隔访问
+cfg = load_config()            # Load YAML + .env
+val = get("search.queries")    # Dot-separated access
 ```
 
-配置搜索顺序: `config.yaml` → `.env` (只覆盖 API keys)
+Config search order: `config.yaml` → `.env` (env only overrides API keys)
 
-### 全局单例
+### Global Singletons
 
-`paper_store.py` 暴露高层接口:
+`paper_store.py` exposes high-level interfaces:
 
 ```python
 from hfpapers.paper_store import get_store, get_crossref, ensure_paper, store_stats
 
-store = get_store()        # PaperStore 单例
-cr = get_crossref()        # CrossrefClient 单例
-sf_id, is_new = ensure_paper(arxiv_id, title, ...)  # 写入+去重+交叉验证
-stats = store_stats()      # 统计信息
+store = get_store()          # PaperStore singleton
+cr = get_crossref()          # CrossrefClient singleton
+sf_id, is_new = ensure_paper(arxiv_id, title, ...)  # Write + dedup + cross-verify
+stats = store_stats()        # Statistics
 ```
 
-## 开发命令
+## Development Commands
 
 ```bash
-source venv/bin/activate    # 必须激活
-ruff format .               # 格式化 (line-length=100, 双引号)
+source venv/bin/activate    # Must activate
+ruff format .               # Format (line-length=100, double quotes)
 ruff check .                # Lint
-pyright .                   # 类型检查 (0 errors)
-python -m pytest tests/ -v  # 测试
-python -m build             # 构建包
+pyright .                   # Type check (0 errors)
+python -m pytest tests/ -v  # Run tests
+python -m build             # Build package
 ```
 
-## 测试规范
+## Testing Guidelines
 
-### 项目指定fixture
+### Provided Fixtures
 
-`tests/conftest.py` 提供:
-- `test_env` — 自动隔离的临时目录 + 最小 config.yaml
-- `paper_store` — 内存 SQLite PaperStore 实例
+`tests/conftest.py` provides:
+- `test_env` — auto-isolated temp directory + minimal config.yaml
+- `paper_store` — in-memory SQLite PaperStore instance
 
-### 测试策略
+### Test Strategy
 
-| 类别 | 覆盖内容 | 外部依赖 |
-|------|---------|---------|
-| Unit | paper_store CRUD、Snowflake、config | 无 |
-| Unit | DedupEngine、RelevanceDetector | 无 |
+| Category | Coverage | External Dependencies |
+|----------|----------|----------------------|
+| Unit | paper_store CRUD, Snowflake, config | None |
+| Unit | DedupEngine, RelevanceDetector | None |
 | Unit | HardwareProbe | psutil |
 | Integration | paper_store ↔ SQLite | SQLite |
-| Integration | sources 搜索 | Mock |
+| Integration | sources search | Mock |
 
-创建新测试:
+Creating new tests:
 1. `tests/test_<module>.py`
-2. 使用 `test_env` fixture 隔离环境
-3. Mock 网络请求 (requests / subprocess)
-4. 不要依赖外部 API 响应
+2. Use `test_env` fixture for environment isolation
+3. Mock network requests (requests / subprocess)
+4. Don't depend on external API responses
 
-## 坑点
+## Developer Conventions
 
-### paper_store.py 导入 circular
+### PEP8 Internationalization Standards
 
-`paper_store.py` 中的 `CrossrefClient.cross_verify()` 导入 `HFPapersCrawler._title_similarity`:
+All Python files MUST be 100% English-only:
+- **Comments** — English only (docstrings, inline comments, block comments)
+- **Strings** — English only (print, log, error messages, CLI output)
+- **Variable/function/class names** — English only (PEP8 naming)
+- **No Chinese characters, emoji, or box-drawing characters** in .py/.yaml/.sh/.md files
 
+Why: `conda` environment has `LC_ALL=C` which causes `UnicodeEncodeError` on non-ASCII output.
+
+Every `.py` file must have header:
 ```python
-from hfpapers.evolved import HFPapersCrawler  # 函数内 import，避免 circular
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 ```
 
-不要把这行提到模块顶部。
+Exceptions (Chinese allowed):
+| Location | What | Reason |
+|----------|------|--------|
+| `docs/cn/` | Chinese documentation | Intended for Chinese readers |
+| `.hermes/` | Hermes agent plans | Internal tooling, not user-facing |
+| `README.md` | `简体中文` navigation link only | One-line label |
+| `AGENTS.md` | `中文文档` directory reference only | One-line comment |
 
-### 临时目录隔离
+### Chinese Documentation Convention
 
-测试 fixture `test_env` 已 chdir 到临时目录。不要硬编码 `~/.hermes/` 或其他系统路径。
+- Chinese docs live in `docs/cn/*.zh-CN.md`
+- Must be **line-to-line translations** of English originals (same line count)
+- This enables: diff tracking, side-by-side editing, automated sync checks
+- Update English first, then mirror edits to Chinese version
 
-### Scrapy 与 CLI 冲突
+### PyPI Package Release Checklist
 
-Scrapy 的 `pipelines.py` 直接调用 `ensure_paper()`，如果 spider 没设 `sf_id`, `StorePipeline` 会跳过。检查 `pipelines.py` 第 38-69 行。
+Before tagging a release:
 
-### PwC API 已废弃
+```bash
+# 1. Format & lint
+ruff format .
+ruff check --fix .
 
-PapersWithCode API 已重定向到 HuggingFace API。`sources.py` 中的 `PwcApiSource` 可能返回空结果。
+# 2. Type check
+pyright .
 
-### 硬件自适应
+# 3. Test
+python -m pytest tests/ -v
+
+# 4. Verify version alignment
+grep __version__ hfpapers/__init__.py  # e.g. '0.3.1'
+grep ^version pyproject.toml           # Must match
+
+# 5. Build + verify
+python -m build
+twine check dist/*
+
+# 6. Tag
+git tag v0.3.1
+git push --tags
+
+# 7. Publish
+twine upload dist/*
+```
+
+### Testing Before Release
+
+- `ruff check .` must pass with **zero errors** (including tests/)
+- `pytest` must pass all tests (currently 91 tests)
+- `pyright` warnings for missing imports (torch, scrapy, sentence_transformers) are acceptable — these are optional dependencies
+- Pre-existing warnings (unused `l` variable, None-guard noise) are non-blocking
+
+## Pitfalls
+
+### Circular Import in paper_store.py
+
+`CrossrefClient.cross_verify()` in `paper_store.py` imports `HFPapersCrawler._title_similarity`:
+
+```python
+from hfpapers.evolved import HFPapersCrawler  # Inside function to avoid circular
+```
+
+Do NOT move this line to the module top level.
+
+### Temp Directory Isolation
+
+Test fixture `test_env` already chdir's to a temp directory. Do NOT hardcode `~/.hermes/` or other system paths.
+
+### Scrapy vs CLI Conflict
+
+Scrapy's `pipelines.py` calls `ensure_paper()` directly. If the spider doesn't set `sf_id`, `StorePipeline` will skip. Check `pipelines.py` lines 38-69.
+
+### PwC API Deprecated
+
+PapersWithCode API has been redirected to HuggingFace API. `PwcApiSource` in `sources.py` may return empty results.
+
+### Hardware Auto-Adaptation
 
 ```python
 probe = HardwareProbe()
-if probe.use_pdf_converter:   # 检查 pymupdf4llm 是否可用
+if probe.use_pdf_converter:   # Check if pymupdf4llm is available
     ...
-if probe.use_bert:            # 检查 CUDA + sentence-transformers
+if probe.use_bert:            # Check CUDA + sentence-transformers
     ...
 ```
 
-## 文件操作
+## File Operations (AI Assistant)
 
-- ❌ 不要用 `cat`/`grep`/`sed`/`ls` — 用 `read_file`/`search_files`/`patch`
-- ✅ 用 `write_file` 写文件，`terminal` 跑命令
-- ✅ 用 `search_files(target="files")` 代替 `ls`
-- ✅ 用 `search_files(pattern="content")` 代替 `grep`
+- ❌ Don't use `cat`/`grep`/`sed`/`ls` — use `read_file`/`search_files`/`patch`
+- ✅ Use `write_file` for creating files, `terminal` for running commands
+- ✅ Use `search_files(target="files")` instead of `ls`
+- ✅ Use `search_files(pattern="content")` instead of `grep`
 
-## Git 规范
+## Git Conventions
 
 ```bash
 git add <files>
 git commit -m "<type>: <description>"
-git tag v3.1.0          # 语义化版本
+git tag v3.1.0          # Semantic versioning
 ```
 
-`.gitignore` 已排除: `*.db`, `data/`, `pdfs/`, `mds/`, `logs/`, `__pycache__/`, `*.egg-info/`, `venv/`, `.ruff_cache/`
+`.gitignore` covers: `*.db`, `data/`, `pdfs/`, `mds/`, `logs/`, `__pycache__/`, `*.egg-info/`, `venv/`, `.ruff_cache/`
 
-## 版本规范
+## Versioning
 
-**当前版本: 0.2.0**（未发布，预发布阶段）
-- 全部使用 0.x.y 语义版本号，x=大功能迭代，y=修复/小改
-- 正式发布前不升到 1.0.0
-- 版本号统一在 `hfpapers/__init__.py` 的 `__version__` 中定义
-- `pyproject.toml` 中的 version 字段同步更新
-- 发版时: `git tag v0.x.y && git push --tags`
+**Current version: 0.3.0** (pre-release)
+- Semantic versioning with 0.x.y — x=feature iteration, y=fix/minor
+- Don't bump to 1.0.0 before official release
+- Version defined in `hfpapers/__init__.py` `__version__`
+- Sync `pyproject.toml` version field
+- Tag: `git tag v0.x.y && git push --tags`
 
-## 命名规范
+## Naming Convention
 
-本项目的命名体系基于英文词源学，两个核心词有截然不同的含义：
+### claw ≠ crawl (Two distinct words, not a typo)
 
-### claw ≠ crawl（两个独立词，非笔误）
+| Word | Pronunciation | Meaning | Context |
+|------|--------------|---------|---------|
+| **claw** | /klɔː/ | n. sharp grasping appendage; v. to seize with claws | Animal claws, mechanical claws, raptor grasping |
+| **crawl** | /krɔːl/ | v. to move slowly on hands and knees | Web crawler (spider/crawler) |
 
-| 词 | 音标 | 含义 | 语境 |
-|----|------|------|------|
-| **claw** | /klɔː/ | n. 爪/钳；v. 用爪子攫取 | 动物利爪、机械爪、猛禽抓取 |
-| **crawl** | /krɔːl/ | v. 爬行，匍匐前进 | 网络爬虫（spider/crawler）|
-
-来源：https://cn.bing.com/dict/search?q=claw
-
-### 包名 hfpclawer 的命名哲学
+### Package name philosophy
 
 ```
-hfpclawer = HF (HuggingFace Papers) + claw (爪) + er (者)
-         = "用利爪精准抓取 HF 论文的智能工具"
-         ≠ crawler（网络爬虫）
+hfpclawer = HF (HuggingFace Papers) + claw + er
+         = "A sharp tool that claws HF papers with precision"
+         ≠ crawler (web crawler)
 ```
 
-- **claw**（利爪）比 **crawl**（爬行）更有攻击性和精准度
-- 寓意：不是慢吞吞的爬虫，而是像猛禽用爪攫取猎物的高效抓取工具
-- 创造词 `clawler` = `claw` + `-er`（执行者后缀）
-- 与热门词 **OpenClaw**（开源爪取工具）呼应，符合销售推广策略
+- **claw** conveys precision and aggression vs **crawl** (slow, methodical)
+- `clawler` = `claw` + `-er` (agent suffix)
+- Complements **OpenClaw** ecosystem
 
-### 项目中两种角色的区分
+### Role differentiation
 
-| 名称 | 类型 | 语义 | 是否修改 |
-|------|------|------|----------|
-| `hfpclawer` | PyPI 包名、CLI 命令名 | claw（爪取者） | ✅ 正确的名字，保留 |
-| `hfpapers-clawler` | GitLab 仓库名 | claw（爪取者） | ✅ 正确的名字，保留 |
-| `hfpclawer[arxiv]` | 可选依赖 | 含 Kaggle 全量元数据下载 | ✅ 推荐用法 |
-| `HFPapersCrawler` | Python 类名（evolved.py） | crawl（网络爬虫引擎） | ✅ 名实相符，保留 |
-| `HFPCrawler/1.0` | HTTP User-Agent | crawl（爬虫标识） | ✅ 符合 HTTP 语义，保留 |
+| Name | Type | Semantics | Modification |
+|------|------|-----------|-------------|
+| `hfpclawer` | PyPI package, CLI command | claw (sharp grasper) | ✅ Correct, keep |
+| `hfpapers-clawler` | GitLab repo name | claw (sharp grasper) | ✅ Correct, keep |
+| `hfpclawer[arxiv]` | Optional dep | Includes Kaggle full metadata download | ✅ Recommended |
+| `HFPapersCrawler` | Python class (evolved.py) | crawl (web crawl engine) | ✅ Accurate, keep |
+| `HFPCrawler/1.0` | HTTP User-Agent | crawl (crawler identifier) | ✅ HTTP semantics, keep |
 
-**关键区分：** 包名/仓库名的 `clawler` 不是笔误，是与 `HFPapersCrawler` 类完全不同的词源。
+**Key distinction**: Package/repo name `clawler` is NOT a typo — it has a completely different etymology from the `HFPapersCrawler` class.

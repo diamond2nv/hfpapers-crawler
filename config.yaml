@@ -1,12 +1,12 @@
 # ─────────────────────────────────────────
-# HF Papers Collector — 配置驱动爬虫系统
-# 主配置: config.yaml
-# 密钥:   .env
+# HF Papers Collector — Config-driven crawler system
+# Main config: config.yaml
+# Secrets:     .env
 # ─────────────────────────────────────────
 
-# ===== 1. 站点资源与爬取规则 =====
+# ===== 1. Site Resources & Crawl Rules =====
 search:
-  # 内置站点配置
+  # Built-in site config
   sources:
     huggingface:
       engine: "hf_cli"          # hf_cli | requests | browser
@@ -19,27 +19,27 @@ search:
       search_prefix: "http://export.arxiv.org/api/query?search_query="
       delay_sec: 3.0
       results_per_query: 50
-      enable: false              # 备选
+      enable: false              # Fallback
     openreview:
       api_base: "https://api.openreview.net"
       max_results: 30
-      enable: true               # 审稿记录 + 论文
-      notes: "含审稿人评分和评论"
+      enable: true               # Review records + papers
+      notes: "Includes reviewer ratings and comments"
     pwc:
       api_base: "https://paperswithcode.com/api/v1"
       max_results: 30
-      enable: true               # 代码仓库 + SOTA 排行榜
-      notes: "含官方代码仓库链接"
+      enable: true               # Code repos + SOTA rankings
+      notes: "Includes official code repository links"
 
-  # 启用搜索源（按优先级排列）
+  # Enabled search sources (ordered by priority)
   enabled:
     - "hf_cli"
     - "pwc_api"
     - "openreview"
-    # - "arxiv_api"  # 备选，默认关闭
+    # - "arxiv_api"  # Fallback, disabled by default
 
-  # 搜索维度
-  max_per_dim: 30               # 每个维度最大结果数（多源去重后）
+  # Search dimensions
+  max_per_dim: 30               # Max results per dimension (after multi-source dedup)
   queries:
     - query: "PDE neural operator"
       category: neural-operator
@@ -66,9 +66,9 @@ search:
       category: neural-operator
       weight: 2
 
-# ===== 2. 关键词白名单 / 黑名单 =====
+# ===== 2. Keyword Whitelist / Blacklist =====
 keywords:
-  # 白名单 — 命中加分
+  # Whitelist — hit adds score
   include_high:
     - "neural operator"
     - "fourier neural operator"
@@ -105,7 +105,7 @@ keywords:
     - "molecular"
     - "magnetohydrodynamic"
 
-  # 黑名单 — 命中跳过
+  # Blacklist — hit skips
   exclude:
     - "quantum"
     - "qml"
@@ -124,53 +124,53 @@ keywords:
     - "segmentation"
     - "pose estimation"
 
-# ===== 3. 反爬虫策略 =====
+# ===== 3. Anti-Crawl Strategy =====
 anti_crawl:
-  random_ua: true                # 随机 User-Agent
+  random_ua: true                # Random User-Agent
   random_delay:
-    base: 2.0                    # 基础延迟（秒）
-    jitter: 0.5                  # 随机抖动 ±50%
-  max_retries: 3                 # 最大重试次数
-  retry_delay_base: 30           # 指数退避基数（秒）
+    base: 2.0                    # Base delay (seconds)
+    jitter: 0.5                  # Random jitter ±50%
+  max_retries: 3                 # Max retries
+  retry_delay_base: 30           # Exponential backoff base (seconds)
   retry_http_codes: [429, 503, 403, 408, 500, 502, 520]
   proxy:
-    enable: false                # 代理轮换（默认关，需代理池）
+    enable: false                # Proxy rotation (default off, needs proxy pool)
     providers: []                # e.g. ["http://user:pass@proxy1:8080"]
   cookies:
-    enable: false                # Cookie 池（默认关）
+    enable: false                # Cookie pool (default off)
 
-# ===== 4. 三级分类阈值 =====
+# ===== 4. Three-Level Classification Thresholds =====
 classification:
   keyword_score_high: 60
   phrase_score_high: 40
-  threshold_pass: 30             # 低于此分数丢弃
-  title_similarity_min: 0.40     # arXiv 验证: 三字母组 Jaccard 下限
-  bert_enabled: true             # 有 GPU 时自动启用
+  threshold_pass: 30             # Discard below this score
+  title_similarity_min: 0.40     # arXiv verification: trigram Jaccard lower bound
+  bert_enabled: true             # Auto-enable when GPU is available
 
-# ===== 5. 硬件容量预算 =====
+# ===== 5. Hardware Capacity Budget =====
 hardware:
   max_pdf_size_mb: 50
   max_pdf_count: 50
   max_md_chars: 500000
   skip_if_no_gpu:
-    - "pymupdf4llm"    # 无 GPU 时不装 pymupdf4llm
+    - "pymupdf4llm"    # Don't install pymupdf4llm without GPU
     - "sentence-transformers"
   auto_downgrade: true
 
-# ===== 6. 预算配置（litellm Proxy 驱动路由）=====
+# ===== 6. Budget Configuration (litellm Proxy routing) =====
 budget:
-  max_tokens: 50000              # 所有 provider 统一 token 限额（防止一次跑太多）
-  max_cost_usd: 0.50             # 仅对付费 provider 生效（最高 $0.50/次）
-  # - Ollama 等本地模型: in/out=$0，费用检查自动跳过
+  max_tokens: 50000              # Unified token limit for all providers (prevents overruns)
+  max_cost_usd: 0.50             # Only applies to paid providers (max $0.50/run)
+  # - Ollama etc. local models: in/out=$0, cost check auto-skipped
   # - DeepSeek: input=$0.28/M, output=$0.42/M
-  # - 费用上限≈DeepSeek一次完整论文分析(30K+10K tokens)
+  # - Cost limit ≈ DeepSeek one full paper analysis (30K+10K tokens)
   #
-  # LiteLLM Proxy 路由策略:
-  # 1. 预算内 → DeepSeek（高质量）
-  # 2. 超额/超出 → 降级到 Ollama（免费，本地推理）
-  # 配置参见 .env: LITELLM_PROXY, LITELLM_API_KEY
+  # LiteLLM Proxy routing strategy:
+  # 1. Within budget → DeepSeek (high quality)
+  # 2. Exceeded/over budget → Fallback to Ollama (free, local inference)
+  # See .env for: LITELLM_PROXY, LITELLM_API_KEY
 
-# ===== 7. Wiki 集成配置 =====
+# ===== 7. Wiki Integration Config =====
 wiki:
   base_dir: "~/wiki"
   concepts_dir: "concepts"
@@ -180,29 +180,29 @@ wiki:
   batch_prefix: "hfpapers-"
   write_summary: true
 
-# ===== 8. 输出路径 =====
+# ===== 8. Output Paths =====
 paths:
   data_dir: "data"
   pdf_dir: "pdfs"
   md_dir: "md_extracts"
   log_dir: "logs"
   crawled_db: "crawled.json"
-  # 去重记录—绝对路径或相对于 wiki.base_dir
+  # Dedup record — absolute path or relative to wiki.base_dir
   global_dedup: "~/wiki/raw/papers/hfpapers-crawled.json"
 
-# ===== 9. 下载管道配置 =====
+# ===== 9. Download Pipeline Config =====
 db:
-  path: "data/arxiv_meta.db"       # arXiv 元数据 SQLite 数据库
+  path: "data/arxiv_meta.db"       # arXiv metadata SQLite database
 
 download:
   oai:
     enable: true
     base_url: "https://export.arxiv.org/oai2"
-    rate_limit: 2.0                # 请求间隔（秒），arXiv 推荐 >=2s
-    batch_write: 500               # 每批写入数据库条数
+    rate_limit: 2.0                # Request interval (seconds), arXiv recommends >=2s
+    batch_write: 500               # Records per batch write to DB
     user_agent: "HFPClawer/0.2.0 (mailto:lishen@example.com)"
-    tier1_only: false              # 默认下载所有分类
+    tier1_only: false              # Download all categories by default
   kaggle:
-    enable: true                   # Kaggle CLI 下载 arXiv 全量数据集
+    enable: true                   # Kaggle CLI download of full arXiv dataset
     dataset: "Cornell-University/arxiv"
-    jsonl: "data/arxiv_metadata.jsonl"   # 解压后的 JSONL 文件
+    jsonl: "data/arxiv_metadata.jsonl"   # Decompressed JSONL file

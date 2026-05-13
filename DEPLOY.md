@@ -1,80 +1,75 @@
-# 分布式部署指南
-#
-# 前提:
-# - GPU 服务器 (nautilus / ${SERVER_HOST}) — 主力
-# - CPU 服务器 — 轻量爬取节点
-# - 笔记本 (macOS/Ubuntu) — 本地开发 + 测试
-#
-# ─── 1. 安装依赖 ───────────────────────────
-#
-#   在所有机器上:
+# Distributed Deployment Guide
+
+# Prerequisites:
+# - GPU Server (nautilus / ${SERVER_HOST}) — primary workhorse
+# - CPU Server — lightweight crawl node
+# - Local machine (macOS/Ubuntu) — development + testing
+
+# ─── 1. Install Dependencies ───────────────────────────
+
+#    On all machines:
 #   cd ~/Gitlab/Agentic4Sci/hfpapers-clawler
-#   source venv/bin/activate
-#   pip install scrapy-redis  # 分布式专用
+#   pip install -e ".[scrapy]"
+#   pip install scrapy-redis  # Distributed-only
+
+# ─── 2. Choose Redis Host ─────────────────────
+
+#   Plan A: Lightweight Redis on the GPU server
+#     sudo apt install redis-server  (if you have sudo)
+#     or: pip install valkey
+#     redis-server --port 16379 --daemonize yes
+
+#   Plan B: Reuse existing Redis (e.g., if already installed)
+
+#   Plan C: No Redis — Shared JSON mode
+#     Each machine runs independently with no queue sharing.
+#     Only shared dedup file is synced via NFS/scp/git.
+#     Dedup file: ~/wiki/raw/papers/hfpapers-crawled.json
+
+# ─── 3. Start on Each Machine ──────────────────────────
+
+#   GPU Server (heavy search + paper download):
+#     hfpclawer search --max-pages 5
+
+#   CPU Server (arXiv search + verification):
+#     hfpclawer search --max-pages 3
+
+#   Local machine (testing + OpenReview search):
+#     hfpclawer search --max-pages 2
+
+#   Distributed mode (requires Redis):
+#     scrapy crawl multi_source -s REDIS_URL=redis://192.168.1.100:16379
+
+# ─── 4. View Results ────────────────────────────
+
+#   All machines share the same output paths:
+#     data/candidates_latest.json    ← Latest candidate list
+#     pdfs/                          ← PDF files
+#     mds/                           ← MD extraction files
+#     ~/wiki/raw/papers/             ← Global dedup records
+
+# ─── 5. Anti-Crawl Config ──────────────────────
+
+#   Configure each machine independently via config.yaml:
+
+#   Machine A (IP 1):
+#     download_delay: 3.0
+#     randomize_download_delay: true
+#     random_ua_pool: ["Mozilla/5.0 (X11; Linux x86_64)...", ...]
+
+#   Machine B (IP 2):
+#     download_delay: 2.0
+#     randomize_download_delay: true
+#     random_ua_pool: ["Mozilla/5.0 (Macintosh; Intel Mac OS X)...", ...]
+
+#   This ensures each machine egresses from a different IP,
+#   and each request rotates User-Agent.
+
+# ─── 6. Fault Recovery ────────────────────────────
+
+#   After interruption, scrapy-redis will:
+#     1. Resume incomplete request queue from Redis
+#     2. Skip already-deduped requests
+#     3. Skip PDF/MD files already in data directory
 #
-# ─── 2. 选择 Redis 宿主 ─────────────────────
-#
-#   方案 A: GPU 服务器上起个轻量 Redis
-#     apt install redis-server  (如有 sudo)
-#     或: pip install valkey
-#     valkey-server --port 6379
-#
-#   方案 B: 用已有 Redis (比如之前装过)
-#     redis-cli -h <host> ping
-#
-#   方案 C: 无 Redis — 共享 JSON 模式
-#     scrapy crawl multi_source
-#     各机器独立跑，不做队列共享，仅共享去重文件。
-#     去重文件通过类似 ~/wiki/raw/papers/hfpapers-crawled.json
-#     这个可以用 NFS / scp / git 同步。
-#
-# ─── 3. 各机器启动 ──────────────────────────
-#
-#   GPU 服务器（大源搜索 + 论文下载）:
-#     scrapy crawl multi_source -a source=hf_papers
-#     scrapy crawl multi_source -a source=arxiv
-#
-#   CPU 服务器（arXiv 搜索 + 验证）:
-#     scrapy crawl multi_source -a source=arxiv -s CONCURRENT_REQUESTS=8
-#
-#   笔记本（测试 + OpenReview 搜索）:
-#     scrapy crawl multi_source -a source=openreview
-#
-#   分布式模式（需 Redis）:
-#     scrapy crawl multi_source -s SETTINGS_MODULE=hfpapers.settings_redis
-#
-# ─── 4. 查看结果 ────────────────────────────
-#
-#   所有机器共享同样的输出:
-#     data/candidates_latest.json    ← 最新候选列表
-#     pdfs/                          ← PDF 文件
-#     mds/                           ← MD 提取文件
-#     ~/wiki/raw/papers/             ← 全局去重记录
-#
-# ─── 5. 反爬虫配置调整 ──────────────────────
-#
-#   每台机器独立配置 config.yaml:
-#
-#   机器 A (IP 1):
-#     anti_crawl:
-#       random_ua: true
-#       proxy:
-#         enable: true
-#         providers: ["http://proxy_pool_a:8080"]
-#
-#   机器 B (IP 2):
-#     anti_crawl:
-#       random_ua: true
-#       proxy:
-#         providers: ["http://proxy_pool_b:8080"]
-#
-#   这样每台机器的出口 IP 不同，且每个请求 IP 也轮换。
-#
-# ─── 6. 故障恢复 ────────────────────────────
-#
-#   中断后重新启动，scrapy-redis 会:
-#     1. 从 Redis 恢复未完成的请求队列
-#     2. 跳过已去重的请求
-#     3. 跳过已在数据目录中的 PDF/MD 文件
-#
-#   无需额外处理。
+#   No manual recovery needed.

@@ -1,16 +1,16 @@
-# Hermes Agent 集成示例
+# Hermes Agent Integration Example
 
-hfpapers-clawler 可以直接在 Hermes Agent 中使用。
+hfpapers-clawler can be used directly within Hermes Agent.
 
-## 安装
+## Installation
 
 ```bash
 pip install hfpclawer
 ```
 
-## MCP Server 集成
+## MCP Server Integration
 
-在 Hermes Agent 的 `~/.hermes/config.yaml` 中注册 MCP Server：
+Register the MCP Server in Hermes Agent's `~/.hermes/config.yaml`:
 
 ```yaml
 mcp:
@@ -22,58 +22,58 @@ mcp:
         HF_TOKEN: "${HF_TOKEN}"
 ```
 
-Hermes 自动发现以下 MCP 工具：
+Hermes automatically discovers the following MCP tools:
 
-| 工具 | 描述 |
-|------|------|
-| `hfpclawer_search` | 搜索新论文 |
-| `hfpclawer_download` | 下载 PDF |
+| Tool | Description |
+|------|-------------|
+| `hfpclawer_search` | Search for new papers |
+| `hfpclawer_download` | Download PDF |
 | `hfpclawer_convert` | PDF → Markdown |
-| `hfpclawer_info` | 查论文详情 |
-| `hfpclawer_list` | 列出已爬取论文 |
-| `hfpclawer_stats` | 爬虫统计 |
-| `hfpclawer_full` | 全流程 pipeline |
+| `hfpclawer_info` | Query paper details |
+| `hfpclawer_list` | List crawled papers |
+| `hfpclawer_stats` | Crawler statistics |
+| `hfpclawer_full` | Full pipeline |
 
-## 使用示例
+## Usage Examples
 
-### 搜索论文
+### Search Papers
 
 ```
-用户: 搜索最新的 PDE 神经算子论文
-Hermes: 使用 hfpclawer_search 工具...
-结果: 发现 3 篇新论文
+User: Search for the latest PDE neural operator papers
+Hermes: Using hfpclawer_search tool...
+Results: Found 3 new papers
 - [85] 2010.08895 Fourier Neural Operator
 - [75] 2003.03085 DeepONet
 - [62] 2104.06458 Physics-Informed Neural Operator
 ```
 
-### Paper Store 操作
+### Paper Store Operations
 
 ```
-用户: 列出论文库
-Hermes: 使用 hfpclawer_list 工具...
+User: List the paper store
+Hermes: Using hfpclawer_list tool...
 ```
 
-### 全流程 Pipeline
+### Full Pipeline
 
 ```
-用户: 运行全流程管道
-Hermes: 使用 hfpclawer_full 工具...
+User: Run the full pipeline
+Hermes: Using hfpclawer_full tool...
 ```
 
-## Python API 直接调用
+## Python API Direct Usage
 
-在 Hermes Agent 的 `execute_code` 中直接使用：
+Use directly in Hermes Agent's `execute_code`:
 
 ```python
 from hfpapers.paper_store import PaperStore, PaperRecord, ensure_paper
 from hfpapers.hardware import HardwareProbe
 
-# 硬件探测
+# Hardware probe
 hw = HardwareProbe()
 print(f"Hardware: {hw.summary()}")
 
-# 存储论文
+# Store a paper
 sf_id, is_new = ensure_paper(
     arxiv_id="2301.11167",
     title="Physics-Informed Neural Networks",
@@ -81,7 +81,7 @@ sf_id, is_new = ensure_paper(
     relevance=85,
 )
 
-# 搜索
+# Search
 store = PaperStore()
 papers = store.search_papers("neural operator")
 for p in papers:
@@ -90,9 +90,9 @@ for p in papers:
     print(f"[{p.relevance}] {p.title[:50]} | {id_str}")
 ```
 
-## CLI 直接执行
+## CLI Direct Execution
 
-在 Hermes Agent 中直接用 `terminal` 调用：
+Invoke directly via `terminal` within Hermes Agent:
 
 ```bash
 hfpclawer search --dry-run

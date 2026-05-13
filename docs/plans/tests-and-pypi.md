@@ -1,33 +1,33 @@
-# hfpapers-clawler 测试 + 示例 + PyPI 发布 Plan
+# hfpapers-clawler Tests + Examples + PyPI Release Plan
 
 > **For OpenCode (via Hermes OpenCode serve API):** Implement all test files, examples, and finalize for PyPI publishing.
 
-**Goal:** 为 hfpapers-clawler 项目完成完整的测试套件 + 安装使用示例 + PyPI 发布准备
+**Goal:** Complete the test suite + installation usage examples + PyPI release preparation for the hfpapers-clawler project
 
-**Architecture:** 项目已存在核心模块（paper_store、evolved、config、hardware、sources），需要补全 tests/ 目录下的单元测试/集成测试，以及 examples/ 下的使用示例。
+**Architecture:** The project already has core modules (paper_store, evolved, config, hardware, sources). Unit tests / integration tests under tests/ and usage examples under examples/ need to be completed.
 
 **Tech Stack:** Python 3.10+, pytest 9.x, pytest-mock, pytest-cov, pyyaml, typer, SQLite3
 
-**Branch Strategy:** 在 master 上增量开发，每完成一个 task 就 commit
+**Branch Strategy:** Incremental development on master, commit after each task
 
 ---
 
-## 测试清单
+## Test Checklist
 
-| 模块 | 测试文件 | 测试点 |
-|------|---------|--------|
-| paper_store | `test_paper_store.py` | Snowflake ID CRUD 标识符 交叉验证 统计 |
-| config | `test_config.py` | YAML加载 env合并 budget检查 |
-| hardware | `test_hardware.py` | 探针检测 CPU/GPU降级 |
+| Module | Test File | Test Points |
+|--------|-----------|-------------|
+| paper_store | `test_paper_store.py` | Snowflake ID CRUD identifiers cross-validation statistics |
+| config | `test_config.py` | YAML loading env merge budget check |
+| hardware | `test_hardware.py` | Probe detection CPU/GPU downgrade |
 | evolved | `test_evolved.py` | DedupEngine RelevanceDetector HFPapersCrawler PageDownloader |
-| sources | `test_sources.py` | ARXIV_ID_RE _safe_field 多源调度 |
-| cli | `test_cli.py` | 子命令调用 输出格式 |
+| sources | `test_sources.py` | ARXIV_ID_RE _safe_field multi-source dispatch |
+| cli | `test_cli.py` | Subcommand invocation output format |
 
 ---
 
 ### Task 1: paper_store SQLite CRUD + Snowflake
 
-**Objective:** 测试 PaperStore 的增删改查、Snowflake ID 生成、标识符管理
+**Objective:** Test PaperStore CRUD operations, Snowflake ID generation, identifier management
 
 **Files:**
 - Create: `tests/test_paper_store.py`
@@ -35,7 +35,7 @@
 **Step 1: Write test_paper_store.py**
 
 ```python
-"""测试 paper_store 模块 — SQLite 存储 + Snowflake ID + 标识符"""
+"""Tests for paper_store module — SQLite storage + Snowflake ID + identifiers"""
 import json
 import time
 from datetime import datetime
@@ -138,7 +138,7 @@ class TestPaperStore:
 
         results_all = paper_store.search_papers()
         assert len(results_all) == 3
-        # 按 relevance 降序
+        # Sort by relevance descending
         assert results_all[0].relevance >= results_all[1].relevance >= results_all[2].relevance
 
     def test_find_paper_by_any_id(self, paper_store: PaperStore):
@@ -156,12 +156,12 @@ class TestPaperStore:
     def test_verify_paper(self, paper_store: PaperStore):
         sf_id = paper_store.upsert_paper(PaperRecord(title="Verify Me"))
         paper_store.add_identifier(sf_id, "arxiv", "2301.11167")
-        # 只有一种类型不应验证
+        # Only one type should not verify
         paper_store.verify_paper(sf_id)
         p = paper_store.get_paper_by_id(sf_id)
         assert not p.verified
 
-        # 添加第二种类型
+        # Add second type
         paper_store.add_identifier(sf_id, "doi", "10.1234/verify")
         paper_store.verify_paper(sf_id)
         p = paper_store.get_paper_by_id(sf_id)
@@ -206,20 +206,20 @@ Expected: 0 errors.
 
 ```bash
 git add tests/test_paper_store.py
-git commit -m "test: paper_store SQLite CRUD + Snowflake ID + 标识符管理"
+git commit -m "test: paper_store SQLite CRUD + Snowflake ID + identifier management"
 ```
 
 ---
 
-### Task 2: config 模块测试
+### Task 2: config Module Tests
 
-**Objective:** 测试配置加载、环境变量合并、budget 检查
+**Objective:** Test config loading, environment variable merging, budget checking
 
 **Files:**
 - Create: `tests/test_config.py`
 
 ```python
-"""测试 config 模块 — YAML 加载 + env 合并 + budget 检查"""
+"""Tests for config module — YAML loading + env merge + budget checks"""
 import os
 import tempfile
 import pytest
@@ -249,7 +249,7 @@ class TestConfigLoad:
         del os.environ["DEEPSEEK_API_KEY"]
 
     def test_custom_config_path(self):
-        # 创建临时 config.yaml
+        # Create temporary config.yaml
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_path = os.path.join(tmpdir, "config.yaml")
             with open(cfg_path, "w") as f:
@@ -283,20 +283,20 @@ class TestBudget:
 cd ~/Gitlab/Agentic4Sci/hfpapers-clawler && source venv/bin/activate && python -m pytest tests/test_config.py -v --tb=short
 cd ~/Gitlab/Agentic4Sci/hfpapers-clawler && source venv/bin/activate && pyright tests/test_config.py 2>&1 | tail -5
 git add tests/test_config.py
-git commit -m "test: config 加载 + env 合并 + budget 检查"
+git commit -m "test: config loading + env merge + budget check"
 ```
 
 ---
 
-### Task 3: hardware 模块测试
+### Task 3: hardware Module Tests
 
-**Objective:** 测试 HardwareProbe 在不同环境下的探测和降级行为
+**Objective:** Test HardwareProbe detection and downgrade behavior in different environments
 
 **Files:**
 - Create: `tests/test_hardware.py`
 
 ```python
-"""测试 hardware 模块 — 探针检测 + 硬件降级"""
+"""Tests for hardware module — probe detection + hardware downgrade"""
 import pytest
 from hfpapers.hardware import HardwareProbe
 
@@ -316,16 +316,16 @@ class TestHardwareProbe:
 
     def test_use_bert_property(self):
         hw = HardwareProbe()
-        # 在没有 CUDA 时 should be False
+        # Should be False without CUDA
         if not hw.has_cuda:
             assert hw.use_bert is False
-        # 如果没有 sentence-transformers，即使有 CUDA 也 false
+        # False even with CUDA if no sentence-transformers
         if not hw.has_sentence_transformers:
             assert hw.use_bert is False
 
     def test_use_pdf_converter(self):
         hw = HardwareProbe()
-        # pymupdf4llm 是否可用取决于安装
+        # pymupdf4llm availability depends on installation
         from importlib.util import find_spec
         expected = find_spec("pymupdf4llm") is not None
         assert hw.use_pdf_converter == expected
@@ -335,20 +335,20 @@ class TestHardwareProbe:
 ```bash
 cd ~/Gitlab/Agentic4Sci/hfpapers-clawler && source venv/bin/activate && python -m pytest tests/test_hardware.py -v --tb=short
 git add tests/test_hardware.py
-git commit -m "test: HardwareProbe 探测 + 降级行为"
+git commit -m "test: HardwareProbe detection + downgrade behavior"
 ```
 
 ---
 
-### Task 4: evolved 核心引擎测试
+### Task 4: evolved Core Engine Tests
 
-**Objective:** 测试 DedupEngine、RelevanceDetector、PaperInfo 数据模型
+**Objective:** Test DedupEngine, RelevanceDetector, PaperInfo data model
 
 **Files:**
 - Create: `tests/test_evolved.py`
 
 ```python
-"""测试 evolved 模块 — 去重 + 分类 + 爬虫引擎"""
+"""Tests for evolved module — dedup + classification + crawl engine"""
 import pytest
 from hfpapers.evolved import (
     PaperInfo, DedupEngine, RelevanceDetector, HFPapersCrawler,
@@ -451,20 +451,20 @@ class TestPaperDownloader:
 ```bash
 cd ~/Gitlab/Agentic4Sci/hfpapers-clawler && source venv/bin/activate && python -m pytest tests/test_evolved.py -v --tb=short
 git add tests/test_evolved.py
-git commit -m "test: evolved 去重 + 分类 + 标题相似度"
+git commit -m "test: evolved dedup + classification + title similarity"
 ```
 
 ---
 
-### Task 5: sources 多源搜索测试
+### Task 5: Sources Multi-Source Search Tests
 
-**Objective:** 测试 ARXIV_ID_RE、_safe_field、去重函数、多源调度
+**Objective:** Test ARXIV_ID_RE, _safe_field, dedup functions, multi-source dispatch
 
 **Files:**
 - Create: `tests/test_sources.py`
 
 ```python
-"""测试 sources 模块 — 多源搜索 + arXiv ID 提取 + 去重"""
+"""Tests for sources module — multi-source search + arXiv ID extraction + dedup"""
 import pytest
 from hfpapers.sources import (
     ARXIV_ID_RE, _safe_field,
@@ -558,20 +558,20 @@ class TestSourcePaper:
 ```bash
 cd ~/Gitlab/Agentic4Sci/hfpapers-clawler && source venv/bin/activate && python -m pytest tests/test_sources.py -v --tb=short
 git add tests/test_sources.py
-git commit -m "test: sources 多源搜索 + arXiv ID 提取 + 去重"
+git commit -m "test: sources multi-source search + arXiv ID extraction + dedup"
 ```
 
 ---
 
-### Task 6: CLI 集成测试
+### Task 6: CLI Integration Tests
 
-**Objective:** 测试 CLI 子命令的调用和输出格式
+**Objective:** Test CLI subcommand invocation and output format
 
 **Files:**
 - Create: `tests/test_cli.py`
 
 ```python
-"""测试 CLI — Typer 子命令调用"""
+"""Tests for CLI — Typer subcommand invocation"""
 from typer.testing import CliRunner
 from hfpapers.cli import app
 
@@ -619,56 +619,56 @@ class TestCLI:
 ```bash
 cd ~/Gitlab/Agentic4Sci/hfpapers-clawler && source venv/bin/activate && python -m pytest tests/test_cli.py -v --tb=short
 git add tests/test_cli.py
-git commit -m "test: CLI 子命令集成测试"
+git commit -m "test: CLI subcommand integration tests"
 ```
 
 ---
 
-### Task 7: 安装使用示例
+### Task 7: Installation Usage Examples
 
-**Objective:** 创建 examples/ 目录，包含 pip 安装后使用 demo + Hermes Agent 使用 demo，并向 AGENTS.md 添加 PyPI 发布部分
+**Objective:** Create examples/ directory with pip installation demo + Hermes Agent usage demo, and add PyPI release section to AGENTS.md
 
 **Files:**
 - Create: `examples/usage_demo.py`
 - Create: `examples/hermes_agent_demo.md`
-- Modify: `AGENTS.md` (末尾添加 PyPI 发布)
+- Modify: `AGENTS.md` (append PyPI release)
 
 **examples/usage_demo.py:**
 ```python
 #!/usr/bin/env python3
 """
-hfpapers-clawler 使用示例
+hfpapers-clawler usage example
 
-安装:
+Installation:
     pip install hfpclawer
 
-用法:
+Usage:
     python examples/usage_demo.py
 """
 import json
 import tempfile
 from pathlib import Path
 
-# ─── 1. 基础配置 ─────────────────────────────
+# ─── 1. Basic Configuration ─────────────────────────
 from hfpapers.config import load_config, get
 
 cfg = load_config()
-print(f"1. 配置加载: {len(cfg)} 个顶级键")
-print(f"   搜索维度: {get('search.queries')[0]['query']}")
-print(f"   相关度阈值: {get('classification.threshold_pass')}")
+print(f"1. Config loaded: {len(cfg)} top-level keys")
+print(f"   Search dimension: {get('search.queries')[0]['query']}")
+print(f"   Relevance threshold: {get('classification.threshold_pass')}")
 
-# ─── 2. Paper Store ──────────────────────────
+# ─── 2. Paper Store ─────────────────────────────────
 from hfpapers.paper_store import (
     PaperStore, PaperRecord, PaperIdentifier,
     ensure_paper, store_stats, get_store,
 )
 
-# 使用临时数据库
+# Use a temporary database
 with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
     db_path = f.name
 store = PaperStore(db_path=db_path)
 
-# 添加论文
+# Add a paper
 rec = PaperRecord(
     title="Fourier Neural Operator for PDEs",
     abstract="Learning PDE solution operators with Fourier transforms",
@@ -680,39 +680,39 @@ sf_id = store.upsert_paper(rec)
 store.add_identifier(sf_id, "arxiv", "2010.08895", source="demo")
 
 print(f"\n2. Paper Store: sf_id={sf_id}")
-print(f"   论文: {store.get_paper_by_id(sf_id).title}")
-print(f"   标识符: {store.get_identifiers(sf_id)}")
+print(f"   Paper: {store.get_paper_by_id(sf_id).title}")
+print(f"   Identifiers: {store.get_identifiers(sf_id)}")
 
-# ─── 3. 搜索论文 ─────────────────────────────
-store.add_paper_from_record(rec) if False else None  # 已存在
+# ─── 3. Search Papers ───────────────────────────────
+store.add_paper_from_record(rec) if False else None  # Already exists
 papers = store.search_papers("Fourier")
-print(f"\n3. 搜索 'Fourier': {len(papers)} 篇")
+print(f"\n3. Search 'Fourier': {len(papers)} papers")
 
-# ─── 4. 统计 ─────────────────────────────────
+# ─── 4. Statistics ──────────────────────────────────
 stats = store.stats()
-print(f"\n4. 统计: {json.dumps(stats, indent=2)}")
+print(f"\n4. Statistics: {json.dumps(stats, indent=2)}")
 
-# 清理
+# Cleanup
 from pathlib import Path
 Path(db_path).unlink(missing_ok=True)
-print("\n✅ Demo 运行成功")
+print("\n✅ Demo ran successfully")
 ```
 
 **examples/hermes_agent_demo.md:**
 ```markdown
-# Hermes Agent 集成示例
+# Hermes Agent Integration Example
 
-## 安装
+## Installation
 
-在 Hermes Agent 环境：
+In a Hermes Agent environment:
 
 ```bash
 pip install hfpclawer
 ```
 
-## MCP Server 集成
+## MCP Server Integration
 
-在 Hermes Agent 的 `~/.hermes/config.yaml` 中配置：
+Configure in Hermes Agent's `~/.hermes/config.yaml`:
 
 ```yaml
 mcp:
@@ -724,7 +724,7 @@ mcp:
         HF_TOKEN: "${HF_TOKEN}"
 ```
 
-启动后，Hermes Agent 自动发现 MCP 工具：
+After startup, Hermes Agent automatically discovers the MCP tools:
 
 - `hfpclawer_search`
 - `hfpclawer_download`
@@ -734,115 +734,115 @@ mcp:
 - `hfpclawer_stats`
 - `hfpclawer_full`
 
-## 使用示例
+## Usage Examples
 
 ```
-用户: 搜索最新的 PDE 神经算子论文
-Hermes: 使用 hfpclawer_search 工具...
-结果: 发现 3 篇新论文
+User: Search for the latest PDE neural operator papers
+Hermes: Using hfpclawer_search tool...
+Results: Found 3 new papers
 - [85] 2010.08895 Fourier Neural Operator
 - [75] 2003.03085 DeepONet
 - [62] 2104.06458 Physics-Informed Neural Operator
 ```
 
-## Paper Store 操作
+## Paper Store Operations
 
 ```
-用户: 列出论文库
-Hermes: 使用 hfpclawer_list 工具...
+User: List the paper store
+Hermes: Using hfpclawer_list tool...
 ```
 
-## 全流程 Pipeline
+## Full Pipeline
 
 ```
-用户: 运行全流程管道
-Hermes: 使用 hfpclawer_full 工具...
+User: Run the full pipeline
+Hermes: Using hfpclawer_full tool...
 ```
 ```
 
 **Commit:**
 ```bash
 git add examples/
-git commit -m "docs: 安装使用示例 + Hermes Agent 集成文档"
+git commit -m "docs: installation usage examples + Hermes Agent integration documentation"
 ```
 
 ---
 
-### Task 8: 更新 AGENTS.md — 添加 PyPI 发布
+### Task 8: Update AGENTS.md — Add PyPI Release
 
-**Objective:** 在 AGENTS.md 末尾添加 PyPI 发布流程
+**Objective:** Append PyPI release process to AGENTS.md
 
-**Modify:** `AGENTS.md` (在末尾追加)
+**Modify:** `AGENTS.md` (append at end)
 
 ```markdown
-## PyPI 发布
+## PyPI Release
 
-### 前置条件
+### Prerequisites
 
 ```bash
-# 安装构建和发布工具
+# Install build and release tools
 pip install build twine
 
-# 注册 PyPI 账号
+# Register a PyPI account
 # https://pypi.org/account/register/
 
-# 配置 API token
-# 在 ~/.pypirc 中:
+# Configure API token
+# In ~/.pypirc:
 # [pypi]
 # username = __token__
 # password = pypi-xxxxxxxx
 ```
 
-### 需要用户授权的操作
+### Actions Requiring User Authorization
 
-| 操作 | 需要的授权 | 说明 |
-|------|-----------|------|
+| Action | Authorization Needed | Description |
+|--------|--------------------|-------------|
 | GitHub Release | GitHub Token | `gh release create` |
-| PyPI 发布 | PyPI API Token | `twine upload` |
-| Test PyPI 发布 | Test PyPI Token | `twine upload --repository testpypi` |
+| PyPI Release | PyPI API Token | `twine upload` |
+| Test PyPI Release | Test PyPI Token | `twine upload --repository testpypi` |
 
-### 发布步骤
+### Release Steps
 
 ```bash
-# 1. 版本号 bump
-# 修改 pyproject.toml 中的 version
+# 1. Bump version number
+# Modify version in pyproject.toml
 
-# 2. 构建
+# 2. Build
 python -m build
 
-# 3. 先发到 Test PyPI 验证
+# 3. First publish to Test PyPI for verification
 twine upload --repository testpypi dist/*
 
-# 4. 在 Test PyPI 上验证安装
+# 4. Verify installation from Test PyPI
 pip install --index-url https://test.pypi.org/simple/ hfpclawer
 
-# 5. 正式发布
+# 5. Official release
 twine upload dist/*
 
 # 6. GitHub Release
 gh release create vX.Y.Z --title "hfpapers-clawler vX.Y.Z" --notes "Release notes"
 ```
 
-### 不用用户授权
+### No User Authorization Needed
 
-- ✅ 代码编写、测试、commit
-- ✅ pip install -e . 本地安装
-- ✅ 本地运行 `hfpclawer` 命令
+- ✅ Code writing, testing, committing
+- ✅ Local `pip install -e .` installation
+- ✅ Local execution of `hfpclawer` commands
 
-> **注意**: PyPI 发布需要 API Token。我（Hermes Agent）不能代你登录 PyPI，但可以帮你构建好 `dist/` 目录，你只需运行 `twine upload dist/*` 并输入 token 即可。
+> **Note**: PyPI release requires an API token. I (Hermes Agent) cannot log into PyPI on your behalf, but I can build the `dist/` directory — you just need to run `twine upload dist/*` and enter the token.
 ```
 
 **Commit:**
 ```bash
 git add AGENTS.md
-git commit -m "docs: 添加 PyPI 发布流程到 AGENTS.md"
+git commit -m "docs: add PyPI release process to AGENTS.md"
 ```
 
 ---
 
-### Task 9: 运行全量测试 + coverage
+### Task 9: Run Full Test Suite + Coverage
 
-**Objective:** 运行所有测试，检查覆盖率
+**Objective:** Run all tests, check coverage
 
 ```bash
 cd ~/Gitlab/Agentic4Sci/hfpapers-clawler && source venv/bin/activate
@@ -852,24 +852,24 @@ Expected: all tests PASS, coverage > 60%.
 
 ---
 
-## 架构决策
+## Architecture Decisions
 
-| 决策 | 理由 |
-|------|------|
-| pytest + pytest-mock | 项目已有 pytest 依赖，避免引入新依赖 |
-| 使用 conftest.py fixture | `test_env` 隔离文件系统，`paper_store` 隔离 DB |
-| 不 mock psutil | HardwareProbe 依赖 psutil，测试真实环境 |
-| CLI 用 Typer CliRunner | 官方推荐，无需子进程调用 |
-| Snowflake ID 测试等待 1ms | 保证严格递增，time.sleep(0.001) 足够 |
+| Decision | Reason |
+|----------|--------|
+| pytest + pytest-mock | Project already has pytest dependency, avoids introducing new dependencies |
+| Using conftest.py fixture | `test_env` isolates filesystem, `paper_store` isolates DB |
+| No mock for psutil | HardwareProbe depends on psutil, test on real environment |
+| CLI uses Typer CliRunner | Official recommendation, no subprocess invocation needed |
+| Snowflake ID test waits 1ms | Guarantees strict increment, time.sleep(0.001) is sufficient |
 
-## 关键路径
+## Key Paths
 
 ```
-tests/test_paper_store.py  ← 最核心，12个测试
-tests/test_evolved.py      ← 引擎逻辑
-tests/test_config.py       ← 配置加载
-tests/test_hardware.py     ← 硬件探针
-tests/test_sources.py      ← 多源搜索
-tests/test_cli.py          ← CLI 集成
-examples/usage_demo.py     ← 使用示例
+tests/test_paper_store.py  ← Core, 12 tests
+tests/test_evolved.py      ← Engine logic
+tests/test_config.py       ← Config loading
+tests/test_hardware.py     ← Hardware probe
+tests/test_sources.py      ← Multi-source search
+tests/test_cli.py          ← CLI integration
+examples/usage_demo.py     ← Usage example
 ```

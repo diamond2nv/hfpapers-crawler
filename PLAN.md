@@ -1,67 +1,74 @@
-# HF Papers 深度爬虫 — Scrapy + requests 混合架构
+# HF Papers Deep Crawler — Scrapy + requests Hybrid Architecture
 
-## 架构设计
+## Architecture Design
 
 ```
-                ┌──────────────────────────────────┐
-                │       hfpapers.spiders            │
-                │   HF Papers Spider (Scrapy)      │
-                │   → 多维度搜索爬取论文列表        │
-                └──────────┬───────────────────────┘
-                           │ 论文元数据 (dict)
-                           ▼
-                ┌──────────────────────────────────┐
-                │         Pipeline (pipelines.py)  │
-                │ ① 去重过滤 (hfpapers-crawled.json)│
-                │ ② 候选列表 → data/candidates.json│
-                └──────────┬───────────────────────┘
-                           │ arxiv IDs
-                           ▼
-                ┌──────────────────────────────────┐
-                │   Downloader (download_arxiv.py) │
-                │ ① requests 下载 PDF(pdfs/)        │
-                │ ② pymupdf4llm 转 Markdown(mds/)   │
-                │ ③ web_extract 检查 GitHub 代码    │
-                └──────────┬───────────────────────┘
-                           │ 整理后的论文数据
-                           ▼
-                ┌──────────────────────────────────┐
-                │    Wiki Integrator (集成到llm-wiki)│
-                │ ① 更新 index.md + log.md          │
-                │ ② 创建概念页/实体页               │
-                │ ③ 更新去重记录 (crawled.json)      │
-                └──────────────────────────────────┘
+                    ┌──────────────────────────────────┐
+                    │   Search Layer (federated crawl)  │
+                    │   → Multi-source multi-query      │
+                    └──────────────┬───────────────────┘
+                                  │ Paper metadata (dict)
+                                  ▼
+                    ┌──────────────────────────────────┐
+                    │   Pipeline Layer (filter + save)  │
+                    │ ① Dedup (hfpapers-crawled.json)   │
+                    │ ② Candidate list → data/candidates│
+                    └──────────────┬───────────────────┘
+                                  │ Top 20 candidates
+                                  ▼
+                    ┌──────────────────────────────────┐
+                    │   Worker Pool (3 workers)         │
+                    │ ① requests download PDF (pdfs/)  │
+                    │ ② pymupdf4llm → Markdown (mds/) │
+                    │ ③ web_extract check GitHub code │
+                    └──────────────┬───────────────────┘
+                                  │ Processed paper data
+                                  ▼
+                    ┌──────────────────────────────────┐
+                    │   Wiki Integrator (llm-wiki)      │
+                    │ ① Update index.md + log.md       │
+                    │ ② Create concept/person pages    │
+                    │ ③ Update dedup record (crawled)  │
+                    └──────────────────────────────────┘
 ```
 
-## 去重策略 (三阶段)
-1. **Scrapy 层**: dupefilter + 指纹缓存 (requests指纹)
-2. **Pipeline 层**: 对比 hfpapers-crawled.json 中的 arxiv_id
-3. **下载层**: 检查 pdfs/ 目录是否已有文件
+## Dedup Strategy (3-Stage)
 
-## 多维度爬取 (federated crawl)
-同时爬取 5 个搜索维度，每条结果归一化为统一格式:
-- q=PDE+neural+operator+physics-informed
-- q=physical+constraint+residual+loss+PDE
-- q=AI+4+Science+neural+surrogate
-- q=neural+operator+physics+informed (daily papers)
-- q=PDE+solution+operators
+1. **Scrapy layer**: dupefilter + fingerprint cache (request fingerprints)
+2. **Pipeline layer**: Compare against hfpapers-crawled.json by arxiv_id
+3. **Download layer**: Check if file already exists in pdfs/ directory
 
-## 分布式设计 (multi-worker)
-- Spider 输出 → Python Queue → 3 个 Downloader worker 并行下载
-- worker 1: arxiv PDF 下载
-- worker 2: pymupdf4llm 转换
-- worker 3: GitHub 代码仓库检查
-- 3 个 worker 互不阻塞，通过共享队列解耦
+## Multi-Dimension Crawl (Federated)
 
-## 预算控制
-- 筛选 TOP 20 篇 (不重复)
-- 只下载 PDF + 转换 (本地CPU, 0 token)
-- 只分析原文摘要 + 代码检查 (控制 LLM token)
-- 目标: ≤ ¥20
+Crawl 5 search dimensions simultaneously, normalize each result:
+
+1. `"neural operator" AND (PDE OR "partial differential equation")`
+2. `"Fourier Neural Operator" OR FNO`
+3. `DeepONet OR "deep operator network"`
+4. `"physics-informed neural" AND operator`
+5. `"operator learning" AND PDE`
+
+All normalized to `PaperInfo` dataclass with source tag.
+
+## Distributed Design (Multi-Worker)
+
+- Spider output → Python Queue → 3 Downloader workers run in parallel
+- worker 1: arxiv PDF download
+- worker 2: pymupdf4llm conversion
+- worker 3: GitHub code repo check
+- Workers non-blocking, decoupled via shared queue
+
+## Budget Control
+
+- Filter TOP 20 papers (no duplicates)
+- PDF download + conversion only (local CPU, 0 tokens)
+- Abstract analysis + code check only (control LLM tokens)
+- Target: ≤ ¥20 (~$3 USD)
 
 ## Timeline
-- 0-5min: Scrapy 爬取 + 去重 → 候选列表
-- 5-30min: 并行下载 PDF (3 workers)
-- 30-45min: pymupdf4llm 转换
-- 45-60min: 代码仓库检查 (requests + web scraping)
-- 60-90min: 分析 + wiki 写入
+
+- 0-5min: Scrapy crawl + dedup → candidate list
+- 5-30min: Parallel PDF download (3 workers)
+- 30-45min: pymupdf4llm conversion
+- 45-60min: Code repo check (requests + web scraping)
+- 60-90min: Analysis + wiki write

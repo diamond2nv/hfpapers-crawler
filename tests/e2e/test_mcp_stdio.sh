@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# ─── E2E MCP stdio 协议测试 ───────────────────
-# 真起 MCP stdio 子进程，发 JSON-RPC 消息，验证返回
-# 用法: ./test_mcp_stdio.sh [--install]
-#   --install: 先 pip install -e . 确保最新
+# ─── E2E MCP stdio Protocol Test ──────────────────
+# Starts a real MCP stdio subprocess, sends JSON-RPC messages, verifies responses.
+# Usage: ./test_mcp_stdio.sh [--install]
+#   --install: pip install -e . first to ensure latest
 #
-# 依赖: curl (用于 HTTP 模式测试)
+# Dependencies: curl (for HTTP mode testing)
 #       python3 + hfpclawer
 # ====================================================
 
@@ -23,7 +23,7 @@ assert_eq() {
         green "  ✅ $desc"
         ((PASS++))
     else
-        red "  ❌ $desc (期待 '$expected', 得到 '$actual')"
+        red "  ❌ $desc (expected '$expected', got '$actual')"
         ((FAIL++))
     fi
 }
@@ -34,25 +34,25 @@ assert_contains() {
         green "  ✅ $desc"
         ((PASS++))
     else
-        red "  ❌ $desc (未找到 '$needle')"
+        red "  ❌ $desc ('$needle' not found)"
         ((FAIL++))
     fi
 }
 
 # ════════════════════════════════════════════
-# 前置检查
+# Pre-flight check
 # ════════════════════════════════════════════
 
 cd "$HERE"
 
 if [[ "${1:-}" == "--install" ]]; then
-    blue "📦 安装最新 hfpclawer..."
+    blue "📦 Installing latest hfpclawer..."
     pip install -e . -q 2>/dev/null || pip install -e "$HERE" -q
 fi
 
-# 检查 hfpclawer 可用
+# Check hfpclawer availability
 if ! command -v hfpclawer &>/dev/null; then
-    blue "⚠️  hfpclawer 不在 PATH，尝试本地运行..."
+    blue "⚠️  hfpclawer not in PATH, trying local run..."
     HFPCLAWER="python -m hfpapers.cli"
 else
     HFPCLAWER="hfpclawer"
@@ -60,54 +60,54 @@ fi
 
 blue ""
 blue "╔═══════════════════════════════════════════╗"
-blue "║      E2E: MCP stdio 协议测试             ║"
+blue "║      E2E: MCP stdio Protocol Test        ║"
 blue "╚═══════════════════════════════════════════╝"
 blue ""
 
 # ════════════════════════════════════════════
 # Test 1: CLI --help
 # ════════════════════════════════════════════
-blue "📋 Test 1: hfpclawer --help 列出子命令"
+blue "📋 Test 1: hfpclawer --help lists subcommands"
 
 HELP_OUTPUT=$($HFPCLAWER --help 2>&1 || true)
-assert_contains "包含 search" "search" "$HELP_OUTPUT"
-assert_contains "包含 audit" "audit" "$HELP_OUTPUT"
-assert_contains "包含 mcp" "mcp" "$HELP_OUTPUT"
-assert_contains "包含 store" "store" "$HELP_OUTPUT"
-assert_contains "包含 download" "download" "$HELP_OUTPUT"
+assert_contains "contains search" "search" "$HELP_OUTPUT"
+assert_contains "contains audit" "audit" "$HELP_OUTPUT"
+assert_contains "contains mcp" "mcp" "$HELP_OUTPUT"
+assert_contains "contains store" "store" "$HELP_OUTPUT"
+assert_contains "contains download" "download" "$HELP_OUTPUT"
 
 # ════════════════════════════════════════════
 # Test 2: MCP stdio — tools/list
 # ════════════════════════════════════════════
 blue ""
-blue "📋 Test 2: MCP stdio — 发 initialize + tools/list"
+blue "📋 Test 2: MCP stdio — send initialize + tools/list"
 
-# 启动 MCP stdio 子进程，接受 stdin 管道
+# Start MCP stdio subprocess via stdin pipeline
 MCP_OUTPUT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize"}
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hfpclawer_stats","arguments":{}}}' | $HFPCLAWER mcp 2>/dev/null || true)
 
-# 解析三行输出
+# Parse three lines of output
 LINE_COUNT=$(echo "$MCP_OUTPUT" | grep -c . || true)
-assert_contains "有输出行 (>=3)" "3" ">=..." # 宽松验证
+assert_contains "has output lines (>=3)" "3" ">=..." # Loose verification
 
 INIT_LINE=$(echo "$MCP_OUTPUT" | head -1)
 TOOLS_LINE=$(echo "$MCP_OUTPUT" | head -2 | tail -1)
 CALL_LINE=$(echo "$MCP_OUTPUT" | head -3 | tail -1)
 
-# 验证 initialize 响应
+# Verify initialize response
 if [[ -n "$INIT_LINE" ]]; then
     INIT_PROTO=$(echo "$INIT_LINE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('result',{}).get('protocolVersion',''))" 2>/dev/null || echo "")
-    assert_eq "initialize 版本 2024-11-05" "2024-11-05" "$INIT_PROTO"
+    assert_eq "initialize version 2024-11-05" "2024-11-05" "$INIT_PROTO"
 fi
 
-# 验证 tools/list 响应
+# Verify tools/list response
 if [[ -n "$TOOLS_LINE" ]]; then
     TOOL_COUNT=$(echo "$TOOLS_LINE" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('result',{}).get('tools',[])))" 2>/dev/null || echo "0")
-    assert_eq "tools/list 返回 7 个工具" "7" "$TOOL_COUNT"
+    assert_eq "tools/list returns 7 tools" "7" "$TOOL_COUNT"
 fi
 
-# 验证 tools/call stats 响应
+# Verify tools/call stats response
 if [[ -n "$CALL_LINE" ]]; then
     HAS_TOTAL=$(echo "$CALL_LINE" | python3 -c "
 import sys,json
@@ -116,14 +116,14 @@ c = r.get('result',{}).get('content',[{}])[0].get('text','')
 d = json.loads(c)
 print('yes' if 'total_papers' in d else 'no')
 " 2>/dev/null || echo "no")
-    assert_eq "tools/call stats 有 total_papers" "yes" "$HAS_TOTAL"
+    assert_eq "tools/call stats has total_papers" "yes" "$HAS_TOTAL"
 fi
 
 # ════════════════════════════════════════════
 # Test 3: MCP stdio — unknown tool
 # ════════════════════════════════════════════
 blue ""
-blue "📋 Test 3: MCP stdio — 调用不存在的工具"
+blue "📋 Test 3: MCP stdio — call non-existent tool"
 
 UNKNOWN_OUTPUT=$(echo '{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"does_not_exist","arguments":{}}}' | $HFPCLAWER mcp 2>/dev/null || true)
 
@@ -133,86 +133,86 @@ import sys,json
 r = json.load(sys.stdin)
 print('yes' if 'error' in r else 'no')
 " 2>/dev/null || echo "no")
-    assert_eq "未知工具返回 error" "yes" "$HAS_ERROR"
+    assert_eq "unknown tool returns error" "yes" "$HAS_ERROR"
 fi
 
 # ════════════════════════════════════════════
-# Test 4: CLI 日常命令
+# Test 4: CLI daily commands
 # ════════════════════════════════════════════
 blue ""
-blue "📋 Test 4: CLI 日常命令"
+blue "📋 Test 4: CLI daily commands"
 
-# audit (可在空库上跑)
+# audit (can run on empty db)
 AUDIT_OUTPUT=$($HFPCLAWER audit 2>&1 || true)
-assert_contains "audit 能运行" "数据源审计" "$AUDIT_OUTPUT"
+assert_contains "audit runs" "Data Source Audit" "$AUDIT_OUTPUT"
 
 # config
 CONFIG_OUTPUT=$($HFPCLAWER config 2>&1 || true)
-assert_contains "config 能运行" "search" "$CONFIG_OUTPUT"
+assert_contains "config runs" "search" "$CONFIG_OUTPUT"
 
 # stats
 STATS_OUTPUT=$($HFPCLAWER stats 2>&1 || true)
-assert_contains "stats 能运行" "论文" "$STATS_OUTPUT"
+assert_contains "stats runs" "Papers" "$STATS_OUTPUT"
 
 # store stats
 STORE_OUTPUT=$($HFPCLAWER store stats 2>&1 || true)
-assert_contains "store stats 能运行" "论文" "$STORE_OUTPUT"
+assert_contains "store stats runs" "Papers" "$STORE_OUTPUT"
 
 # ════════════════════════════════════════════
-# Test 5: MCP HTTP 模式（可选，需端口可用）
+# Test 5: MCP HTTP mode (optional, needs available port)
 # ════════════════════════════════════════════
 blue ""
-blue "📋 Test 5: MCP HTTP 模式"
+blue "📋 Test 5: MCP HTTP mode"
 
-# 后台起 MCP HTTP server
+# Start MCP HTTP server in background
 MCP_PORT=18765
 $HFPCLAWER mcp --mode http --port $MCP_PORT &
 MCP_PID=$!
 disown
 sleep 1
 
-# 使用 curl 测试（如果可用）
+# Test with curl (if available)
 if command -v curl &>/dev/null; then
     # health
     HEALTH=$(curl -sf http://127.0.0.1:$MCP_PORT/health 2>/dev/null || echo "")
     if [[ -n "$HEALTH" ]]; then
         HEALTH_OK=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || echo "")
-        assert_eq "HTTP /health 返回 ok" "ok" "$HEALTH_OK"
+        assert_eq "HTTP /health returns ok" "ok" "$HEALTH_OK"
     fi
 
     # tools
     TOOLS_DATA=$(curl -sf http://127.0.0.1:$MCP_PORT/tools 2>/dev/null || echo "")
     if [[ -n "$TOOLS_DATA" ]]; then
         TOOL_NAMES=$(echo "$TOOLS_DATA" | python3 -c "import sys,json; print(list(json.load(sys.stdin).keys()))" 2>/dev/null || echo "")
-        assert_contains "HTTP /tools 有 search" "search" "$TOOL_NAMES"
+        assert_contains "HTTP /tools has search" "search" "$TOOL_NAMES"
     fi
 
     # call stats
     CALL_DATA=$(curl -sf http://127.0.0.1:$MCP_PORT/call/hfpclawer_stats 2>/dev/null || echo "")
     if [[ -n "$CALL_DATA" ]]; then
         CALL_OK=$(echo "$CALL_DATA" | python3 -c "import sys,json; print('yes' if 'total_papers' in json.load(sys.stdin) else 'no')" 2>/dev/null || echo "no")
-        assert_eq "HTTP /call/stats 有 total_papers" "yes" "$CALL_OK"
+        assert_eq "HTTP /call/stats has total_papers" "yes" "$CALL_OK"
     fi
 else
-    blue "  ⚠️  curl 未安装，跳过 HTTP 测试"
+    blue "  ⚠️  curl not installed, skipping HTTP test"
 fi
 
-# 杀掉 MCP HTTP server 后台进程
+# Kill MCP HTTP server background process
 kill $MCP_PID 2>/dev/null || true
 
 # ════════════════════════════════════════════
-# 汇总
+# Summary
 # ════════════════════════════════════════════
 blue ""
 blue "╔═══════════════════════════════════════════╗"
-blue "║      测试完成                              ║"
+blue "║      Tests Complete                       ║"
 blue "╚═══════════════════════════════════════════╝"
 echo ""
-green "✅ 通过: $PASS"
+green "✅ Passed: $PASS"
 if [[ $FAIL -gt 0 ]]; then
-    red "❌ 失败: $FAIL"
+    red "❌ Failed: $FAIL"
 else
-    green "🎉 全部通过!"
+    green "🎉 All passed!"
 fi
 echo ""
 

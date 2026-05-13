@@ -1,52 +1,52 @@
-# Paper Store — SQLite Unified Storage Engine
+# Paper Store — SQLite 统一存储引擎
 
-## Overview
+## 概述
 
-`paper_store.py` is the data core of hfpapers-clawler, providing:
+`paper_store.py` 是 hfpapers-crawler 的数据核心，提供:
 
-- **Snowflake ID**: 64-bit distributed unique ID generator
-- **SQLite 3 tables**: `papers` (master record) / `identifiers` (identifier mapping) / `crossref_cache` (API cache)
-- **Crossref cross-verification**: Title→DOI→arXiv auto-verification
-- **Thread safety**: `threading.Lock` protecting all write operations
+- **雪花 ID**: 64 位分布式唯一 ID 生成器
+- **SQLite 3 张表**: `papers`（主记录）/ `identifiers`（标识符映射）/ `crossref_cache`（API 缓存）
+- **Crossref 交叉验证**: 标题→DOI→arXiv 自动验证
+- **线程安全**: `threading.Lock` 保护所有写操作
 
-## Snowflake ID
+## 雪花 ID
 
 ```python
 from hfpapers.paper_store import snowflake_id, snowflake_timestamp
 
-# Generate
+# 生成
 sf_id = snowflake_id()           # 64-bit int
-sf_id = snowflake_id(worker_id=1)  # Specify worker
+sf_id = snowflake_id(worker_id=1)  # 指定工作节点
 
-# Parse timestamp
+# 解析时间戳
 dt = snowflake_timestamp(sf_id)   # → datetime
 ```
 
-### Format
+### 格式
 
 | 1bit | 41bit | 10bit | 12bit |
 |------|-------|-------|-------|
-| sign | timestamp - epoch | worker_id | sequence |
+| 符号位 | 时间戳 - 纪元 | 工作节点 ID | 序列号 |
 
-- Epoch: 2023-11-15 (1700000000000ms)
-- Single node: 4096 ID/ms
-- Lifetime: 69 years
+- 纪元: 2023-11-15 (1700000000000ms)
+- 单节点: 4096 ID/ms
+- 有效期: 69 年
 
-## PaperStore Class
+## PaperStore 类
 
-### Creation
+### 创建
 
 ```python
 from hfpapers.paper_store import PaperStore
 
-# Default path (config.yaml paths.data_dir + "papers.db")
+# 默认路径 (config.yaml paths.data_dir + "papers.db")
 store = PaperStore()
 
-# Custom path
+# 自定义路径
 store = PaperStore(db_path="/tmp/test.db")
 ```
 
-### Write
+### 写入
 
 ```python
 from hfpapers.paper_store import PaperRecord
@@ -64,51 +64,51 @@ record = PaperRecord(
 sf_id = store.upsert_paper(record)
 ```
 
-### Query
+### 查询
 
 ```python
-# By Snowflake ID
+# 按雪花 ID
 paper = store.get_paper_by_id(sf_id)
 
-# By identifier (arxiv/doi/etc)
+# 按标识符 (arxiv/doi/etc)
 paper = store.get_paper_by_identifier("arxiv", "2301.11167")
 
-# Any identifier (auto-detect type)
-paper = store.find_paper_by_any_id("2301.11167")   # Auto-match arxiv
-paper = store.find_paper_by_any_id("10.1038/s41586-024-07116-6")  # Auto-match DOI
+# 任意标识符 (自动检测类型)
+paper = store.find_paper_by_any_id("2301.11167")   # 自动匹配 arxiv
+paper = store.find_paper_by_any_id("10.1038/s41586-024-07116-6")  # 自动匹配 DOI
 
-# Keyword search
+# 关键词搜索
 papers = store.search_papers("neural operator", limit=50)
-papers = store.search_papers()  # All, sorted by relevance
+papers = store.search_papers()  # 全部，按相关度排序
 ```
 
-### Update
+### 更新
 
 ```python
-# Update specific fields
+# 更新特定字段
 store.update_paper(sf_id, relevance=90, code_url="...")
 
-# Allowed fields:
+# 允许的字段:
 #   relevance, code_url, venue, has_code, year, abstract, source
 ```
 
-### Identifiers
+### 标识符
 
 ```python
-# Add identifier mapping
+# 添加标识符映射
 store.add_identifier(sf_id, "doi", "10.1038/s41586-024-07116-6",
                      source="crossref", confidence=0.95)
 
-# Get all identifiers for a paper
+# 获取论文的所有标识符
 ids = store.get_identifiers(sf_id)
 # → [PaperIdentifier(sf_id=..., id_type="arxiv", id_value="..."), ...]
 ```
 
-## Cross-Verification
+## 交叉验证
 
-### Auto-Verification
+### 自动验证
 
-`ensure_paper()` automatically triggers Crossref query when creating a new paper:
+`ensure_paper()` 在创建新论文时自动触发 Crossref 查询:
 
 ```python
 from hfpapers.paper_store import ensure_paper
@@ -121,10 +121,10 @@ sf_id, is_new = ensure_paper(
 )
 ```
 
-### Manual Verification
+### 手动验证
 
 ```python
-store.verify_paper(sf_id)  # Check identifier count ≥ 2 types
+store.verify_paper(sf_id)  # 检查标识符数量 ≥ 2 种类型
 ```
 
 ### CrossrefClient
@@ -134,28 +134,28 @@ from hfpapers.paper_store import CrossrefClient
 
 cr = CrossrefClient(mailto="me@example.com")
 
-# Title → DOI list
+# 标题 → DOI 列表
 results = cr.title_to_doi("Fourier Neural Operator")
 
-# DOI → Paper details
+# DOI → 论文详情
 details = cr.doi_to_details("10.1007/s11263-024-02021-2")
 
-# Cross-verify: arXiv + title → DOI
+# 交叉验证: arXiv + 标题 → DOI
 result = cr.cross_verify("2301.11167", "Fourier Neural Operator")
 ```
 
-## High-Level Interface
+## 高层接口
 
-Global singleton pattern to avoid redundant creation:
+全局单例模式，避免重复创建:
 
 ```python
 from hfpapers.paper_store import get_store, get_crossref, ensure_paper, store_stats
 
-# Get instances
+# 获取实例
 store = get_store()
 cr = get_crossref()
 
-# Statistics
+# 统计
 stats = store_stats()
 # {
 #   "papers_total": 100,
@@ -166,18 +166,18 @@ stats = store_stats()
 # }
 ```
 
-## Database Schema
+## 数据库 Schema
 
 ```sql
--- Papers master table
+-- 论文主表
 CREATE TABLE papers (
-    sf_id       INTEGER PRIMARY KEY,  -- Snowflake ID
+    sf_id       INTEGER PRIMARY KEY,  -- 雪花 ID
     title       TEXT NOT NULL DEFAULT '',
     abstract    TEXT DEFAULT '',
     year        INTEGER DEFAULT 0,
-    source      TEXT DEFAULT '',       -- Original source
-    venue       TEXT DEFAULT '',       -- Conference/Journal
-    relevance   INTEGER DEFAULT 0,     -- Relevance 0-100
+    source      TEXT DEFAULT '',       -- 原始来源
+    venue       TEXT DEFAULT '',       -- 会议/期刊
+    relevance   INTEGER DEFAULT 0,     -- 相关度 0-100
     has_code    INTEGER DEFAULT 0,
     code_url    TEXT DEFAULT '',
     verified    INTEGER DEFAULT 0,
@@ -185,7 +185,7 @@ CREATE TABLE papers (
     updated_at  TEXT DEFAULT (datetime('now'))
 );
 
--- Identifier mapping table (N:1 → papers)
+-- 标识符映射表 (N:1 → papers)
 CREATE TABLE identifiers (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     sf_id       INTEGER NOT NULL,
@@ -198,22 +198,22 @@ CREATE TABLE identifiers (
     FOREIGN KEY (sf_id) REFERENCES papers(sf_id)
 );
 
--- Crossref query cache
+-- Crossref 查询缓存
 CREATE TABLE crossref_cache (
     doi         TEXT PRIMARY KEY,
     title       TEXT DEFAULT '',
     arxiv_id    TEXT DEFAULT '',
     venue       TEXT DEFAULT '',
-    authors     TEXT DEFAULT '',       -- JSON array
+    authors     TEXT DEFAULT '',       -- JSON 数组
     year        INTEGER DEFAULT 0,
     raw_json    TEXT DEFAULT '',
     queried_at  TEXT DEFAULT (datetime('now'))
 );
 ```
 
-## Dedup Rules
+## 去重规则
 
-1. **arXiv ID unique**: `identifiers(id_type='arxiv', id_value)`
-2. **Identifier level**: Each `(id_type, id_value)` combination is unique
-3. **Paper level**: Multiple `PaperInfo` records pointing to the same arXiv ID are considered duplicates
-4. **Cross-verification**: Sources providing ≥2 identifier types → mark `verified=1`
+1. **arXiv ID 唯一**: `identifiers(id_type='arxiv', id_value)`
+2. **标识符级别**: 每个 `(id_type, id_value)` 组合唯一
+3. **论文级别**: 多个 `PaperInfo` 记录指向同一 arXiv ID 视为重复
+4. **交叉验证**: 来源提供 ≥2 种标识符类型 → 标记 `verified=1`

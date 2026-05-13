@@ -179,8 +179,9 @@ MIT
 
 ## 链接
 
-- [使用指南](USAGE.md)
-- [架构文档](ARCHITECTURE.md)
-- [开发者指南](DEVELOPMENT.md)
-- [Paper Store 参考](paper_store.md)
-- [分布式部署指南](DISTRIBUTED.md)
+- [使用指南](USAGE.zh-CN.md)
+- [架构文档](ARCHITECTURE.zh-CN.md)
+- [开发者指南](DEVELOPMENT.zh-CN.md)
+- [Paper Store 参考](paper_store.zh-CN.md)
+- [分布式部署指南](../DISTRIBUTED.md)
+- [Docker 部署指南](../DOCKER.md)

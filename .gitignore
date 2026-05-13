@@ -5,31 +5,31 @@ __pycache__/
 dist/
 build/
 
-# ── 数据 / 输出 ──
+# ── Data / Output ──
 data/
 pdfs/
 mds/
 md_extracts/
 logs/
 
-# ── 数据库 ──
+# ── Database ──
 *.db
 *.db-wal
 *.db-shm
 
-# ── 外部依赖 ──
+# ── External Dependencies ──
 venv/
 .venv/
 .uv/
 uv.lock
 .env
 
-# ── 安全 ──
-# .env 和 .env.* 包含 API Key 和私密信息，禁止提交
+# ── Security ──
+# .env and .env.* contain API keys and secrets, never commit
 .env*
 !.env.template
 
-# ── 系统 ──
+# ── System ──
 .DS_Store
 *.swp
 *.swo
@@ -42,7 +42,7 @@ uv.lock
 *.pyc
 .cache/
 
-# ── 测试报告 ──
+# ── Test Reports ──
 htmlcov/
 .coverage
 .pytest_cache/

@@ -1,169 +1,169 @@
-# 开发者指南
+# Developer Guide
 
-## 开发环境
+## Development Environment
 
 ```bash
-# 激活 venv
+# Activate venv
 source venv/bin/activate
 
-# 安装开发依赖
+# Install development dependencies
 pip install -e ".[dev]"
 
-# 代码规范
-ruff format .                         # 格式化
-ruff check .                          # lint 检查
-ruff check . --fix                    # 自动修复
+# Code standards
+ruff format .                         # Format
+ruff check .                          # Lint check
+ruff check . --fix                    # Auto-fix
 
-# 类型检查
+# Type checking
 pyright .                             # 0 errors
 
-# 测试
-python -m pytest tests/ -v            # 运行测试
-python -m pytest tests/ -x -v         # 失败即停
-python -m pytest tests/ -q            # 精简输出
+# Testing
+python -m pytest tests/ -v            # Run tests
+python -m pytest tests/ -x -v         # Stop on first failure
+python -m pytest tests/ -q            # Quiet output
 ```
 
-## 代码规范
+## Code Standards
 
-- **语言**: Python 3.10+
-- **格式**: Ruff, line-length=100, 双引号
-- **类型**: 所有公共函数/方法标注类型
-- **日志**: 使用 `logging.getLogger(__name__)`，不 print
-- **错误处理**: 日志记录 + 优雅降级，不静默吞异常
+- **Language**: Python 3.10+
+- **Format**: Ruff, line-length=100, double quotes
+- **Types**: All public functions/methods annotated
+- **Logging**: Use `logging.getLogger(__name__)`, no prints
+- **Error handling**: Log + graceful degradation, don't silently swallow exceptions
 
-## 测试
+## Testing
 
-### 运行测试
+### Running Tests
 
 ```bash
-# 所有测试
+# All tests
 pytest tests/ -v
 
-# 按模块
+# By module
 pytest tests/test_paper_store.py -v
 pytest tests/test_evolved.py -v
 pytest tests/test_hardware.py -v
 pytest tests/test_sources.py -v
 pytest tests/test_config.py -v
 
-# 覆盖报告
+# Coverage report
 pytest tests/ --cov=hfpapers --cov-report=term-missing
 
-# 慢测试
-pytest tests/ -v -k "slow"            # 标记为 slow 的测试
-pytest tests/ -v -m "not slow"        # 跳过慢测试
+# Slow tests
+pytest tests/ -v -k "slow"            # Tests marked as slow
+pytest tests/ -v -m "not slow"        # Skip slow tests
 ```
 
-### 测试策略
+### Test Strategy
 
-1. **单元测试** — 每个模块独立测试，mock 外部依赖
-2. **集成测试** — paper_store ↔ SQLite ↔ Crossref（mock 网络）
-3. **快照测试** — 配置加载、分类检测边界条件
-4. **硬件自适应** — 测试在不同硬件环境下的降级行为
+1. **Unit tests** — Test each module independently, mock external dependencies
+2. **Integration tests** — paper_store ↔ SQLite ↔ Crossref (mock network)
+3. **Snapshot tests** — Config loading, classification edge cases
+4. **Hardware adaptive** — Test degradation behavior in different hardware environments
 
-### Fixture
+### Fixtures
 
-`tests/conftest.py` 提供：
+`tests/conftest.py` provides:
 
-- `test_env` — 自动隔离的临时目录 + 最小 config.yaml
-- `paper_store` — 内存 SQLite PaperStore 实例
-- `tmp_config` — 可自定义的临时配置
-- `mock_hf_cli` — Mock HF CLI 输出
+- `test_env` — Auto-isolated temp directory + minimal config.yaml
+- `paper_store` — In-memory SQLite PaperStore instance
+- `tmp_config` — Customizable temporary config
+- `mock_hf_cli` — Mock HF CLI output
 
-## 项目结构
+## Project Structure
 
 ```
 hfpapers-clawler/
-├── hfpapers/                    # 主包
+├── hfpapers/                    # Main package
 │   ├── __init__.py
-│   ├── cli.py                   # Typer CLI 入口
-│   ├── config.py                # 配置加载 (YAML+env+litellm)
-│   ├── evolved.py               # 爬虫核心引擎 + 去重 + 分类 + 下载
-│   ├── hardware.py              # 硬件探针 (CPU/GPU/降级)
-│   ├── paper_store.py           # SQLite 存储 + 雪花ID + Crossref
-│   ├── sources.py               # 多源搜索 (4 种来源)
+│   ├── cli.py                   # Typer CLI entry point
+│   ├── config.py                # Config loading (YAML+env+litellm)
+│   ├── evolved.py               # Crawler core engine + dedup + classification + download
+│   ├── hardware.py              # Hardware probe (CPU/GPU/downgrade)
+│   ├── paper_store.py           # SQLite store + Snowflake ID + Crossref
+│   ├── sources.py               # Multi-source search (4 sources)
 │   ├── mcp_server.py            # MCP stdio Server
-│   ├── items.py                 # Scrapy 数据模型
-│   ├── pipelines.py             # Scrapy Pipeline 链
-│   ├── middlewares.py           # Scrapy 反爬中间件
-│   ├── settings.py              # Scrapy 设置
-│   ├── settings_redis.py        # 分布式 Scrapy 设置
-│   └── spiders/                 # Scrapy 爬虫
-│       ├── hfspider.py          # HF Papers 页面爬虫
-│       └── multi_source_spider.py  # 多源统一爬虫
-├── tests/                       # 测试目录
+│   ├── items.py                 # Scrapy data model
+│   ├── pipelines.py             # Scrapy Pipeline chain
+│   ├── middlewares.py           # Scrapy anti-crawl middleware
+│   ├── settings.py              # Scrapy settings
+│   ├── settings_redis.py        # Distributed Scrapy settings
+│   └── spiders/                 # Scrapy spiders
+│       ├── hfspider.py          # HF Papers page spider
+│       └── multi_source_spider.py  # Multi-source unified spider
+├── tests/                       # Test directory
 │   ├── __init__.py
-│   └── conftest.py              # 共享 fixture
-├── config.yaml                  # 主配置
-├── env.template                 # 环境变量模板
-├── scrapy.cfg                   # Scrapy 配置
-├── pyproject.toml               # 包配置
+│   └── conftest.py              # Shared fixtures
+├── config.yaml                  # Main config
+├── env.template                 # Environment variable template
+├── scrapy.cfg                   # Scrapy config
+├── pyproject.toml               # Package config
 ├── .gitignore
-├── docs/                        # 文档
+├── docs/                        # Documentation
 │   ├── ARCHITECTURE.md
 │   ├── USAGE.md
 │   └── DEVELOPMENT.md
-├── AGENTS.md                    # AI Agent 开发指南
-├── data/                        # 数据 (gitignored)
-├── pdfs/                        # PDF (gitignored)
+├── AGENTS.md                    # AI Agent development guide
+├── data/                        # Data (gitignored)
+├── pdfs/                        # PDFs (gitignored)
 ├── mds/                         # Markdown (gitignored)
-├── logs/                        # 日志 (gitignored)
-└── md_extracts/                 # 备用 MD 提取 (gitignored)
+├── logs/                        # Logs (gitignored)
+└── md_extracts/                 # Fallback MD extraction (gitignored)
 ```
 
-## 添加新功能
+## Adding New Features
 
-### 添加 CLI 命令
+### Adding a CLI Command
 
-在 `hfpapers/cli.py` 中：
+In `hfpapers/cli.py`:
 
 ```python
 @app.command()
 def mycommand(
     param: str = typer.Option("default", "--param", "-p"),
 ):
-    \"\"\"描述\"\"\"
+    """Description"""
     from hfpapers.module import func
     result = func(param)
-    typer.echo(f"结果: {result}")
+    typer.echo(f"Result: {result}")
 ```
 
-### 添加新的搜索源
+### Adding a New Search Source
 
-1. 在 `hfpapers/sources.py` 中继承 `PaperSource`:
+1. Inherit `PaperSource` in `hfpapers/sources.py`:
 ```python
 class MySource(PaperSource):
     name = "my_source"
     def search(self, query, category=""):
         ...
 ```
-2. 在 `config.yaml` `search.enabled` 中添加
-3. 在 `get_enabled_sources()` 中注册
+2. Add to `config.yaml` `search.enabled`
+3. Register in `get_enabled_sources()`
 
-### 添加 Scrapy Spider
+### Adding a Scrapy Spider
 
-1. 在 `hfpapers/spiders/` 下创建 spider
-2. 继承 `scrapy.Spider`，输出 `PaperItem`
-3. 在 `settings.py` `SPIDER_MODULES` 中注册
-4. 在 `pipelines.py` 中选择性加入 pipeline 链
+1. Create spider under `hfpapers/spiders/`
+2. Inherit `scrapy.Spider`, output `PaperItem`
+3. Register in `settings.py` `SPIDER_MODULES`
+4. Optionally add to pipeline chain in `pipelines.py`
 
-## 发布
+## Publishing
 
 ```bash
-# 构建
+# Build
 python -m build
 
-# 检查
+# Check
 twine check dist/*
 
-# 发布到 PyPI（如果需要）
+# Publish to PyPI (if needed)
 twine upload dist/*
 ```
 
-## 已知问题和限制
+## Known Issues and Limitations
 
-1. **PaperWithCode API 已废弃** — `pwc_api` 源可能返回空结果，PwC API 已重定向到 HF API
-2. **OpenReview 嵌套字段** — content 字段是嵌套 dict，需要通过 `_safe_field()` 提取
-3. **Scrapy 与 paper_store 集成** — spider 直接调用 `ensure_paper()`，绕过 Scrapy pipeline 的 store 阶段
-4. **Crossref 速率限制** — 免费 API 50 请求/秒，无需 API key
-5. **HF CLI 依赖** — 需要安装 `huggingface_hub` CLI 工具
+1. **PaperWithCode API is deprecated** — `pwc_api` source may return empty results, PwC API has been redirected to HF API
+2. **OpenReview nested fields** — content field is a nested dict, needs extraction via `_safe_field()`
+3. **Scrapy and paper_store integration** — spider directly calls `ensure_paper()`, bypassing Scrapy pipeline's store stage
+4. **Crossref rate limiting** — Free API 50 requests/second, no API key required
+5. **HF CLI dependency** — Requires `huggingface_hub` CLI tool to be installed

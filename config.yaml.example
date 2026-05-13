@@ -1,5 +1,5 @@
-# hfpclawer 配置文件
-# 拷贝到项目根目录: cp config.yaml.example config.yaml
+# hfpclawer configuration file
+# Copy to project root: cp config.yaml.example config.yaml
 
 search:
   max_per_dim: 50

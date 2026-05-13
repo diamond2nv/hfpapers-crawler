@@ -1,43 +1,43 @@
-# arXiv Local Search Service — hfpapers-clawler 本地 arXiv 元数据检索引擎
+# arXiv Local Search Service — hfpapers-clawler Local arXiv Metadata Search Engine
 
-## 数据源
+## Data Source
 
 - **Kaggle**: [arXiv Academic Paper Dataset](https://www.kaggle.com/datasets/Cornell-University/arxiv)
-- **论文**: 2,689,088 篇（1986-04 ~ 2025-03，每周更新）
-- **格式**: JSON（每行一条记录）
-- **大小**: 4.58G（压缩）/ ~15G（解压）
-- **字段**: id(=arxiv ID), title, authors, abstract, categories, journal_ref, doi, update_date
+- **Papers**: 2,689,088 (1986-04 ~ 2025-03, updated weekly)
+- **Format**: JSON (one record per line)
+- **Size**: 4.58G (compressed) / ~15G (decompressed)
+- **Fields**: id(=arxiv ID), title, authors, abstract, categories, journal_ref, doi, update_date
 
-## 架构
+## Architecture
 
 ```
 arxiv_metadata.json (Kaggle)
         │
         ▼
-   raw_import.py       ← 解析 JSON Lines，建倒排索引
+   raw_import.py       ← Parse JSON Lines, build inverted index
         │
         ▼
-   sqlite_papers.db    ← SQLite FTS5 全文搜索引擎
+   sqlite_papers.db    ← SQLite FTS5 full-text search engine
         │
         ▼
    arxiv_search.py     ← Python API: search(query, limit, year_filter)
         │
         ▼
-   hfpapers             ← 集成到 sources.py 作为 fallback 源
+   hfpapers             ← Integrated into sources.py as fallback source
 ```
 
-## 文件
+## Files
 
-| 文件 | 用途 |
-|------|------|
-| `hfpapers/arxiv_search.py` | 本地 FTS5 搜索引擎 API |
-| `hfpapers/spiders/arxiv_local_spider.py` | Scrapy spider 对接本地搜索 |
-| `scripts/import_arxiv_metadata.py` | 导入 Kaggle JSON → SQLite FTS5 |
-| `data/arxiv_meta.db` | 生成的 FTS5 数据库（~500MB） |
+| File | Purpose |
+|------|---------|
+| `hfpapers/arxiv_search.py` | Local FTS5 search engine API |
+| `hfpapers/spiders/arxiv_local_spider.py` | Scrapy spider for local search integration |
+| `scripts/import_arxiv_metadata.py` | Import Kaggle JSON → SQLite FTS5 |
+| `data/arxiv_meta.db` | Generated FTS5 database (~500MB) |
 
-## 集成方式
+## Integration
 
-`config.yaml` 新增：
+New additions to `config.yaml`:
 
 ```yaml
 sources:
@@ -47,4 +47,4 @@ sources:
     fallback_priority: 2  # low priority, use as complement
 ```
 
-`sources.py` 新增 `ArxivLocalSource`，在 API 搜索失败时自动降级。
+Add `ArxivLocalSource` in `sources.py`, which auto-degrades when API search fails.
