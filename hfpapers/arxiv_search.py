@@ -88,9 +88,15 @@ class ArxivLocalSearch:
             conn.executescript(META_SCHEMA)
         logger.info(f"ArxivLocalSearch ready: {self.db_path}")
 
-    def search(self, query: str, limit: int = 50, year_from: int = 0,
-               year_to: int = 0, categories: list[str] = None,
-               sort: str = "relevance") -> list[dict]:
+    def search(
+        self,
+        query: str,
+        limit: int = 50,
+        year_from: int = 0,
+        year_to: int = 0,
+        categories: list[str] = None,
+        sort: str = "relevance",
+    ) -> list[dict]:
         """Full-text search arXiv metadata
 
         Args:
@@ -108,8 +114,8 @@ class ArxivLocalSearch:
         with self._lock, self._conn() as conn:
             if sort == "date":
                 # Filter by year then sort by date (needs JOIN meta)
-                sql = """SELECT f.arxiv_id, title, authors, abstract, categories,
-                                doi, journal_ref, update_date, rank
+                sql = """SELECT f.arxiv_id, m.title, m.authors, m.abstract, m.categories,
+                                m.doi, m.journal_ref, m.update_date, rank
                          FROM arxiv_fts f
                          JOIN arxiv_meta m ON f.arxiv_id = m.arxiv_id
                          WHERE arxiv_fts MATCH ?
@@ -127,7 +133,7 @@ class ArxivLocalSearch:
         results = []
         for r in rows:
             r = dict(r)
-            update = (r.get("update_date") or "")
+            update = r.get("update_date") or ""
             year_str = update[:4]
 
             # Year filter
@@ -150,17 +156,19 @@ class ArxivLocalSearch:
                 if not any(c in cats for c in categories):
                     continue
 
-            results.append({
-                "arxiv_id": r["arxiv_id"],
-                "title": r["title"] or "",
-                "authors": r["authors"] or "",
-                "abstract": r["abstract"] or "",
-                "categories": (r["categories"] or "").split(),
-                "doi": r["doi"] or "",
-                "journal_ref": r["journal_ref"] or "",
-                "update_date": update,
-                "score": -r["rank"] if r["rank"] else 0,
-            })
+            results.append(
+                {
+                    "arxiv_id": r["arxiv_id"],
+                    "title": r["title"] or "",
+                    "authors": r["authors"] or "",
+                    "abstract": r["abstract"] or "",
+                    "categories": (r["categories"] or "").split(),
+                    "doi": r["doi"] or "",
+                    "journal_ref": r["journal_ref"] or "",
+                    "update_date": update,
+                    "score": -r["rank"] if r["rank"] else 0,
+                }
+            )
             if len(results) >= limit:
                 break
 
@@ -169,9 +177,7 @@ class ArxivLocalSearch:
     def get_by_id(self, arxiv_id: str) -> Optional[dict]:
         """Lookup a single paper by arXiv ID"""
         with self._conn() as conn:
-            r = conn.execute(
-                "SELECT * FROM arxiv_meta WHERE arxiv_id = ?", (arxiv_id,)
-            ).fetchone()
+            r = conn.execute("SELECT * FROM arxiv_meta WHERE arxiv_id = ?", (arxiv_id,)).fetchone()
         if r:
             return dict(r)
         return None
@@ -196,7 +202,7 @@ class ArxivLocalSearch:
         with self._conn() as conn:
             r = conn.execute(
                 "SELECT arxiv_id, title, authors, categories FROM arxiv_meta WHERE doi = ?",
-                (paper_store_doi,)
+                (paper_store_doi,),
             ).fetchone()
         if r:
             return dict(r)
@@ -206,9 +212,7 @@ class ArxivLocalSearch:
         """Database statistics"""
         with self._conn() as conn:
             total = conn.execute("SELECT COUNT(*) FROM arxiv_meta").fetchone()[0]
-            has_doi = conn.execute(
-                "SELECT COUNT(*) FROM arxiv_meta WHERE doi != ''"
-            ).fetchone()[0]
+            has_doi = conn.execute("SELECT COUNT(*) FROM arxiv_meta WHERE doi != ''").fetchone()[0]
             has_journal = conn.execute(
                 "SELECT COUNT(*) FROM arxiv_meta WHERE journal_ref != ''"
             ).fetchone()[0]
@@ -251,16 +255,18 @@ class ArxivLocalSearch:
                     arxiv_id = paper.get("id", "")
                     if not arxiv_id:
                         continue
-                    batch.append((
-                        arxiv_id,
-                        paper.get("title", "")[:500],
-                        paper.get("authors", "")[:500],
-                        paper.get("abstract", "")[:2000],
-                        paper.get("categories", ""),
-                        paper.get("doi", ""),
-                        paper.get("journal_ref", "")[:200],
-                        paper.get("update_date", ""),
-                    ))
+                    batch.append(
+                        (
+                            arxiv_id,
+                            paper.get("title", "")[:500],
+                            paper.get("authors", "")[:500],
+                            paper.get("abstract", "")[:2000],
+                            paper.get("categories", ""),
+                            paper.get("doi", ""),
+                            paper.get("journal_ref", "")[:200],
+                            paper.get("update_date", ""),
+                        )
+                    )
                     total += 1
                 except json.JSONDecodeError:
                     continue
@@ -278,8 +284,7 @@ class ArxivLocalSearch:
 
         elapsed = time.time() - start
         logger.info(
-            f"Import complete: {total:,} papers in {elapsed:.1f}s "
-            f"({total/elapsed:.0f}/s)"
+            f"Import complete: {total:,} papers in {elapsed:.1f}s ({total / elapsed:.0f}/s)"
         )
         return total
 
@@ -314,43 +319,49 @@ class ArxivLocalSearch:
 # ─── Scrapy Integration: arXiv Local Spider ──────────
 # No network requests — search directly from local FTS5 index
 
+
 class ArxivLocalSpider:
     """Local arXiv Search Spider (outputs unified SourcePaper)
 
     No network required, millisecond response. Replaces ArxivApiSource and HfCliSource fallback.
     Particularly suitable for large-scale batch search (1000+ queries).
     """
+
     name = "arxiv_local"
 
     def __init__(self, engine: ArxivLocalSearch = None):
         self.engine = engine or ArxivLocalSearch()
 
-    def search(self, query: str, limit: int = 100,
-               year_from: int = 2017, categories: list[str] = None) -> list[dict]:
+    def search(
+        self, query: str, limit: int = 100, year_from: int = 2017, categories: list[str] = None
+    ) -> list[dict]:
         """Search and return format compatible with hfpapers.sources.SourcePaper"""
         results = self.engine.search(
-            query=query, limit=limit, year_from=year_from,
-            categories=categories, sort="date",
+            query=query,
+            limit=limit,
+            year_from=year_from,
+            categories=categories,
+            sort="date",
         )
         # Convert to unified format
         papers = []
         for r in results:
             doi = r.get("doi", "")
             journal_ref = r.get("journal_ref", "")
-            papers.append({
-                "arxiv_id": r["arxiv_id"],
-                "title": r["title"],
-                "abstract": r["abstract"],
-                "source": "arxiv_local",
-                "source_url": f"https://arxiv.org/abs/{r['arxiv_id']}",
-                "categories": r.get("categories", []),
-                "doi": doi,
-                "venue": journal_ref,
-                "authors": r.get("authors", ""),
-                "published_date": r.get("update_date", ""),
-                # Academic confidence: DOI + venue → high confidence
-                "confidence": 0.9 if doi and journal_ref else (
-                    0.6 if doi else 0.3
-                ),
-            })
+            papers.append(
+                {
+                    "arxiv_id": r["arxiv_id"],
+                    "title": r["title"],
+                    "abstract": r["abstract"],
+                    "source": "arxiv_local",
+                    "source_url": f"https://arxiv.org/abs/{r['arxiv_id']}",
+                    "categories": r.get("categories", []),
+                    "doi": doi,
+                    "venue": journal_ref,
+                    "authors": r.get("authors", ""),
+                    "published_date": r.get("update_date", ""),
+                    # Academic confidence: DOI + venue → high confidence
+                    "confidence": 0.9 if doi and journal_ref else (0.6 if doi else 0.3),
+                }
+            )
         return papers

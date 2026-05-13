@@ -20,10 +20,11 @@ logger = logging.getLogger("hfpapers.searcher_registry")
 @dataclass
 class SearchResult:
     """Unified search result"""
+
     arxiv_id: str
     title: str
     abstract: str
-    source: str               # "hf_cli" | "arxiv_local" | "arxiv_api" | "openreview" | "pwc_api"
+    source: str  # "hf_cli" | "arxiv_local" | "arxiv_api" | "openreview" | "pwc_api"
     source_category: str = ""
     source_url: str = ""
     code_url: str = ""
@@ -44,11 +45,17 @@ class BaseSearcher(ABC):
         """Sync search (must implement)"""
         ...
 
-    async def search_async(self, query: str, limit: int = 30, category: str = "") -> list[SearchResult]:
+    async def search_async(
+        self, query: str, limit: int = 30, category: str = ""
+    ) -> list[SearchResult]:
         """Async search (default: runs sync version in thread pool)"""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            None, self.search_sync, query, limit, category,
+            None,
+            self.search_sync,
+            query,
+            limit,
+            category,
         )
 
     @property
@@ -112,7 +119,9 @@ class HfCliSearcher(BaseSearcher):
         try:
             output = subprocess.run(
                 ["hf", "papers", "search", query, "--json", "--limit", str(limit)],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
             if output.returncode != 0:
                 return results
@@ -126,14 +135,16 @@ class HfCliSearcher(BaseSearcher):
             aid = pd.get("id", "")
             if not aid or not arxiv_id_re.match(aid):
                 continue
-            results.append(SearchResult(
-                arxiv_id=aid,
-                title=pd.get("title", ""),
-                abstract=pd.get("summary", ""),
-                source="hf_cli",
-                source_url=f"https://huggingface.co/papers?q={query}",
-                source_category=category,
-            ))
+            results.append(
+                SearchResult(
+                    arxiv_id=aid,
+                    title=pd.get("title", ""),
+                    abstract=pd.get("summary", ""),
+                    source="hf_cli",
+                    source_url=f"https://huggingface.co/papers?q={query}",
+                    source_category=category,
+                )
+            )
         logger.info(f"  [hf_cli] {query}: {len(results)} papers")
         return results
 
@@ -148,6 +159,7 @@ class ArxivLocalSearcher(BaseSearcher):
     def is_available(self) -> bool:
         try:
             from hfpapers.arxiv_search import ArxivLocalSearch
+
             s = ArxivLocalSearch()
             return s.count() > 100
         except Exception:
@@ -155,22 +167,27 @@ class ArxivLocalSearcher(BaseSearcher):
 
     def search_sync(self, query: str, limit: int = 100, category: str = "") -> list[SearchResult]:
         from hfpapers.arxiv_search import ArxivLocalSearch
+
         engine = ArxivLocalSearch()
         raw = engine.search(query=query, limit=limit, year_from=2017, sort="date")
         results = []
         for r in raw:
-            results.append(SearchResult(
-                arxiv_id=r["arxiv_id"],
-                title=r["title"],
-                abstract=r["abstract"],
-                source="arxiv_local",
-                source_url=f"https://arxiv.org/abs/{r['arxiv_id']}",
-                source_category=category,
-                doi=r.get("doi", ""),
-                venue=r.get("journal_ref", ""),
-                authors=r.get("authors", ""),
-                confidence=0.9 if r.get("doi") and r.get("journal_ref") else (0.6 if r.get("doi") else 0.3),
-            ))
+            results.append(
+                SearchResult(
+                    arxiv_id=r["arxiv_id"],
+                    title=r["title"],
+                    abstract=r["abstract"],
+                    source="arxiv_local",
+                    source_url=f"https://arxiv.org/abs/{r['arxiv_id']}",
+                    source_category=category,
+                    doi=r.get("doi", ""),
+                    venue=r.get("journal_ref", ""),
+                    authors=r.get("authors", ""),
+                    confidence=0.9
+                    if r.get("doi") and r.get("journal_ref")
+                    else (0.6 if r.get("doi") else 0.3),
+                )
+            )
         return results
 
 
@@ -183,6 +200,7 @@ class ArxivApiSearcher(BaseSearcher):
 
         import requests
         from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+
         warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
         results: list[SearchResult] = []
@@ -211,16 +229,77 @@ class ArxivApiSearcher(BaseSearcher):
                 arxiv_id = match.group(1)
                 title_tag = entry.find("title")
                 abstract_tag = entry.find("summary")
-                results.append(SearchResult(
-                    arxiv_id=arxiv_id,
-                    title=title_tag.text.strip()[:200] if title_tag else "",
-                    abstract=abstract_tag.text.strip()[:500] if abstract_tag else "",
-                    source="arxiv_api",
-                    source_url=f"https://arxiv.org/abs/{arxiv_id}",
-                    source_category=category,
-                ))
+                results.append(
+                    SearchResult(
+                        arxiv_id=arxiv_id,
+                        title=title_tag.text.strip()[:200] if title_tag else "",
+                        abstract=abstract_tag.text.strip()[:500] if abstract_tag else "",
+                        source="arxiv_api",
+                        source_url=f"https://arxiv.org/abs/{arxiv_id}",
+                        source_category=category,
+                    )
+                )
         except Exception as e:
             logger.warning(f"  [arxiv_api] search failed: {e}")
+        return results
+
+
+class ArxivMcpSearcher(BaseSearcher):
+    """arXiv MCP Server searcher — uses arxiv-mcp-server for search + download + read
+
+    Falls in the middle of priority: slower than local FTS5 but richer data.
+    Supports searching, downloading and reading paper full text.
+    """
+
+    name = "arxiv_mcp"
+
+    @property
+    def priority(self) -> int:
+        return 15  # After local FTS5 (1), before HF CLI (100)
+
+    def is_available(self) -> bool:
+        try:
+            import importlib
+
+            return importlib.util.find_spec("arxiv_mcp_server") is not None
+        except ImportError:
+            return False
+
+    def search_sync(self, query: str, limit: int = 30, category: str = "") -> list[SearchResult]:
+        import asyncio
+        import json
+
+        from arxiv_mcp_server.server import handle_search as mcp_search
+
+        results: list[SearchResult] = []
+        try:
+            texts = asyncio.run(mcp_search({"query": query, "max_results": limit}))
+            if not texts:
+                return results
+            data = json.loads(texts[0].text)
+            papers = data.get("papers", [])
+            for p in papers:
+                pid = p.get("id", "").split("v")[0]  # Strip version number
+                if not pid:
+                    continue
+                results.append(
+                    SearchResult(
+                        arxiv_id=pid,
+                        title=p.get("title", ""),
+                        abstract=p.get("summary", p.get("abstract", "")),
+                        source="arxiv_mcp",
+                        source_url=f"https://arxiv.org/abs/{pid}",
+                        source_category=category,
+                        doi=p.get("doi", ""),
+                        venue=p.get("journal_ref", ""),
+                        authors=", ".join(p.get("authors", []))
+                        if isinstance(p.get("authors"), list)
+                        else p.get("authors", ""),
+                        confidence=0.7,
+                    )
+                )
+        except Exception as e:
+            logger.warning(f"  [arxiv_mcp] search failed: {e}")
         return results
 
 
@@ -278,15 +357,17 @@ class OpenReviewSearcher(BaseSearcher):
             if not arxiv_id:
                 continue
 
-            results.append(SearchResult(
-                arxiv_id=arxiv_id,
-                title=title[:200],
-                abstract=abstract[:500],
-                source="openreview",
-                source_url=f"https://openreview.net/forum?id={forum_id}",
-                source_category=category,
-                venue=note.get("invitation", "").replace(".*/.*", ""),
-            ))
+            results.append(
+                SearchResult(
+                    arxiv_id=arxiv_id,
+                    title=title[:200],
+                    abstract=abstract[:500],
+                    source="openreview",
+                    source_url=f"https://openreview.net/forum?id={forum_id}",
+                    source_category=category,
+                    venue=note.get("invitation", "").replace(".*/.*", ""),
+                )
+            )
 
         return results
 
@@ -295,11 +376,13 @@ class OpenReviewSearcher(BaseSearcher):
 # Registration Initialization
 # ════════════════════════════════════════════
 
+
 def init_registry():
     """Initialize and register all searchers"""
     register(HfCliSearcher())
     register(ArxivLocalSearcher())
     register(ArxivApiSearcher())
+    register(ArxivMcpSearcher())
     register(OpenReviewSearcher())
 
     available = get_available()
