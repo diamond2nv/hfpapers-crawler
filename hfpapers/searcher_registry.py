@@ -1,23 +1,25 @@
-# ─── 统一搜索注册表 ──────────────────────────
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ─── Unified Search Registry ──────────────────────────
 # hfpapers/searcher_registry.py
-# 所有 Searcher 在此注册，支持同步/异步两种调用方式
+# All Searchers register here — supports both sync and async invocation
 
 import asyncio
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 
 logger = logging.getLogger("hfpapers.searcher_registry")
 
 # ════════════════════════════════════════════
-# 搜索适配器接口
+# Search Adapter Interface
 # ════════════════════════════════════════════
 
 
 @dataclass
 class SearchResult:
-    """统一搜索结果"""
+    """Unified search result"""
     arxiv_id: str
     title: str
     abstract: str
@@ -33,45 +35,45 @@ class SearchResult:
 
 
 class BaseSearcher(ABC):
-    """搜索器基类 — 必须实现 search_sync，search_async 可选"""
-    
+    """Base searcher — must implement search_sync, search_async optional"""
+
     name: str = ""
-    
+
     @abstractmethod
     def search_sync(self, query: str, limit: int = 30, category: str = "") -> list[SearchResult]:
-        """同步搜索（必须实现）"""
+        """Sync search (must implement)"""
         ...
-    
+
     async def search_async(self, query: str, limit: int = 30, category: str = "") -> list[SearchResult]:
-        """异步搜索（默认用线程池执行同步版本）"""
+        """Async search (default: runs sync version in thread pool)"""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None, self.search_sync, query, limit, category,
         )
-    
+
     @property
     def priority(self) -> int:
-        """搜索优先级（小=优先），默认 100"""
+        """Search priority (lower = higher), default 100"""
         return 100
-    
+
     def is_available(self) -> bool:
-        """是否可用（检查 API key / 本地数据）"""
+        """Whether available (checks API key / local data)"""
         return True
 
 
 # ════════════════════════════════════════════
-# 注册表
+# Registry
 # ════════════════════════════════════════════
 
 _searchers: dict[str, BaseSearcher] = {}
 
 
 def register(searcher: BaseSearcher):
-    """注册一个搜索器"""
+    """Register a searcher"""
     if not searcher.name:
         raise ValueError("Searcher must have a name")
     _searchers[searcher.name] = searcher
-    logger.debug(f"注册搜索器: {searcher.name}")
+    logger.debug(f"Register searcher: {searcher.name}")
 
 
 def get(name: str) -> Optional[BaseSearcher]:
@@ -83,7 +85,7 @@ def get_all() -> dict[str, BaseSearcher]:
 
 
 def get_available() -> list[BaseSearcher]:
-    """返回所有可用的搜索器（按优先级排序）"""
+    """Return all available searchers (sorted by priority)"""
     available = [s for s in _searchers.values() if s.is_available()]
     available.sort(key=lambda s: s.priority)
     return available
@@ -94,18 +96,18 @@ def get_names() -> list[str]:
 
 
 # ════════════════════════════════════════════
-# 将旧式搜索适配到注册表
+# Adapt legacy searches to registry
 # ════════════════════════════════════════════
 
 
 class HfCliSearcher(BaseSearcher):
     name = "hf_cli"
-    
+
     def search_sync(self, query: str, limit: int = 30, category: str = "") -> list[SearchResult]:
         import json
-        import subprocess
         import re
-        
+        import subprocess
+
         results: list[SearchResult] = []
         try:
             output = subprocess.run(
@@ -116,9 +118,9 @@ class HfCliSearcher(BaseSearcher):
                 return results
             data = json.loads(output.stdout)
         except Exception as e:
-            logger.debug(f"[hf_cli] {query} 失败: {e}")
+            logger.debug(f"[hf_cli] {query} failed: {e}")
             return results
-        
+
         arxiv_id_re = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?")
         for pd in data:
             aid = pd.get("id", "")
@@ -132,17 +134,17 @@ class HfCliSearcher(BaseSearcher):
                 source_url=f"https://huggingface.co/papers?q={query}",
                 source_category=category,
             ))
-        logger.info(f"  [hf_cli] {query}: {len(results)} 篇")
+        logger.info(f"  [hf_cli] {query}: {len(results)} papers")
         return results
 
 
 class ArxivLocalSearcher(BaseSearcher):
     name = "arxiv_local"
-    
+
     @property
     def priority(self) -> int:
-        return 1  # 最高优先级（0 网络开销, 毫秒级）
-    
+        return 1  # Highest priority (zero network overhead, millisecond latency)
+
     def is_available(self) -> bool:
         try:
             from hfpapers.arxiv_search import ArxivLocalSearch
@@ -150,7 +152,7 @@ class ArxivLocalSearcher(BaseSearcher):
             return s.count() > 100
         except Exception:
             return False
-    
+
     def search_sync(self, query: str, limit: int = 100, category: str = "") -> list[SearchResult]:
         from hfpapers.arxiv_search import ArxivLocalSearch
         engine = ArxivLocalSearch()
@@ -174,14 +176,15 @@ class ArxivLocalSearcher(BaseSearcher):
 
 class ArxivApiSearcher(BaseSearcher):
     name = "arxiv_api"
-    
+
     def search_sync(self, query: str, limit: int = 30, category: str = "") -> list[SearchResult]:
         import re
+        import warnings
+
         import requests
         from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
-        import warnings
         warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
-        
+
         results: list[SearchResult] = []
         arxiv_id_re = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?")
         try:
@@ -217,17 +220,18 @@ class ArxivApiSearcher(BaseSearcher):
                     source_category=category,
                 ))
         except Exception as e:
-            logger.warning(f"  [arxiv_api] 搜索失败: {e}")
+            logger.warning(f"  [arxiv_api] search failed: {e}")
         return results
 
 
 class OpenReviewSearcher(BaseSearcher):
     name = "openreview"
-    
+
     def search_sync(self, query: str, limit: int = 30, category: str = "") -> list[SearchResult]:
         import re
+
         import requests
-        
+
         results: list[SearchResult] = []
         arxiv_id_re = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?")
         try:
@@ -240,21 +244,21 @@ class OpenReviewSearcher(BaseSearcher):
                 return results
             data = resp.json()
         except Exception as e:
-            logger.warning(f"  [openreview] 搜索失败: {e}")
+            logger.warning(f"  [openreview] search failed: {e}")
             return results
-        
+
         def safe_field(content: dict, key: str) -> str:
             val = content.get(key, "")
             if isinstance(val, dict):
                 return str(val.get("value", val.get("content", "")))
             return str(val or "")
-        
+
         for note in data.get("notes", []):
             content = note.get("content", {})
             title = safe_field(content, "title")
             abstract = safe_field(content, "abstract")
             forum_id = note.get("forum", "")
-            
+
             arxiv_id = ""
             for key in ("arxiv_id", "paper_arxiv", "arXiv_id", "paper_id"):
                 raw = content.get(key, "")
@@ -265,15 +269,15 @@ class OpenReviewSearcher(BaseSearcher):
                     if m:
                         arxiv_id = m.group(1)
                         break
-            
+
             if not arxiv_id:
                 m = arxiv_id_re.search(str(content))
                 if m:
                     arxiv_id = m.group(1)
-            
+
             if not arxiv_id:
                 continue
-            
+
             results.append(SearchResult(
                 arxiv_id=arxiv_id,
                 title=title[:200],
@@ -283,22 +287,22 @@ class OpenReviewSearcher(BaseSearcher):
                 source_category=category,
                 venue=note.get("invitation", "").replace(".*/.*", ""),
             ))
-        
+
         return results
 
 
 # ════════════════════════════════════════════
-# 初始化注册
+# Registration Initialization
 # ════════════════════════════════════════════
 
 def init_registry():
-    """初始化所有搜索器并注册"""
+    """Initialize and register all searchers"""
     register(HfCliSearcher())
     register(ArxivLocalSearcher())
     register(ArxivApiSearcher())
     register(OpenReviewSearcher())
 
     available = get_available()
-    logger.info(f"搜索注册表就绪: {len(available)}/{len(_searchers)} 个可用")
+    logger.info(f"Search registry ready: {len(available)}/{len(_searchers)} available")
     for s in available:
         logger.debug(f"  {s.name} (priority={s.priority})")

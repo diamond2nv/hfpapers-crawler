@@ -1,34 +1,37 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 # pipelines.py
 """
-Pipeline 链 — 每个 stage 处理一个 PaperItem
+Pipeline Chain — each stage processes a PaperItem
 
 Flow:
-  0. Items 进入
-  1. StorePipeline — 写入 paper_store (SQLite + 雪花ID + Crossref交叉验证)
-  2. ClassifyPipeline — 相关度分类（关键词/NLP）
-  3. ExportPipeline — 导出候选列表 + 更新全局去重
-  4. DownloadPipeline — PDF 下载 + MD 转换
+  0. Items enter
+  1. StorePipeline — Write to paper_store (SQLite + Snowflake ID + Crossref cross-validation)
+  2. ClassifyPipeline — Relevance classification (keyword/NLP)
+  3. ExportPipeline — Export candidate list + update global dedup
+  4. DownloadPipeline — PDF download + MD conversion
 """
 
 import logging
 import os
 from datetime import datetime
 
-from hfpapers.config import get as cfg_get, load_config
+from hfpapers.config import get as cfg_get
+from hfpapers.config import load_config
 from hfpapers.items import PaperItem
-from hfpapers.paper_store import PaperStore, get_store, get_crossref, ensure_paper
+from hfpapers.paper_store import ensure_paper, get_store
 
 logger = logging.getLogger(__name__)
 
 
 class StorePipeline:
-    """Paper Store Pipeline — 写入 SQLite 统一存储层
+    """Paper Store Pipeline — writes to SQLite unified storage layer
 
-    功能:
-      1. 用 ensure_paper() 检查去重（arXiv ID 防重）
-      2. 自动触发 Crossref 交叉验证（title → DOI）
-      3. 多标识符自动 verified
-      4. 返回 sf_id 供后续 Pipeline 使用
+    Features:
+      1. Uses ensure_paper() for dedup (arXiv ID deduplication)
+      2. Auto-triggers Crossref cross-validation (title → DOI)
+      3. Auto-verified via multi-identifier
+      4. Returns sf_id for subsequent pipeline stages
     """
 
     def __init__(self):
@@ -46,7 +49,7 @@ class StorePipeline:
         code_url = item.get("code_url", "")
         venue = item.get("venue", "")
 
-        # 写入 paper_store（去重 + 交叉验证）
+        # Write to paper_store (dedup + cross-verify)
         sf_id, is_new = ensure_paper(
             arxiv_id=arxiv_id,
             title=title,
@@ -58,27 +61,27 @@ class StorePipeline:
         )
 
         if not is_new:
-            spider.logger.info(f"[STORE] 跳过 (已存在): {arxiv_id} {title[:40]}")
+            spider.logger.info(f"[STORE] Skipped (exists): {arxiv_id} {title[:40]}")
             self.skipped += 1
             return None
 
-        # 回写 sf_id 供后续 pipeline 使用
+        # Write back sf_id for subsequent pipeline use
         item["sf_id"] = sf_id
-        item["verified"] = True  # paper_store 已做验证
+        item["verified"] = True  # paper_store already verified
         self.passed += 1
         return item
 
     def open_spider(self, spider):
         store = get_store()
         stats = store.stats()
-        spider.logger.info(f"[STORE] 论文存储: {stats['papers_total']} 篇, {stats['papers_verified']} 已验证")
+        spider.logger.info(f"[STORE] Paper store: {stats['papers_total']} papers, {stats['papers_verified']} verified")
 
     def close_spider(self, spider):
-        logger.info(f"[STORE] 本次: {self.passed} 新入库, {self.skipped} 跳过")
+        logger.info(f"[STORE] This run: {self.passed} new, {self.skipped} skipped")
 
 
 class ClassifyPipeline:
-    """分类 Pipeline — 关键词/短语 分级评分"""
+    """Classification Pipeline — keyword/phrase graded scoring"""
 
     def __init__(self):
         cfg = load_config()
@@ -93,10 +96,10 @@ class ClassifyPipeline:
     def process_item(self, item: PaperItem, spider):
         text = f"{item.get('title', '')}\n{item.get('abstract', '')}".lower()
 
-        # 黑名单检查
+        # Blacklist check
         for kw in self.exclude:
             if kw in text:
-                spider.logger.info(f"[CLASSIFY] {item['arxiv_id']} 黑名单命中: {kw}")
+                spider.logger.info(f"[CLASSIFY] {item['arxiv_id']} blacklist hit: {kw}")
                 return None
 
         score = self._keyword_score(text)
@@ -108,7 +111,7 @@ class ClassifyPipeline:
             spider.logger.info(f"[CLASSIFY] {item['arxiv_id']} rel={score}")
             return item
         else:
-            spider.logger.info(f"[CLASSIFY] {item['arxiv_id']} rel={score} 低于阈值 {self.threshold_pass}")
+            spider.logger.info(f"[CLASSIFY] {item['arxiv_id']} rel={score} below threshold {self.threshold_pass}")
             return None
 
     def _keyword_score(self, text: str) -> int:
@@ -135,11 +138,11 @@ class ClassifyPipeline:
 
 
 class ExportPipeline:
-    """导出 Pipeline — 保存候选列表 + 更新 paper_store
+    """Export Pipeline — save candidate list + update paper_store
 
-    此 pipeline 同时维护：
-      1. paper_store (SQLite) — 主存储
-      2. candidates_latest.json — 兼容旧的 JSON 导出
+    This pipeline maintains:
+      1. paper_store (SQLite) — primary storage
+      2. candidates_latest.json — legacy JSON export
     """
 
     def __init__(self):
@@ -155,12 +158,12 @@ class ExportPipeline:
         code_url = item.get("code_url", "")
         venue = item.get("venue", "")
 
-        # 更新 paper_store 的 relevance 和 code_url
+        # Update paper_store relevance and code_url
         if sf_id:
             store = get_store()
             store.update_paper(sf_id, relevance=relevance, code_url=code_url)
 
-        # JSON 导出缓存
+        # JSON export cache
         self.candidates.append({
             "arxiv_id": arxiv_id,
             "title": title,
@@ -177,13 +180,13 @@ class ExportPipeline:
 
     def close_spider(self, spider):
         if not self.candidates:
-            logger.info("[EXPORT] 无候选论文")
+            logger.info("[EXPORT] No candidate papers")
             return
 
-        # 按 relevance 排序
+        # Sort by relevance
         self.candidates.sort(key=lambda x: x["relevance"], reverse=True)
 
-        # 写入 JSON 文件（向后兼容）
+        # Write JSON file (backward compatible)
         data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                                 cfg_get("paths.data_dir", "data"))
         os.makedirs(data_dir, exist_ok=True)
@@ -198,11 +201,11 @@ class ExportPipeline:
             import json
             json.dump(self.candidates, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"[EXPORT] {len(self.candidates)} 篇 → {filepath} + paper_store")
+        logger.info(f"[EXPORT] {len(self.candidates)} papers → {filepath} + paper_store")
 
 
 class DownloadPipeline:
-    """下载 Pipeline — PDF 下载 + MD 转换"""
+    """Download Pipeline — PDF download + MD conversion"""
 
     def __init__(self):
         import requests
@@ -231,12 +234,12 @@ class DownloadPipeline:
                     spider.logger.info(f"[DOWNLOAD] {arxiv_id} PDF ({len(resp.content)//1024}KB)")
                     item["downloaded"] = True
             except Exception as e:
-                spider.logger.warning(f"[DOWNLOAD] {arxiv_id} PDF失败: {e}")
+                spider.logger.warning(f"[DOWNLOAD] {arxiv_id} PDF failed: {e}")
                 item["downloaded"] = False
         else:
             item["downloaded"] = True
 
-        # 转换 MD
+        # Convert to MD
         md_path = os.path.join(self.md_dir, f"{arxiv_id}.md")
         if os.path.exists(pdf_path) and not os.path.exists(md_path):
             try:
@@ -247,6 +250,6 @@ class DownloadPipeline:
                     f.write(f"# {title} ({arxiv_id})\n\n> arXiv PDF\n\n{md_text}")
                 spider.logger.info(f"[CONVERT] {arxiv_id} MD ({len(md_text)} chars)")
             except Exception as e:
-                spider.logger.warning(f"[CONVERT] {arxiv_id} MD失败: {e}")
+                spider.logger.warning(f"[CONVERT] {arxiv_id} MD failed: {e}")
 
         return item

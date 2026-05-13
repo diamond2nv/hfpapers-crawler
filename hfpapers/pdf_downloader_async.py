@@ -1,6 +1,8 @@
-# ─── 异步 PDF 下载器 ─────────────────────────
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ─── Async PDF Downloader ─────────────────────────
 # hfpapers/pdf_downloader_async.py
-# 基于 aiohttp 的并发 PDF 下载 + 转换
+# aiohttp-based concurrent PDF download + conversion
 
 import asyncio
 import logging
@@ -14,11 +16,11 @@ logger = logging.getLogger("hfpapers.pdf_downloader")
 
 
 class AsyncPdfDownloader:
-    """异步 PDF 下载器
+    """Async PDF Downloader
 
-    aiohttp 并行下载 arXiv PDF，支持并发控制、重试、进度回调。
+    aiohttp parallel download of arXiv PDFs, supports concurrency control, retry, progress callback.
 
-    用法:
+    Usage:
         downloader = AsyncPdfDownloader(max_concurrent=8)
         results = await downloader.download_batch([
             {"arxiv_id": "2001.08361", "title": "FNO"},
@@ -42,7 +44,7 @@ class AsyncPdfDownloader:
         return dict(self._stats)
 
     async def download_batch(self, papers: list[dict]) -> list[dict]:
-        """批量下载 PDF
+        """Batch download PDFs
 
         Args:
             papers: [{"arxiv_id", "title", "abstract", ...}, ...]
@@ -50,13 +52,12 @@ class AsyncPdfDownloader:
         Returns:
             [{"arxiv_id", "success", "pdf_path", "md_path", "error"}, ...]
         """
-        logger.info(f"📥 批量下载: {len(papers)} 篇, {self.max_concurrent} 并发")
+        logger.info(f"📥 Batch download: {len(papers)} papers, {self.max_concurrent} concurrent")
 
         try:
             import aiohttp
-            import aiofiles
         except ImportError:
-            logger.warning("aiohttp/aiofiles 不可用，回退到同步下载")
+            logger.warning("aiohttp/aiofiles unavailable, falling back to sync download")
             return self._download_sync_fallback(papers)
 
         async with aiohttp.ClientSession(
@@ -70,13 +71,13 @@ class AsyncPdfDownloader:
 
         success = sum(1 for r in results if r["success"])
         logger.info(
-            f"✅ 下载完成: {success}/{len(papers)} 成功, "
-            f"{self._stats['skipped']} 跳过, {self._stats['failed']} 失败"
+            f"✅ Download complete: {success}/{len(papers)} successful, "
+            f"{self._stats['skipped']} skipped, {self._stats['failed']} failed"
         )
         return results
 
     async def _download_one(self, session, paper: dict) -> dict:
-        """下载一篇 PDF + 转换 MD"""
+        """Download one PDF + convert to MD"""
         aid = paper["arxiv_id"]
         title = paper.get("title", aid)
         pdf_path = self.pdf_dir / f"{aid}.pdf"
@@ -98,9 +99,9 @@ class AsyncPdfDownloader:
                             continue
                         data = await resp.read()
                         if len(data) < 5000:
-                            continue  # 太小的文件不是有效PDF
+                            continue  # Too small to be a valid PDF
 
-                        # 写 PDF
+                        # Write PDF
                         import aiofiles
                         async with aiofiles.open(pdf_path, "wb") as f:
                             await f.write(data)
@@ -108,7 +109,7 @@ class AsyncPdfDownloader:
                         self._stats["downloaded"] += 1
                         logger.info(f"  PDF: {aid} ({len(data)//1024}KB)")
 
-                        # 转 MD
+                        # Convert to MD
                         md_path = await self._convert_to_md(pdf_path, md_path, title, aid)
 
                         result = {"arxiv_id": aid, "success": True,
@@ -140,7 +141,7 @@ class AsyncPdfDownloader:
 
     async def _convert_to_md(self, pdf_path: Path, md_path: Path,
                               title: str, aid: str) -> Optional[Path]:
-        """PDF → Markdown 转换（在线程池中执行 pymupdf4llm）"""
+        """PDF → Markdown conversion (runs pymupdf4llm in thread pool)"""
         try:
             import pymupdf4llm
         except ImportError:
@@ -158,11 +159,11 @@ class AsyncPdfDownloader:
             logger.info(f"  MD: {aid} ({len(md_text)} chars)")
             return md_path
         except Exception as e:
-            logger.warning(f"  MD转换失败 {aid}: {e}")
+            logger.warning(f"  MD conversion failed {aid}: {e}")
             return None
 
     def _download_sync_fallback(self, papers: list[dict]) -> list[dict]:
-        """回退到同步下载（当 aiohttp 不可用时）"""
+        """Fallback to synchronous download (when aiohttp is unavailable)"""
         import requests
         session = requests.Session()
         session.headers.update({"User-Agent": "Mozilla/5.0"})
@@ -181,7 +182,7 @@ class AsyncPdfDownloader:
                         pdf_path.write_bytes(resp.content)
                         self._stats["downloaded"] += 1
 
-                # 转换
+                # Convert
                 if pdf_path.exists() and not md_path.exists():
                     try:
                         import pymupdf4llm

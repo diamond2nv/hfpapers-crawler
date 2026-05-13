@@ -1,10 +1,15 @@
-"""测试 paper_store 模块 — SQLite 存储 + Snowflake ID + 标识符"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Test paper_store module — SQLite storage + Snowflake ID + identifiers"""
 import time
 from datetime import datetime
+
 from hfpapers.paper_store import (
-    snowflake_id, snowflake_timestamp,
-    PaperStore, PaperRecord, PaperIdentifier,
-    get_store, get_crossref, ensure_paper, store_stats,
+    PaperRecord,
+    PaperStore,
+    get_store,
+    snowflake_id,
+    snowflake_timestamp,
 )
 
 
@@ -25,7 +30,7 @@ class TestSnowflakeID:
         sf_id = snowflake_id()
         after = datetime.now()
         extracted = snowflake_timestamp(sf_id)
-        # 允许 0.5s 误差（本地时钟 vs _EPOCH 可能略有偏移）
+        # Allow 0.5s tolerance (local clock vs _EPOCH may drift slightly)
         assert (extracted - before).total_seconds() > -0.5
         assert (after - extracted).total_seconds() > -0.5
 
@@ -84,11 +89,11 @@ class TestPaperStore:
         sf_id = paper_store.upsert_paper(PaperRecord(title="Dup"))
         first = paper_store.add_identifier(sf_id, "arxiv", "2301.11167")
         assert first is True
-        # 重复的 INSERT OR IGNORE 会静默跳过
+        # Duplicate INSERT OR IGNORE silently skipped
         second = paper_store.add_identifier(sf_id, "arxiv", "2301.11167")
-        assert second is True  # INSERT OR IGNORE 不抛异常
+        assert second is True  # INSERT OR IGNORE doesn't raise
         ids = paper_store.get_identifiers(sf_id)
-        assert len(ids) == 1  # 只存了一份
+        assert len(ids) == 1  # Only stored once
 
     def test_search_papers_by_keyword(self, paper_store: PaperStore):
         sf1 = paper_store.upsert_paper(PaperRecord(title="Fourier Neural Operator", relevance=90))
@@ -104,7 +109,7 @@ class TestPaperStore:
 
         results_all = paper_store.search_papers()
         assert len(results_all) == 3
-        # 按 relevance 降序
+        # Sorted by relevance descending
         assert results_all[0].relevance >= results_all[1].relevance >= results_all[2].relevance
 
     def test_find_paper_by_any_id(self, paper_store: PaperStore):
@@ -122,12 +127,12 @@ class TestPaperStore:
     def test_verify_paper(self, paper_store: PaperStore):
         sf_id = paper_store.upsert_paper(PaperRecord(title="Verify Me"))
         paper_store.add_identifier(sf_id, "arxiv", "2301.11167")
-        # 只有一种类型不应验证
+        # Single type should not verify
         paper_store.verify_paper(sf_id)
         p = paper_store.get_paper_by_id(sf_id)
         assert not p.verified
 
-        # 添加第二种类型
+        # Add second identifier type
         paper_store.add_identifier(sf_id, "doi", "10.1234/verify")
         paper_store.verify_paper(sf_id)
         p = paper_store.get_paper_by_id(sf_id)

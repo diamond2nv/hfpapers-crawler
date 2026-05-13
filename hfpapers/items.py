@@ -1,33 +1,35 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 # items.py
-"""论文数据模型"""
+"""Paper data model"""
 
 import scrapy
 
 
 class PaperItem(scrapy.Item):
-    """统一论文数据模型 — 所有 Spider 输出此格式"""
-    
-    # 核心元数据
-    arxiv_id = scrapy.Field()       # arXiv ID (如 "2301.11167")
-    title = scrapy.Field()          # 论文标题
-    abstract = scrapy.Field()       # 摘要
-    source = scrapy.Field()         # 来源: "arxiv_api" / "openreview" / "hf_papers"
-    source_url = scrapy.Field()     # 来源 URL
-    search_category = scrapy.Field() # 搜索维度标签
+    """Unified paper data model — all Spiders output this format"""
 
-    # 额外信息
-    categories = scrapy.Field()     # arXiv categories 列表
-    authors = scrapy.Field()        # 作者列表
-    venue = scrapy.Field()          # 会议/期刊 (如 "NeurIPS 2024")
+    # Core metadata
+    arxiv_id = scrapy.Field()       # arXiv ID (e.g. "2301.11167")
+    title = scrapy.Field()          # Paper title
+    abstract = scrapy.Field()       # Abstract
+    source = scrapy.Field()         # Source: "arxiv_api" / "openreview" / "hf_papers"
+    source_url = scrapy.Field()     # Source URL
+    search_category = scrapy.Field() # Search dimension label
+
+    # Additional info
+    categories = scrapy.Field()     # arXiv categories list
+    authors = scrapy.Field()        # Authors list
+    venue = scrapy.Field()          # Conference/journal (e.g. "NeurIPS 2024")
     doi = scrapy.Field()            # DOI
-    code_url = scrapy.Field()       # 代码仓库 URL
-    pdf_url = scrapy.Field()        # PDF 下载 URL
+    code_url = scrapy.Field()       # Code repository URL
+    pdf_url = scrapy.Field()        # PDF download URL
 
-    # OpenReview 专属
-    openreview_forum = scrapy.Field()  # forum ID
-    reviews = scrapy.Field()           # 审稿: [{"rating": "...", "comment": "..."}]
+    # OpenReview specific
+    openreview_forum = scrapy.Field()  # Forum ID
+    reviews = scrapy.Field()           # Reviews: [{"rating": "...", "comment": "..."}]
 
-    # 处理状态
-    relevance_score = scrapy.Field()   # 相关度 (0-100)
-    verified = scrapy.Field()          # arXiv 验证状态
-    downloaded = scrapy.Field()        # PDF 下载状态
+    # Processing status
+    relevance_score = scrapy.Field()   # Relevance score (0-100)
+    verified = scrapy.Field()          # arXiv verification status
+    downloaded = scrapy.Field()        # PDF download status

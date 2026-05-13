@@ -1,9 +1,12 @@
-"""测试 sources 模块 — 多源搜索 + arXiv ID 提取 + 去重"""
-import pytest
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Tests for sources module — multi-source search + arXiv ID extraction + dedup"""
 from hfpapers.sources import (
-    ARXIV_ID_RE, _safe_field,
-    deduplicate, get_enabled_sources,
-    SourcePaper, HfCliSource, OpenReviewSource, PwcApiSource, ArxivApiSource,
+    ARXIV_ID_RE,
+    SourcePaper,
+    _safe_field,
+    deduplicate,
+    get_enabled_sources,
 )
 
 

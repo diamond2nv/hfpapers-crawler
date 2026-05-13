@@ -1,9 +1,13 @@
-"""测试 evolved 模块 — 去重 + 分类 + 爬虫引擎"""
-from hfpapers.search_queue import _title_similarity
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Test evolved module — dedup + classification + crawler engine"""
 from hfpapers.evolved import (
-    PaperInfo, DedupEngine, RelevanceDetector, HFPapersCrawler,
+    DedupEngine,
     PaperDownloader,
+    PaperInfo,
+    RelevanceDetector,
 )
+from hfpapers.search_queue import _title_similarity
 
 
 class TestPaperInfo:
@@ -89,7 +93,7 @@ class TestHFPapersCrawler:
         )
         assert sim < 0.5
 
-    # crawl 需要在 HF CLI 可用时集成测试，这里跳过
+    # crawl needs HF CLI for integration testing, skipped here
 
 class TestPaperDownloader:
     def test_init(self, test_env):

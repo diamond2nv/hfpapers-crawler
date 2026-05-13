@@ -1,19 +1,19 @@
-"""测试审计模块 — 全面覆盖"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Tests for audit module -- comprehensive coverage"""
 
 import json
 import os
 import sqlite3
 import tempfile
 
-import pytest
 from typer.testing import CliRunner
-from hfpapers.cli import app
 
 runner = CliRunner()
 
 
 def _create_arxiv_meta_db(db_path: str, papers: list[dict] = None):
-    """创建 arxiv_meta.db 并插入测试数据"""
+    """Create arxiv_meta.db and insert test data"""
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute("""
@@ -32,7 +32,7 @@ def _create_arxiv_meta_db(db_path: str, papers: list[dict] = None):
 
 
 def _create_paper_store_db(db_path: str, papers: list[dict] = None):
-    """创建 papers.db 并插入测试数据（含 identifiers 表）"""
+    """Create papers.db and insert test data (with identifiers table)"""
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript("""
@@ -77,7 +77,7 @@ def _create_paper_store_db(db_path: str, papers: list[dict] = None):
 
 
 class TestArxivMetaAudit:
-    """arxiv_meta 层审计测试"""
+    """arxiv_meta layer audit test"""
 
     def test_empty_db(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -117,7 +117,7 @@ class TestArxivMetaAudit:
             assert report["sources"]["kaggle"]["count"] == 2
 
     def test_unknown_source(self):
-        """空字符串 source 应显示为 unknown"""
+        """Empty string source should show as unknown"""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "arxiv_meta.db")
             _create_arxiv_meta_db(db_path, [
@@ -136,7 +136,7 @@ class TestArxivMetaAudit:
         assert report["sources"] == {}
 
     def test_no_source_column_legacy(self):
-        """旧表（无 source 列）的审计 fallback"""
+        """Audit fallback for old table (no source column)"""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "arxiv_meta.db")
             conn = sqlite3.connect(db_path)
@@ -166,7 +166,7 @@ class TestArxivMetaAudit:
             assert oai["last_import"] is not None
 
     def test_source_column_migration(self):
-        """验证旧表 ALTER TABLE 迁移成功"""
+        """Verify old table ALTER TABLE migration success"""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
             conn = sqlite3.connect(db_path)
@@ -192,7 +192,7 @@ class TestArxivMetaAudit:
 
 
 class TestStateFilesAudit:
-    """状态文件审计测试"""
+    """State file audit test"""
 
     def test_no_state_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -245,7 +245,7 @@ class TestStateFilesAudit:
 
 
 class TestJsonlAudit:
-    """JSONL 文件审计测试"""
+    """JSONL file audit test"""
 
     def test_jsonl_not_exists(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -267,7 +267,7 @@ class TestJsonlAudit:
 
 
 class TestPaperStoreAudit:
-    """paper_store（papers.db）层交叉验证审计测试"""
+    """paper_store (papers.db) layer cross-validation audit test"""
 
     def test_paper_store_empty(self):
         from hfpapers.paper_store import PaperStore
@@ -282,8 +282,8 @@ class TestPaperStoreAudit:
             assert report["identifier_types"] == []
 
     def test_paper_store_no_ids(self):
-        """只有论文，无标识符"""
-        from hfpapers.paper_store import PaperStore, PaperRecord, PaperIdentifier
+        """Only papers, no identifiers"""
+        from hfpapers.paper_store import PaperRecord, PaperStore
         with tempfile.TemporaryDirectory() as tmpdir:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
             store.upsert_paper(PaperRecord(title="Paper A", source="test"))
@@ -294,20 +294,20 @@ class TestPaperStoreAudit:
             assert report["dual_id_papers"] == 0
 
     def test_dual_id_identifiers(self, paper_store):
-        """通过 paper_store fixture 验证双 ID 审计"""
-        from hfpclawer.audit import run_paper_store_audit
+        """Verify dual ID audit via paper_store fixture"""
         from hfpapers.paper_store import PaperRecord
+        from hfpclawer.audit import run_paper_store_audit
 
-        # 论文 A：arXiv + DOI 双标识符
+        # Paper A: arXiv + DOI dual identifiers
         sf_a = paper_store.upsert_paper(PaperRecord(title="Paper A", source="test", verified=True))
         paper_store.add_identifier(sf_a, "arxiv", "2501.10001", source="test")
         paper_store.add_identifier(sf_a, "doi", "10.1234/test.2025.10001", source="crossref")
 
-        # 论文 B：只有 arXiv
+        # Paper B: Only arXiv
         sf_b = paper_store.upsert_paper(PaperRecord(title="Paper B", source="test"))
         paper_store.add_identifier(sf_b, "arxiv", "2501.10002", source="test")
 
-        # 论文 C：arXiv + DOI + OpenReview 三个标识符
+        # Paper C: arXiv + DOI + OpenReview three identifiers
         sf_c = paper_store.upsert_paper(PaperRecord(title="Paper C", source="test", verified=True))
         paper_store.add_identifier(sf_c, "arxiv", "2501.10003", source="test")
         paper_store.add_identifier(sf_c, "doi", "10.1234/test.2025.10003", source="crossref")
@@ -316,29 +316,29 @@ class TestPaperStoreAudit:
         report = run_paper_store_audit(paper_store)
         assert report["total_papers"] == 3
         assert report["verified_papers"] == 2
-        assert report["dual_id_papers"] == 2  # A 和 C
+        assert report["dual_id_papers"] == 2  # A and C
         assert report["with_code"] == 0
         assert set(report["identifier_types"]) == {"arxiv", "doi", "openreview"}
-        # 每个类型的计数
+        # Count per type
         type_counts = {t["type"]: t["count"] for t in report["identifier_type_stats"]}
         assert type_counts["arxiv"] == 3
         assert type_counts["doi"] == 2
         assert type_counts["openreview"] == 1
 
     def test_dual_id_no_arxiv(self):
-        """只有 DOI 无 arXiv 的不算 dual"""
+        """Only DOI without arXiv does not count as dual"""
+        from hfpapers.paper_store import PaperRecord, PaperStore
         from hfpclawer.audit import run_paper_store_audit
-        from hfpapers.paper_store import PaperStore, PaperRecord
         with tempfile.TemporaryDirectory() as tmpdir:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
             sf = store.upsert_paper(PaperRecord(title="DOI Only", source="test"))
             store.add_identifier(sf, "doi", "10.1234/only-doi", source="crossref")
             report = run_paper_store_audit(store)
-            assert report["dual_id_papers"] == 0  # 不算，因为没有 arxiv
+            assert report["dual_id_papers"] == 0  # Does not count, because no arxiv
 
     def test_with_code_flag(self):
+        from hfpapers.paper_store import PaperRecord, PaperStore
         from hfpclawer.audit import run_paper_store_audit
-        from hfpapers.paper_store import PaperStore, PaperRecord
         with tempfile.TemporaryDirectory() as tmpdir:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
             sf = store.upsert_paper(PaperRecord(title="Has Code", source="test",
@@ -349,9 +349,9 @@ class TestPaperStoreAudit:
             assert report["total_papers"] == 1
 
     def test_verify_ratio(self):
-        """验证比例计算"""
+        """Verify ratio calculation"""
+        from hfpapers.paper_store import PaperRecord, PaperStore
         from hfpclawer.audit import run_paper_store_audit
-        from hfpapers.paper_store import PaperStore, PaperRecord
         with tempfile.TemporaryDirectory() as tmpdir:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
             for i in range(10):
@@ -359,11 +359,11 @@ class TestPaperStoreAudit:
                                                       verified=(i < 7)))
             report = run_paper_store_audit(store)
             assert report["verified_papers"] == 7
-            # dual_id_papers 为 0 因为没有 identifiers
+            # dual_id_papers is 0 because no identifiers
 
     def test_identifier_type_breakdown(self):
+        from hfpapers.paper_store import PaperRecord, PaperStore
         from hfpclawer.audit import run_paper_store_audit
-        from hfpapers.paper_store import PaperStore, PaperRecord
         with tempfile.TemporaryDirectory() as tmpdir:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
             sf1 = store.upsert_paper(PaperRecord(title="P1"))
@@ -380,19 +380,19 @@ class TestPaperStoreAudit:
 
 
 class TestCombinedAudit:
-    """综合审计测试（arxiv_meta + paper_store）"""
+    """Comprehensive audit test (arxiv_meta + paper_store)"""
 
     def test_full_audit_with_meta_and_store(self, paper_store, test_env):
-        """通过 run_full_audit 验证两个数据库同时审计"""
-        from hfpclawer.audit import run_paper_store_audit, run_audit
+        """Verify both databases are audited simultaneously via run_full_audit"""
         from hfpapers.paper_store import PaperRecord
+        from hfpclawer.audit import run_audit, run_paper_store_audit
 
-        # paper_store 插入数据
+        # paper_store insert data
         sf = paper_store.upsert_paper(PaperRecord(title="Combined Paper", source="test"))
         paper_store.add_identifier(sf, "arxiv", "2501.00001")
         paper_store.add_identifier(sf, "doi", "10.1234/combined")
 
-        # arxiv_meta 插入数据
+        # arxiv_meta insert data
         meta_db_path = os.path.join(os.getcwd(), "data", "arxiv_meta.db")
         os.makedirs(os.path.dirname(meta_db_path), exist_ok=True)
         _create_arxiv_meta_db(meta_db_path, [
@@ -406,13 +406,13 @@ class TestCombinedAudit:
         assert store_report["dual_id_papers"] == 1
 
     def test_full_audit_json_output(self):
-        """完整审计的 JSON 输出格式验证"""
-        from hfpclawer.audit import run_full_audit
+        """Full audit JSON output format verification"""
         from hfpapers.paper_store import PaperStore
+        from hfpclawer.audit import run_full_audit
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
             report = run_full_audit(db_path=db_path)
-            # 检查顶层结构
+            # Check top-level structure
             for key in ["timestamp", "arxiv_meta", "paper_store"]:
                 assert key in report, f"Missing key: {key}"

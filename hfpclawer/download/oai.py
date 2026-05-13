@@ -1,12 +1,12 @@
-"""OaiPmhDownloader — arXiv OAI-PMH 元数据增量/全量下载器
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""OaiPmhDownloader — arXiv OAI-PMH metadata incremental/full downloader
 
-从 scripts/download_arxiv_oai.py 提炼并适配 BaseDownloader。
-支持断点续传、优先级队列、增量更新。
+Extracted from scripts/download_arxiv_oai.py and adapted to BaseDownloader.
+Supports resume, priority queue, incremental updates.
 """
 
-import json
 import logging
-import os
 import re
 import sqlite3
 import threading
@@ -22,7 +22,7 @@ from hfpclawer.download.base import BaseDownloader, ResumeState
 
 logger = logging.getLogger("hfpclawer.download.oai")
 
-# ─── 常量 ───────────────────────────────────
+# ─── Constants ───────────────────────────────────
 OAI_BASE = "https://export.arxiv.org/oai2"
 MAX_RETRIES = 5
 RETRY_BACKOFF = [2, 5, 10, 30, 60]
@@ -30,7 +30,7 @@ PAGE_SIZE = 1000
 BATCH_WRITE = 500
 RATE_LIMIT = 2.0
 
-# ─── 下载优先级 ─────────────────────────────
+# ─── Download priorities ─────────────────────────────
 DOWNLOAD_PRIORITIES = [
     "cs:cs:AI", "cs:cs:LG", "cs:cs:NA", "cs:cs:NE",
     "cs:cs:CV", "cs:cs:CL",
@@ -76,7 +76,7 @@ MIGRATE_ADD_SOURCE = """ALTER TABLE arxiv_meta ADD COLUMN source TEXT DEFAULT ''
 
 
 class ArxivMetaDB:
-    """arXiv 元数据 SQLite 存储（低层封装）"""
+    """arXiv metadata SQLite storage (low-level wrapper)"""
 
     def __init__(self, db_path: str = None):
         self.db_path = db_path
@@ -95,11 +95,11 @@ class ArxivMetaDB:
         with self._conn() as conn:
             conn.executescript(FTS_SCHEMA)
             conn.executescript(META_SCHEMA)
-            # 迁移: 为旧库加 source 列
+            # Migration: add source column to old database
             try:
                 conn.execute(MIGRATE_ADD_SOURCE)
             except sqlite3.OperationalError:
-                pass  # 列已存在
+                pass  # Column already exists
 
     def insert_batch(self, papers: list[tuple], source: str = ""):
         with self._lock, self._conn() as conn:
@@ -127,7 +127,7 @@ class ArxivMetaDB:
 
 
 class OaiPmhDownloader(BaseDownloader):
-    """OAI-PMH 下载器 — 断点续传、增量更新、优先级队列"""
+    """OAI-PMH downloader — resume, incremental updates, priority queue"""
 
     source_name = "oai"
 
@@ -157,7 +157,7 @@ class OaiPmhDownloader(BaseDownloader):
                 resp = self.session.get(OAI_BASE, params=params, timeout=60)
                 if resp.status_code == 503:
                     retry_after = int(resp.headers.get("Retry-After", 30))
-                    logger.warning(f"  503 限流等待 {retry_after}s...")
+                    logger.warning(f"  503 rate limited, waiting {retry_after}s...")
                     time.sleep(retry_after)
                     continue
                 if resp.status_code != 200:
@@ -173,21 +173,21 @@ class OaiPmhDownloader(BaseDownloader):
                     if code == "noRecordsMatch":
                         return None
                     if code == "badResumptionToken":
-                        logger.warning("  resumptionToken 失效，重新开始")
+                        logger.warning("  resumptionToken expired, restarting")
                         return None
-                    logger.warning(f"  OAI 错误 [{code}]: {error.text}")
+                    logger.warning(f"  OAI error [{code}]: {error.text}")
                     if attempt < MAX_RETRIES - 1:
                         time.sleep(RETRY_BACKOFF[attempt])
                     continue
                 return root
 
             except (requests.RequestException, ET.ParseError) as e:
-                logger.warning(f"  请求失败: {e}")
+                logger.warning(f"  Request failed: {e}")
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(RETRY_BACKOFF[attempt])
                 continue
 
-        logger.error(f"  [{params.get('set', '?')}] 请求最终失败")
+        logger.error(f"  [{params.get('set', '?')}] Request ultimately failed")
         self._stats["errors"] += 1
         return None
 
@@ -240,7 +240,7 @@ class OaiPmhDownloader(BaseDownloader):
 
     def download_set(self, set_spec: str, from_date: str = "",
                      to_date: str = "", max_pages: int = 0) -> int:
-        """下载一个分类的全部/增量记录"""
+        """Download all/incremental records for one category"""
         new_count = 0
         page = 0
         resumption_token = None
@@ -290,7 +290,7 @@ class OaiPmhDownloader(BaseDownloader):
                 new_count += len(batch)
                 self._stats["total_new"] += len(batch)
 
-            # 进度上报
+            # Progress reporting
             self._update_progress(self._stats["total_fetched"], self._stats["total_new"])
 
             token_el = root.find(".//{http://www.openarchives.org/OAI/2.0/}resumptionToken")
@@ -300,30 +300,30 @@ class OaiPmhDownloader(BaseDownloader):
                 total = int(token_el.get("completeListSize", 0))
                 logger.info(f"  [{set_spec}] page {page}: +{new_count} (cursor: {cursor:,}/{total:,})")
             else:
-                logger.info(f"  [{set_spec}] 完成: +{new_count}")
+                logger.info(f"  [{set_spec}] Complete: +{new_count}")
                 break
 
         return new_count
 
     def run(self, incremental: bool = True, from_date: str = "",
             tier1_only: bool = False, **kwargs) -> int:
-        """执行下载
+        """Execute download
 
         Args:
-            incremental: 增量模式（仅最近1天）
-            from_date: 起始日期 YYYY-MM-DD
-            tier1_only: 仅下载 Tier 1 核心分类
+            incremental: Incremental mode (last 1 day only)
+            from_date: Start date YYYY-MM-DD
+            tier1_only: Download Tier 1 core categories only
 
         Returns:
-            新增条数
+            Number of new records
         """
         self._stats = {"total_fetched": 0, "total_new": 0, "skipped": 0, "errors": 0}
 
-        # 断点续传: 读取上次进度
+        # Resume: read last progress
         state = self.state.get()
 
         if incremental and not from_date:
-            # 增量模式: 从上次完成日期开始
+            # Incremental mode: start from last completion date
             checksum = state.get("checksum", "")
             if checksum:
                 _from, _to = ResumeState.parse_date_range(checksum)
@@ -333,7 +333,7 @@ class OaiPmhDownloader(BaseDownloader):
                     from_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
             else:
                 from_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            logger.info(f"增量模式，从 {from_date} 开始")
+            logger.info(f"Incremental mode, starting from {from_date}")
 
         self.state.set_status("running")
 
@@ -353,39 +353,38 @@ class OaiPmhDownloader(BaseDownloader):
 
             if new_count > 0:
                 rate = new_count / elapsed if elapsed > 0 else 0
-                logger.info(f"  → {new_count} 篇 in {elapsed:.1f}s ({rate:.0f}/s)")
+                logger.info(f"  → {new_count} papers in {elapsed:.1f}s ({rate:.0f}/s)")
 
-            # 检查中断
+            # Check interrupt
             if self._interrupted:
-                logger.warning("⚠️ 收到中断信号，停止下载")
+                logger.warning("⚠️ Interrupt signal received, stopping download")
                 break
 
-        # 保存 checksum（日期范围）
+        # Save checksum (date range)
         checksum = ResumeState.date_range_to_checksum(from_date)
 
         all_elapsed = time.time() - start_all
         total_in_db = self.db.count()
 
         logger.info(f"\n{'='*50}")
-        logger.info(f"✅ 下载完成")
-        logger.info(f"  新增: {total_new} 篇")
-        logger.info(f"  总计: {total_in_db:,} 篇")
-        logger.info(f"  耗时: {all_elapsed:.0f}s")
+        logger.info("✅ Download complete")
+        logger.info(f"  New: {total_new} papers")
+        logger.info(f"  Total: {total_in_db:,} papers")
+        logger.info(f"  Time: {all_elapsed:.0f}s")
 
         self.state.mark_done()
         return total_new
 
     def print_status(self):
-        """打印下载状态"""
-        from hfpclawer.download.base import logger as base_logger
+        """Print download status"""
         state = self.state.get()
         total = self.db.count()
 
-        print(f"\n📊 arXiv OAI-PMH 下载状态")
-        print(f"  DB 论文总数: {total:,}")
-        print(f"  状态:        {state.get('status', 'unknown')}")
-        print(f"  上次更新:    {state.get('last_update', '从未')}")
-        print(f"  已获取:      {state.get('total_fetched', 0):,}")
-        print(f"  本次新增:    {state.get('total_new', 0):,}")
+        print("\n📊 arXiv OAI-PMH Download Status")
+        print(f"  DB total papers: {total:,}")
+        print(f"  Status:        {state.get('status', 'unknown')}")
+        print(f"  Last updated:    {state.get('last_update', 'never')}")
+        print(f"  Fetched:      {state.get('total_fetched', 0):,}")
+        print(f"  New this run:    {state.get('total_new', 0):,}")
         print(f"  checksum:    {state.get('checksum', 'N/A')}")
-        print(f"  DB 路径: {self.db_path}")
+        print(f"  DB path: {self.db_path}")

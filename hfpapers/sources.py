@@ -1,20 +1,21 @@
-# ─── 多源爬取引擎 ──────────────────────────
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ─── Multi-source Crawl Engine ───────────────────
 # hfpapers/sources.py
 #
-# 支持的论文来源（按优先级排列）:
-#   hf_cli      — Hugging Face Papers CLI (主源，零 token)
-#   openreview  — OpenReview 的审稿记录 + 论文
-#   pwc_api     — PapersWithCode API (代码+SOTA)
-#   arxiv_api   — arXiv 直接搜索 (备选，需要配置)
+# Supported paper sources (prioritized):
+#   hf_cli      — Hugging Face Papers CLI (primary, zero token)
+#   openreview  — OpenReview reviews + papers
+#   pwc_api     — PapersWithCode API (code+SOTA)
+#   arxiv_api   — arXiv direct search (fallback, needs config)
 
 import json
 import logging
 import re
-import time
-import requests
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+
+import requests
 
 from hfpapers.config import get as cfg_get
 
@@ -23,32 +24,32 @@ logger = logging.getLogger("hfpapers.sources")
 ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?")
 
 # ════════════════════════════════════════════
-# 统一论文数据模型
+# Unified Paper Data Model
 # ════════════════════════════════════════════
 
 
 @dataclass
 class SourcePaper:
-    """从任意来源提取的论文信息"""
+    """Paper info extracted from any source"""
     arxiv_id: str = ""
     title: str = ""
     abstract: str = ""
     source: str = ""               # "hf_cli" | "openreview" | "pwc_api" | "arxiv_api"
     source_url: str = ""
-    source_category: str = ""      # 搜索维度标签
+    source_category: str = ""      # Search dimension label
     code_url: str = ""
-    venue: str = ""                # 会议/期刊 (如 "NeurIPS 2024")
-    doi: str = ""                  # DOI (正式发表标识)
-    reviews: list[dict] = field(default_factory=list)  # OpenReview 专属：[(分数, 意见)]
+    venue: str = ""                # Venue (e.g. "NeurIPS 2024")
+    doi: str = ""                  # DOI (official publication identifier)
+    reviews: list[dict] = field(default_factory=list)  # OpenReview only: [(rating, comment)]
 
 
 # ════════════════════════════════════════════
-# 基类
+# Base Class
 # ════════════════════════════════════════════
 
 
 class PaperSource(ABC):
-    """论文来源的抽象基类"""
+    """Abstract base class for paper sources"""
 
     @abstractmethod
     def search(self, query: str, category: str = "") -> list[SourcePaper]:
@@ -61,7 +62,7 @@ class PaperSource(ABC):
 
 
 # ════════════════════════════════════════════
-# 1. HF CLI — 主源
+# 1. HF CLI — Primary source
 # ════════════════════════════════════════════
 
 
@@ -81,7 +82,7 @@ class HfCliSource(PaperSource):
                 return results
             data = json.loads(output.stdout)
         except Exception as e:
-            logger.debug(f"[hf_cli] {query} 失败: {e}")
+            logger.debug(f"[hf_cli] {query} failed: {e}")
             return results
 
         for pd in data:
@@ -96,21 +97,21 @@ class HfCliSource(PaperSource):
                 source_url=f"https://huggingface.co/papers?q={query}",
                 source_category=category,
             ))
-        logger.info(f"  [hf_cli] {query}: {len(results)} 篇")
+        logger.info(f"  [hf_cli] {query}: {len(results)} papers")
         return results
 
 
 # ════════════════════════════════════════════
-# 2. OpenReview — 审稿记录 + 论文
-# ════════════════════════════════════════════
+# 2. OpenReview — Reviews + Papers
+# 2. OpenReview — Reviews + Papers
 #
 # API: POST https://api.openreview.net/notes/search
 #   body: {"term": "neural operator", "content": "all", "limit": 50, "offset": 0}
-#  返回含 id  (forum 的 forum)，可直接对应 arXiv。
-#  另外 OpenReview 的 invitation 字段表示所属会议/工作坊。
+#  Returns id (forum's forum), directly mappable to arXiv.
+#  The OpenReview invitation field indicates the venue/workshop.
 #
-# 审稿数据：每个 submission note 的 replies 含 review notes，
-#   其中有 ratings (1-10) 和 reviewer_comment。
+# Review data: each submission note's replies contain review notes,
+#   with ratings (1-10) and reviewer_comment.
 
 
 class OpenReviewSource(PaperSource):
@@ -128,34 +129,34 @@ class OpenReviewSource(PaperSource):
                 timeout=30,
             )
             if resp.status_code != 200:
-                logger.warning(f"  [openreview] API 返回 {resp.status_code}")
+                logger.warning(f"  [openreview] API returned {resp.status_code}")
                 return results
             data = resp.json()
         except Exception as e:
-            logger.warning(f"  [openreview] 搜索失败: {e}")
+            logger.warning(f"  [openreview] search failed: {e}")
             return results
 
         notes = data.get("notes", [])
         for note in notes:
             content = note.get("content", {})
-            # OpenReview 的 content 是嵌套 dict: {"title": {"value": "..."}, "abstract": {"value": "..."}}
+            # OpenReview content is nested dict: {"title": {"value": "..."}, "abstract": {"value": "..."}}
             title = _safe_field(content, "title")
             abstract = _safe_field(content, "abstract")
             forum_id = note.get("forum", "")
 
-            # 提取 arXiv ID
+            # Extract arXiv ID
             arxiv_id = self._extract_arxiv(content)
             if not arxiv_id:
-                # 搜索整个 content JSON 文本
+                # Search entire content JSON text
                 arxiv_id = self._extract_arxiv_from_text(str(content))
 
             if not arxiv_id:
                 continue
 
-            # 提取审稿信息
+            # Extract review info
             reviews = self._fetch_reviews(forum_id) if forum_id else []
 
-            # 提取 venue
+            # Extract venue
             venue = note.get("invitation", "").replace(".*/.*", "")
 
             results.append(SourcePaper(
@@ -169,17 +170,17 @@ class OpenReviewSource(PaperSource):
                 reviews=reviews,
             ))
 
-        logger.info(f"  [openreview] {query}: {len(results)} 篇 (含审稿)")
+        logger.info(f"  [openreview] {query}: {len(results)} papers (with reviews)")
         return results
 
     def _extract_arxiv(self, content: dict) -> str:
-        """从 OpenReview 的 content 字典提取 arXiv ID"""
+        """Extract arXiv ID from OpenReview content dict"""
         for key in ("arxiv_id", "paper_arxiv", "arXiv_id", "paper_id"):
             raw = content.get(key, "")
             if isinstance(raw, dict):
                 raw = raw.get("value", raw.get("content", ""))
             if not raw:
-                # 可能在 html 字段里
+                # May be in html field
                 html_val = content.get("html", "")
                 if isinstance(html_val, dict):
                     html_val = html_val.get("value", "")
@@ -195,7 +196,7 @@ class OpenReviewSource(PaperSource):
         return match.group(1) if match else ""
 
     def _fetch_reviews(self, forum_id: str) -> list[dict]:
-        """获取 OpenReview 审稿记录"""
+        """Fetch OpenReview review records"""
         reviews = []
         try:
             resp = requests.get(
@@ -215,18 +216,18 @@ class OpenReviewSource(PaperSource):
                 comment = _safe_field(content, "review") or _safe_field(content, "reviewer_comment")
                 reviews.append({"rating": rating, "comment": comment[:300]})
         except Exception as e:
-            logger.debug(f"  [openreview] 审稿获取失败: {e}")
+            logger.debug(f"  [openreview] failed to fetch reviews: {e}")
         return reviews
 
 
 # ════════════════════════════════════════════
-# 3. PapersWithCode — 代码 + SOTA 排行榜
+# 3. PapersWithCode — Code + SOTA Leaderboards
 # ════════════════════════════════════════════
 #
 # API: GET https://paperswithcode.com/api/v1/papers/?q=<query>
-#  返回 json: {count, next, previous, results: [
+#  Returns json: {count, next, previous, results: [
 #   {id, title, arxiv_id, paper_pwc_url, paper_url, abstract, repositories, ...}  ]}
-#  每个 paper 的 repositories 含 github_url, is_official 等
+#  Each paper's repositories contain github_url, is_official etc.
 
 
 class PwcApiSource(PaperSource):
@@ -244,11 +245,11 @@ class PwcApiSource(PaperSource):
                 timeout=30,
             )
             if resp.status_code != 200:
-                logger.warning(f"  [pwc] API 返回 {resp.status_code}")
+                logger.warning(f"  [pwc] API returned {resp.status_code}")
                 return results
             data = resp.json()
         except Exception as e:
-            logger.warning(f"  [pwc] 搜索失败: {e}")
+            logger.warning(f"  [pwc] search failed: {e}")
             return results
 
         for paper in data.get("results", []):
@@ -258,7 +259,7 @@ class PwcApiSource(PaperSource):
             if not arxiv_id or not ARXIV_ID_RE.match(arxiv_id):
                 continue
 
-            # 提取代码仓库
+            # Extract code repository
             code_url = ""
             repos = paper.get("repositories", [])
             for repo in repos:
@@ -278,7 +279,7 @@ class PwcApiSource(PaperSource):
                 code_url=code_url,
             ))
 
-        logger.info(f"  [pwc] {query}: {len(results)} 篇 (含 {sum(1 for r in results if r.code_url)} 个代码)")
+        logger.info(f"  [pwc] {query}: {len(results)} papers ({sum(1 for r in results if r.code_url)} with code)")
         return results
 
     @staticmethod
@@ -288,11 +289,11 @@ class PwcApiSource(PaperSource):
 
 
 # ════════════════════════════════════════════
-# 4. arXiv API — 直接搜索（备选）
+# 4. arXiv API — Direct Search (Fallback)
 # ════════════════════════════════════════════
 #
 # API: GET http://export.arxiv.org/api/query?search_query=...
-#  返回 Atom XML
+#  Returns Atom XML
 
 
 class ArxivApiSource(PaperSource):
@@ -321,7 +322,7 @@ class ArxivApiSource(PaperSource):
                 aid = entry.find("id")
                 if not aid:
                     continue
-                # arXiv 格式: http://arxiv.org/abs/XXXX.YYYYYvN
+                # arXiv format: http://arxiv.org/abs/XXXX.YYYYYvN
                 match = ARXIV_ID_RE.search(aid.text)
                 if not match:
                     continue
@@ -337,18 +338,18 @@ class ArxivApiSource(PaperSource):
                     source_category=category,
                 ))
         except Exception as e:
-            logger.warning(f"  [arxiv_api] 搜索失败: {e}")
-        logger.info(f"  [arxiv_api] {query}: {len(results)} 篇")
+            logger.warning(f"  [arxiv_api] search failed: {e}")
+        logger.info(f"  [arxiv_api] {query}: {len(results)} papers")
         return results
 
 
 # ════════════════════════════════════════════
-# 多源统一调度
+# Multi-source Unified Dispatch
 # ════════════════════════════════════════════
 
 
 def get_enabled_sources() -> list[PaperSource]:
-    """根据配置返回启用的来源列表"""
+    """Return list of enabled sources based on config"""
     sources_map: dict[str, PaperSource] = {
         "hf_cli": HfCliSource(),
         "openreview": OpenReviewSource(),
@@ -360,37 +361,37 @@ def get_enabled_sources() -> list[PaperSource]:
 
 
 def get_raw_searchers() -> list:
-    """获取纯程序化搜索器（0 token），用于大规模批量搜索
+    """Get programmatic searchers (0 token), for large-scale batch search
 
-    返回:
+    Returns:
         [(name, search_fn), ...]
         search_fn(query, limit, year_from) -> list[dict]
 
-    优先级:
-        1. arxiv_local — 本地 FTS5 索引（毫秒级）
-        2. arxiv_api — arXiv HTTP API（备选）
+    Priority:
+        1. arxiv_local — Local FTS5 index (millisecond)
+        2. arxiv_api — arXiv HTTP API (fallback)
     """
     searchers = []
 
-    # 1. 本地 FTS5 索引（最高优先级，0 网络请求）
+    # 1. Local FTS5 index (highest priority, 0 network requests)
     try:
-        from hfpapers.arxiv_search import ArxivLocalSearch, ArxivLocalSpider
+        from hfpapers.arxiv_search import ArxivLocalSpider
         local = ArxivLocalSpider()
-        # 检查是否有数据
+        # Check if there is data
         if local.engine.count() > 100:
             searchers.append(("arxiv_local", local.search))
-            logger.info("[SOURCES] 本地 FTS5 索引可用")
+            logger.info("[SOURCES] Local FTS5 index available")
     except Exception as e:
-        logger.debug(f"[SOURCES] 本地索引不可用: {e}")
+        logger.debug(f"[SOURCES] Local index unavailable: {e}")
 
-    # 2. arXiv API（备选）
+    # 2. arXiv API (fallback)
     searchers.append(("arxiv_api", ArxivApiSource().search))
 
     return searchers
 
 
 def deduplicate(papers: list[SourcePaper]) -> list[SourcePaper]:
-    """按 arxiv_id 去重（保留第一个出现的）"""
+    """Deduplicate by arxiv_id (keep first occurrence)"""
     seen: set[str] = set()
     result = []
     for p in papers:
@@ -401,12 +402,12 @@ def deduplicate(papers: list[SourcePaper]) -> list[SourcePaper]:
 
 
 # ════════════════════════════════════════════
-# 辅助
+# Helpers
 # ════════════════════════════════════════════
 
 
 def _safe_field(content: dict, key: str) -> str:
-    """从 OpenReview 的嵌套 content 中取值: {'key': {'value': '...'}}"""
+    """Get value from OpenReview's nested content: {'key': {'value': '...'}}"""
     val = content.get(key, "")
     if isinstance(val, dict):
         return str(val.get("value", val.get("content", "")))

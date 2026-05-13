@@ -1,12 +1,15 @@
-# ─── 配置加载 ──────────────────────────────
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ─── Config Loading ──────────────────────────────
 # hfpapers/config.py
 
-import os
 import logging
-import yaml
+import os
 from pathlib import Path
-from dotenv import load_dotenv
 from typing import Any
+
+import yaml
+from dotenv import load_dotenv
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 ENV_PATH = Path(__file__).parent.parent / ".env"
@@ -15,9 +18,9 @@ _config_cache: dict | None = None
 
 logger = logging.getLogger("hfpapers.config")
 
-# ─── litellm 价格查询 ───────────────────────
-# 使用 litellm.model_cost 内置数据库（2707个模型, 109+ provider）
-# 来源: https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json
+# ─── litellm Price Lookup ───────────────────────
+# Uses litellm.model_cost built-in database (2707 models, 109+ providers)
+# Source: https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json
 _MODEL_COST_CACHE: dict | None = None
 
 
@@ -35,29 +38,29 @@ def _get_model_cost() -> dict:
 
 
 def get_price(model_id: str) -> dict:
-    """查询模型的 token 价格。
+    """Lookup token price for a model.
 
-    返回: {input_cost_per_token, output_cost_per_token, litellm_provider, source}
-    未知模型返回全 0。
+    Returns: {input_cost_per_token, output_cost_per_token, litellm_provider, source}
+    Unknown models return all zeros.
 
-    示例:
+    Example:
       get_price("deepseek/deepseek-chat")
       # → {input_cost_per_token: 2.8e-07, output_cost_per_token: 4.2e-07, ...}
     """
     cost_map = _get_model_cost()
     info = cost_map.get(model_id, {})
     if not info:
-        # 尝试 bare name（无 provider 前缀）
+        # Try bare name (without provider prefix)
         bare = model_id.split("/")[-1] if "/" in model_id else model_id
         info = cost_map.get(bare, {})
     return info
 
 
 def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float:
-    """估算 LLM 调用费用（USD）。
+    """Estimate LLM call cost (USD).
 
     >>> estimate_cost("deepseek/deepseek-chat", 10000, 500)
-    0.00301  # ~0.3 美分
+    0.00301  # ~0.3 cents
     """
     info = get_price(model_id)
     in_price = info.get("input_cost_per_token", 0.0) or 0.0
@@ -67,31 +70,31 @@ def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float
 
 def check_token_budget(estimated_input: int, estimated_output: int,
                        *, model_id: str | None = None) -> bool:
-    """检查 token 预算是否充足（通用限流，适用于所有 provider）。
+    """Check if token budget is sufficient (general rate limiting, applies to all providers).
 
-    返回 True 表示 budget 内，False 表示超限。
+    Returns True if within budget, False if exceeded.
     """
     total = estimated_input + estimated_output
     limit = get("budget.max_tokens", 50000)
     if total > limit:
-        logger.warning(f"Token 预算超限: 预计 {total:,} > 上限 {limit:,}")
+        logger.warning(f"Token budget exceeded: estimated {total:,} > limit {limit:,}")
         return False
     return True
 
 
 def check_cost_budget(model_id: str, estimated_input: int, estimated_output: int,
                       *, max_cost_usd: float | None = None) -> bool:
-    """检查费用预算是否充足（仅对付费 provider 生效）。
+    """Check if cost budget is sufficient (only applies to paid providers).
 
-    Ollama 等本地模型返回 True（不花钱，不限制）。
-    未知模型也返回 True（假设免费）。
-    返回 True 表示 budget 内，False 表示超限。
+    Local models like Ollama return True (free, no limit).
+    Unknown models also return True (assumed free).
+    Returns True if within budget, False if exceeded.
     """
     info = get_price(model_id)
     in_price = info.get("input_cost_per_token", 0.0) or 0.0
     out_price = info.get("output_cost_per_token", 0.0) or 0.0
 
-    # 免费模型（ollama 等）不限制
+    # Free models (ollama etc.) are not limited
     if in_price == 0.0 and out_price == 0.0:
         return True
 
@@ -101,7 +104,7 @@ def check_cost_budget(model_id: str, estimated_input: int, estimated_output: int
     cost = (estimated_input * in_price) + (estimated_output * out_price)
     if cost > max_cost_usd:
         logger.warning(
-            f"费用预算超限: 预计 ${cost:.4f} > 上限 ${max_cost_usd:.2f} "
+            f"Cost budget exceeded: estimated ${cost:.4f} > limit ${max_cost_usd:.2f} "
             f"(model={model_id})"
         )
         return False
@@ -109,27 +112,27 @@ def check_cost_budget(model_id: str, estimated_input: int, estimated_output: int
 
 
 def check_budget(model_id: str, estimated_input: int, estimated_output: int) -> tuple[bool, str]:
-    """同时检查 token 和费用预算。
+    """Check both token and cost budgets simultaneously.
 
-    返回: (ok: bool, reason: str)
-    - (True, "") 表示双通过
-    - (False, "reason...") 表示哪个维度超限
+    Returns: (ok: bool, reason: str)
+    - (True, "") means both pass
+    - (False, "reason...") indicates which dimension exceeded
     """
     if not check_token_budget(estimated_input, estimated_output):
-        return False, "token 预算超限"
+        return False, "token budget exceeded"
     if not check_cost_budget(model_id, estimated_input, estimated_output):
-        return False, "费用预算超限"
+        return False, "cost budget exceeded"
     return True, ""
 
 
-# ─── 配置加载 ───────────────────────────────
+# ─── Config Loading ───────────────────────────────
 
 
 def load_env():
-    """加载 .env（环境变量覆盖）"""
+    """Load .env (environment variable override)"""
     if ENV_PATH.exists():
         load_dotenv(ENV_PATH, override=False)
-    # 环境变量覆盖
+    # Environment variable override
     for key in [
         "DEEPSEEK_API_KEY", "HF_TOKEN", "OLLAMA_API_BASE",
         "LITELLM_PROXY", "LITELLM_API_KEY", "HTTP_PROXY", "HTTPS_PROXY",
@@ -140,18 +143,18 @@ def load_env():
 
 
 def load_config(reload: bool = False) -> dict:
-    """加载 YAML 配置（合并 env）"""
+    """Load YAML config (merged with env)"""
     global _config_cache
     if _config_cache and not reload:
         return _config_cache
 
     load_env()
 
-    # 测试环境变量覆盖
+    # Test environment variable override
     cfg_path = os.environ.get("_TEST_HFPAPERS_CONFIG") or CONFIG_PATH
     cfg_path = Path(cfg_path)
 
-    # config.yaml 不存在时返回默认配置
+    # Return default config when config.yaml does not exist
     if not cfg_path.exists():
         default_cfg = {
             "search": {
@@ -179,13 +182,13 @@ def load_config(reload: bool = False) -> dict:
             },
         }
         _config_cache = default_cfg
-        logger.info("使用默认配置（无 config.yaml）")
+        logger.info("Using default config (no config.yaml)")
         return default_cfg
 
     with open(cfg_path) as f:
         cfg = yaml.safe_load(f)
 
-    # .env 中的 API key 注入
+    # Inject API keys from .env
     cfg["env"] = {}
     for key in [
         "DEEPSEEK_API_KEY", "HF_TOKEN", "OLLAMA_API_BASE",
@@ -198,7 +201,7 @@ def load_config(reload: bool = False) -> dict:
 
 
 def get(key: str, default: Any = None) -> Any:
-    """点号分隔的配置访问: get('search.queries')"""
+    """Dot-separated config access: get('search.queries')"""
     cfg = load_config()
     parts = key.split(".")
     v = cfg

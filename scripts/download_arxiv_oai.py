@@ -1,34 +1,32 @@
-# ─── OAI-PMH 批量下载 arXiv 元数据 ───────────
+# ─── OAI-PMH Batch Download arXiv Metadata ────────
 # scripts/download_arxiv_oai.py
-# 使用 arXiv OAI-PMH 接口批量下载元数据到 SQLite FTS5 索引
-# 支持断点续传、增量更新、优先级队列、后台运行
+# Batch download arXiv metadata to SQLite FTS5 index using arXiv OAI-PMH interface
+# Supports resume from breakpoint, incremental updates, priority queue, background running
 
 """
-用法:
-    # 完整下载（按优先级从高到低）
+Usage:
+    # Full download (priority high to low)
     python scripts/download_arxiv_oai.py --all
 
-    # 仅增量更新（上次以来的新论文）
+    # Incremental update only (new papers since last)
     python scripts/download_arxiv_oai.py --incremental
 
-    # 后台下载（nohup）
+    # Background download (nohup)
     nohup python scripts/download_arxiv_oai.py --all --background > download.log 2>&1 &
 
-    # 查看进度
+    # Check progress
     python scripts/download_arxiv_oai.py --status
 
-配置:
-    - 首次运行自动创建/使用 data/arxiv_meta.db (FTS5 索引)
-    - 下载状态保存在 data/oai_download_state.json
-    - 支持 Ctrl+C 中断后断点续传
+Configuration:
+    - First run auto-creates/uses data/arxiv_meta.db (FTS5 index)
+    - Download state saved in data/oai_download_state.json
+    - Supports Ctrl+C interrupt with resume capability
 """
 
 import json
 import logging
-import os
 import re
 import sqlite3
-import sys
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -45,25 +43,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger("arxiv_oai")
 
-# ─── 路径 ────────────────────────────────────
+# ─── Paths ────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "arxiv_meta.db"
 STATE_PATH = DATA_DIR / "oai_download_state.json"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# ─── OAI-PMH 配置 ───────────────────────────
+# ─── OAI-PMH Configuration ───────────────────────────
 OAI_BASE = "https://export.arxiv.org/oai2"
 MAX_RETRIES = 5
-RETRY_BACKOFF = [2, 5, 10, 30, 60]  # 秒
-PAGE_SIZE = 1000  # OAI-PMH 每页最大记录数
-BATCH_WRITE = 500  # 每批次写入 DB 条数
-RATE_LIMIT = 2.0  # 请求间隔（秒）—— arXiv 推荐 4/s 峰值 + 1s 休眠
+RETRY_BACKOFF = [2, 5, 10, 30, 60]  # seconds
+PAGE_SIZE = 1000  # OAI-PMH max records per page
+BATCH_WRITE = 500  # records per DB batch write
+RATE_LIMIT = 2.0  # request interval (seconds) — arXiv recommends 4/s peak + 1s sleep
 
-# ─── 下载优先级 ─────────────────────────────
-# 按对我们领域的相关性排序，优先下载
+# ─── Download Priorities ─────────────────────────────
+# Sorted by relevance to our domain, higher priority first
 DOWNLOAD_PRIORITIES = [
-    # Tier 1: AI/ML/PDE 核心
+    # Tier 1: AI/ML/PDE Core
     "cs:cs:AI",      # Artificial Intelligence
     "cs:cs:LG",      # Machine Learning
     "cs:cs:NA",      # Numerical Analysis
@@ -76,7 +74,7 @@ DOWNLOAD_PRIORITIES = [
     "stat:stat:ML",  # Machine Learning (Stats)
     "stat:stat:CO",  # Computation (Stats)
 
-    # Tier 2: 相关领域
+    # Tier 2: Related fields
     "cs:cs:CE",      # Computational Engineering, Finance, and Science
     "cs:cs:IR",      # Information Retrieval
     "cs:cs:IT",      # Information Theory
@@ -113,7 +111,7 @@ DOWNLOAD_PRIORITIES = [
     "cs:cs:SI",      # Social and Information Networks
     "cs:cs:OH",      # Other (catch-all)
 
-    # Tier 3: 数学
+    # Tier 3: Mathematics
     "math:math:CO",  # Combinatorics
     "math:math:DS",  # Dynamical Systems
     "math:math:FA",  # Functional Analysis
@@ -143,14 +141,14 @@ DOWNLOAD_PRIORITIES = [
     "math:math:MG",  # Metric Geometry
     "math:math:QA",  # Quantum Algebra
 
-    # Tier 4: 统计
+    # Tier 4: Statistics
     "stat:stat:AP",  # Applications
     "stat:stat:ME",  # Methodology
     "stat:stat:OT",  # Other
     "stat:stat:TH",  # Statistics Theory
 ]
 
-# ─── FTS5 Schema（复用 arxiv_search.py）─────
+# ─── FTS5 Schema (reusing arxiv_search.py)─────
 FTS_SCHEMA = """
 CREATE VIRTUAL TABLE IF NOT EXISTS arxiv_fts USING fts5(
     arxiv_id UNINDEXED,
@@ -184,12 +182,12 @@ CREATE INDEX IF NOT EXISTS idx_arxiv_meta_doi ON arxiv_meta(doi);
 
 
 # ════════════════════════════════════════════
-# 数据库层
+# Database Layer
 # ════════════════════════════════════════════
 
 
 class ArxivMetaDB:
-    """arXiv 元数据 SQLite 存储（封装 arxiv_meta.db）"""
+    """arXiv metadata SQLite storage (wrapper for arxiv_meta.db)"""
 
     def __init__(self, db_path: str = None):
         self.db_path = db_path or str(DB_PATH)
@@ -211,7 +209,7 @@ class ArxivMetaDB:
         logger.info(f"DB ready: {self.db_path}")
 
     def insert_batch(self, papers: list[tuple]):
-        """批量插入论文记录"""
+        """Batch insert paper records"""
         with self._lock, self._conn() as conn:
             conn.executemany(
                 """INSERT OR IGNORE INTO arxiv_meta
@@ -242,12 +240,12 @@ class ArxivMetaDB:
 
 
 # ════════════════════════════════════════════
-# OAI-PMH 下载器
+# OAI-PMH Downloader
 # ════════════════════════════════════════════
 
 
 class OAIDownloader:
-    """OAI-PMH 下载器 —— 支持断点续传、增量更新、优先级队列"""
+    """OAI-PMH downloader — supports resume, incremental updates, priority queue"""
 
     def __init__(self, db: ArxivMetaDB = None):
         self.db = db or ArxivMetaDB()
@@ -258,42 +256,42 @@ class OAIDownloader:
         self._interrupted = False
 
     def _rate_limit(self):
-        """arXiv 推荐：4 req/s 峰值 + 1s 休眠"""
+        """arXiv recommends: 4 req/s peak + 1s sleep"""
         elapsed = time.time() - self._last_request
         if elapsed < RATE_LIMIT:
             time.sleep(RATE_LIMIT - elapsed)
         self._last_request = time.time()
 
     def _oai_request(self, params: dict) -> Optional[ET.Element]:
-        """发送 OAI-PMH 请求，支持重试"""
+        """Send OAI-PMH request with retry support"""
         for attempt in range(MAX_RETRIES):
             self._rate_limit()
             try:
                 resp = self.session.get(OAI_BASE, params=params, timeout=60)
                 if resp.status_code == 503:
                     retry_after = int(resp.headers.get("Retry-After", 30))
-                    logger.warning(f"  503 限流，等待 {retry_after}s...")
+                    logger.warning(f"  503 rate limited, waiting {retry_after}s...")
                     time.sleep(retry_after)
                     continue
 
                 if resp.status_code != 200:
-                    logger.warning(f"  HTTP {resp.status_code}，重试 {attempt+1}/{MAX_RETRIES}")
+                    logger.warning(f"  HTTP {resp.status_code}, retry {attempt+1}/{MAX_RETRIES}")
                     if attempt < MAX_RETRIES - 1:
                         time.sleep(RETRY_BACKOFF[attempt])
                     continue
 
                 root = ET.fromstring(resp.content)
-                # 检查错误
+                # Check errors
                 error = root.find(".//{http://www.openarchives.org/OAI/2.0/}error")
                 if error is not None:
                     code = error.get("code", "")
                     msg = error.text or ""
                     if code == "noRecordsMatch":
-                        return None  # 正常：无更多数据
+                        return None  # Normal: no more data
                     if code == "badResumptionToken":
-                        logger.warning(f"  resumptionToken 失效，重新开始")
+                        logger.warning("  resumptionToken expired, restarting")
                         return None
-                    logger.warning(f"  OAI 错误 [{code}]: {msg}")
+                    logger.warning(f"  OAI error [{code}]: {msg}")
                     if attempt < MAX_RETRIES - 1:
                         time.sleep(RETRY_BACKOFF[attempt])
                     continue
@@ -301,21 +299,21 @@ class OAIDownloader:
                 return root
 
             except (requests.RequestException, ET.ParseError) as e:
-                logger.warning(f"  请求失败 {params.get('verb', '?')}: {e}")
+                logger.warning(f"  Request failed {params.get('verb', '?')}: {e}")
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(RETRY_BACKOFF[attempt])
                 continue
 
-        logger.error(f"  [{params.get('set', '?')}] 请求最终失败")
+        logger.error(f"  [{params.get('set', '?')}] Request ultimately failed")
         self._stats["errors"] += 1
         return None
 
     def _parse_record(self, record: ET.Element) -> Optional[tuple]:
-        """解析一条 OAI-PMH 记录为 DB tuple
+        """Parse a single OAI-PMH record into a DB tuple
 
         Returns:
-            (arxiv_id, title, authors, abstract, categories, doi, journal_ref, update_date)
-            或 None（无效记录）
+            tuple (arxiv_id, title, authors, abstract, categories, doi, journal_ref, update_date)
+            or None (invalid record)
         """
         ns = {
             "oai": "http://www.openarchives.org/OAI/2.0/",
@@ -324,14 +322,14 @@ class OAIDownloader:
 
         header = record.find(".//oai:header", ns)
         if header is not None and header.find("oai:status", ns) is not None:
-            # 已删除的记录
+            # Deleted record
             return None
 
         metadata = record.find(".//oai:metadata", ns)
         if metadata is None:
             return None
 
-        # arXiv 特有元数据
+        # arXiv-specific metadata
         arxiv = metadata.find("arxiv:arXiv", ns)
         if arxiv is None:
             return None
@@ -340,10 +338,10 @@ class OAIDownloader:
         if arxiv_id_el is None or not arxiv_id_el.text:
             return None
         arxiv_id = arxiv_id_el.text.strip()
-        # arXiv ID 格式: "0704.0001" 或 "math/0704001"（旧格式）
-        # 只保留新格式
+        # arXiv ID format: "0704.0001" or "math/0704001" (old format)
+        # Keep only new format
         if not re.match(r"^\d{4}\.\d{4,5}(?:v\d+)?$", arxiv_id):
-            # 去掉版本号后重试
+            # Strip version number and retry
             arxiv_id = arxiv_id.split("v")[0]
             if not re.match(r"^\d{4}\.\d{4,5}$", arxiv_id):
                 return None
@@ -380,18 +378,17 @@ class OAIDownloader:
         return (arxiv_id, title[:500], authors[:500], abstract[:2000],
                 categories, doi, journal_ref, update_date)
 
-    def download_set(self, set_spec: str, from_date: str = "",
-                     to_date: str = "", max_pages: int = 0) -> int:
-        """下载一个分类的全部/增量记录
+    def download_category(self, set_spec: str, from_date: str = "", to_date: str = "", max_pages: int = 0) -> int:
+        """Download all/incremental records for one category
 
         Args:
-            set_spec: 分类标识，如 'cs:cs:AI'
-            from_date: 起始日期 YYYY-MM-DD，空=全部
-            to_date: 结束日期，空=至今
-            max_pages: 最大页数，0=不限
+            set_spec: Category identifier, e.g. 'cs:cs:AI'
+            from_date: Start date YYYY-MM-DD, empty for all
+            to_date: End date, empty for today
+            max_pages: Max pages, 0=unlimited
 
         Returns:
-            本次新增条数
+            Number of new records added
         """
         new_count = 0
         page = 0
@@ -420,9 +417,9 @@ class OAIDownloader:
 
             root = self._oai_request(params)
             if root is None:
-                break  # noRecordsMatch 或错误
+                break  # noRecordsMatch or error
 
-            # 解析记录
+            # Parse records
             records = root.findall(".//{http://www.openarchives.org/OAI/2.0/}record")
             if not records:
                 break
@@ -459,25 +456,25 @@ class OAIDownloader:
                     f"(cursor: {cursor:,}/{total:,})"
                 )
             else:
-                logger.info(f"  [{set_spec}] 完成: +{new_count} 篇新论文")
+                logger.info(f"  [{set_spec}] Complete: +{new_count} new papers")
                 break
 
         return new_count
 
     def download_priority(self, from_date: str = "", incremental: bool = False):
-        """按优先级下载所有分类
+        """Download all categories by priority
 
         Args:
-            from_date: YYYY-MM-DD，空=全部
-            incremental: 增量模式，自动计算 from_date
+            from_date: YYYY-MM-DD, empty for all
+            incremental: Incremental mode, auto-calculate from_date
         """
         if incremental:
-            # 取上次下载的最后一篇论文的日期
+            # Get the date of the last paper downloaded
             state = self._load_state()
             last_date = state.get("last_completed_date", "")
             if last_date:
                 from_date = last_date
-                logger.info(f"增量模式，从 {from_date} 开始")
+                logger.info(f"Incremental mode, starting from {from_date}")
 
         total_new = 0
         total_time = 0.0
@@ -489,7 +486,7 @@ class OAIDownloader:
             logger.info(f"\n[{idx+1}/{len(DOWNLOAD_PRIORITIES)}] 📥 {set_spec}")
 
             set_start = time.time()
-            new_count = self.download_set(set_spec, from_date=from_date)
+            new_count = self.download_category(set_spec, from_date=from_date)
             elapsed = time.time() - set_start
 
             total_new += new_count
@@ -498,9 +495,9 @@ class OAIDownloader:
 
             if new_count > 0:
                 rate = new_count / elapsed if elapsed > 0 else 0
-                logger.info(f"  → {new_count} 篇 in {elapsed:.1f}s ({rate:.0f}/s)")
+                logger.info(f"  → {new_count} papers in {elapsed:.1f}s ({rate:.0f}/s)")
 
-            # 保存进度（断点续传）
+            # Save progress (resume)
             self._save_state({
                 "last_set": set_spec,
                 "completed_sets": idx + 1,
@@ -511,17 +508,17 @@ class OAIDownloader:
             })
 
             if self._interrupted:
-                logger.warning("⚠️ 收到中断信号，停止下载")
+                logger.warning("⚠️ Interrupted, stopping download")
                 break
 
         all_elapsed = time.time() - start_all
         total_in_db = self.db.count()
 
         logger.info(f"\n{'='*50}")
-        logger.info(f"✅ 下载完成")
-        logger.info(f"  新增: {total_new} 篇")
-        logger.info(f"  总计: {total_in_db:,} 篇")
-        logger.info(f"  耗时: {all_elapsed:.0f}s")
+        logger.info("✅ Download complete")
+        logger.info(f"  New: {total_new} papers")
+        logger.info(f"  Total: {total_in_db:,} papers")
+        logger.info(f"  Time: {all_elapsed:.0f}s")
 
         return total_new
 
@@ -536,40 +533,40 @@ class OAIDownloader:
         return {}
 
     def print_status(self):
-        """打印下载状态"""
+        """Print download status"""
         total = self.db.count()
         state = self._load_state()
 
-        print(f"\n📊 arXiv OAI-PMH 下载状态")
-        print(f"  DB 论文总数: {total:,}")
-        print(f"  上次更新:    {state.get('updated_at', '从未')}")
-        print(f"  完成进度:    {state.get('completed_sets', 0)}/{state.get('total_sets', 0)} 个分类")
-        print(f"  本次新增:    {state.get('total_new', 0)} 篇")
-        print(f"  最后分类:    {state.get('last_set', 'N/A')}")
-        print(f"  最后日期:    {state.get('last_completed_date', 'N/A')}")
-        print(f"\n  DB 路径: {self.db.db_path}")
-        print(f"  状态文件: {STATE_PATH}")
+        print("\n📊 arXiv OAI-PMH Download Status")
+        print(f"  DB total papers: {total:,}")
+        print(f"  Last updated:    {state.get('updated_at', 'never')}")
+        print(f"  Progress:        {state.get('completed_sets', 0)}/{state.get('total_sets', 0)} categories")
+        print(f"  New this run:    {state.get('total_new', 0)} papers")
+        print(f"  Last category:   {state.get('last_set', 'N/A')}")
+        print(f"  Last date:       {state.get('last_completed_date', 'N/A')}")
+        print(f"\n  DB path: {self.db.db_path}")
+        print(f"  State file: {STATE_PATH}")
 
     def interrupt(self):
         self._interrupted = True
 
 
 # ════════════════════════════════════════════
-# CLI 入口
+# CLI Entry
 # ════════════════════════════════════════════
 
 
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="arXiv OAI-PMH 元数据下载器")
-    parser.add_argument("--all", action="store_true", help="完整下载所有分类")
-    parser.add_argument("--incremental", action="store_true", help="增量更新（最近1天）")
-    parser.add_argument("--set", "-s", type=str, default="", help="下载指定分类")
-    parser.add_argument("--from-date", "-f", type=str, default="", help="起始日期 YYYY-MM-DD")
-    parser.add_argument("--status", action="store_true", help="查看下载状态")
-    parser.add_argument("--background", action="store_true", help="后台运行模式（捕获 SIGINT）")
-    parser.add_argument("--tier1-only", action="store_true", help="仅下载 Tier 1（AI/ML/PDE 核心）")
+    parser = argparse.ArgumentParser(description="arXiv OAI-PMH metadata downloader")
+    parser.add_argument("--all", action="store_true", help="Full download of all categories")
+    parser.add_argument("--incremental", action="store_true", help="Incremental update (last 1 day)")
+    parser.add_argument("--set", "-s", type=str, default="", help="Download specific category")
+    parser.add_argument("--from-date", "-f", type=str, default="", help="Start date YYYY-MM-DD")
+    parser.add_argument("--status", action="store_true", help="View download status")
+    parser.add_argument("--background", action="store_true", help="Background mode (catch SIGINT)")
+    parser.add_argument("--tier1-only", action="store_true", help="Download Tier 1 only (AI/ML/PDE core)")
 
     args = parser.parse_args()
 
@@ -580,38 +577,38 @@ def main():
         downloader.print_status()
         return
 
-    # 注册 SIGINT 处理
+    # Register SIGINT handler
     import signal
     def _on_sigint(sig, frame):
-        logger.warning("\n⚠️ 收到 Ctrl+C，保存进度后退出...")
+        logger.warning("\n⚠️ Received Ctrl+C, saving progress and exiting...")
         downloader.interrupt()
     signal.signal(signal.SIGINT, _on_sigint)
 
     if args.set:
-        logger.info(f"下载分类: {args.set}")
-        downloader.download_set(args.set, from_date=args.from_date)
+        logger.info(f"Downloading category: {args.set}")
+        downloader.download_category(args.set, from_date=args.from_date)
     elif args.incremental:
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        logger.info(f"增量更新（自 {yesterday}）")
+        logger.info(f"Incremental update (since {yesterday})")
         downloader.download_priority(from_date=yesterday, incremental=True)
     elif args.tier1_only:
-        logger.info("仅下载 Tier 1 核心分类")
+        logger.info("Downloading Tier 1 core categories only")
         global DOWNLOAD_PRIORITIES
-        DOWNLOAD_PRIORITIES = DOWNLOAD_PRIORITIES[:11]  # 前 11 个是 Tier 1
+        DOWNLOAD_PRIORITIES = DOWNLOAD_PRIORITIES[:11]  # First 11 are Tier 1
         downloader.download_priority(from_date=args.from_date)
     elif args.all:
-        logger.info("完整下载所有分类（按优先级）")
+        logger.info("Full download of all categories (by priority)")
         downloader.download_priority(from_date=args.from_date)
     else:
         parser.print_help()
-        print("\n推荐用法:")
-        print("  # 后台完整下载")
+        print("\nRecommended usage:")
+        print("  # Background full download")
         print("  nohup python scripts/download_arxiv_oai.py --all > download.log 2>&1 &")
-        print("  # 或下载核心分类")
+        print("  # Or download core categories")
         print("  python scripts/download_arxiv_oai.py --tier1-only")
-        print("  # 每天增量更新（crontab）")
+        print("  # Daily incremental update (crontab)")
         print("  0 6 * * * cd ... && python scripts/download_arxiv_oai.py --incremental")
-        print("  # 查看状态")
+        print("  # Check status")
         print("  python scripts/download_arxiv_oai.py --status")
 
 

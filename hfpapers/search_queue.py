@@ -1,29 +1,36 @@
-# ─── 异步搜索调度器 ──────────────────────────
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ─── Async Search Dispatcher ──────────────────────────
 # hfpapers/search_queue.py
-# 基于 asyncio PriorityQueue 的并发搜索调度器
+# asyncio PriorityQueue-based concurrent search dispatcher
 
 import asyncio
 import logging
-import time
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 from typing import Optional
 
+import requests
+
 from hfpapers.searcher_registry import (
-    SearchResult, BaseSearcher, get_available, init_registry,
+    BaseSearcher,
+    SearchResult,
+    get_available,
+    init_registry,
 )
 
 logger = logging.getLogger("hfpapers.search_queue")
 
 # ════════════════════════════════════════════
-# 队列任务模型
+# Queue Task Model
 # ════════════════════════════════════════════
 
 
 @dataclass(order=True)
 class SearchTask:
-    """搜索任务（按优先级排序）"""
-    priority: int = 5               # 小=优先执行
-    query: str = ""                 # 必须有默认值（因为 priority 有默认值）
+    """Search task (sorted by priority)"""
+    priority: int = 5               # Lower = higher priority
+    query: str = ""                 # Must have default (due to priority default)
     category: str = ""
     limit: int = 30
     max_retries: int = 2
@@ -32,21 +39,19 @@ class SearchTask:
 
 
 # ════════════════════════════════════════════
-# 统一搜索验证器
+# Unified Search Validator
 # ════════════════════════════════════════════
 
-import re
-import requests
 
 _ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(?:v\d+)?$")
 
 def verify_arxiv_title(aid: str, session: requests.Session = None) -> str:
-    """验证 arXiv ID 并获取真实标题
+    """Verify arXiv ID and fetch real title
 
-    用 arXiv 缩写 URI (export.arxiv.org) 替代完整页面抓取，更快更可靠。
+    Uses arXiv export API (export.arxiv.org) instead of full page fetch — faster and more reliable.
 
     Returns:
-        真实标题，或空字符串（失败）
+        Real title, or empty string (on failure)
     """
     close_session = False
     if session is None:
@@ -60,14 +65,15 @@ def verify_arxiv_title(aid: str, session: requests.Session = None) -> str:
         )
         if resp.status_code != 200:
             return ""
-        from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
         import warnings
+
+        from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
         warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
         soup = BeautifulSoup(resp.text, "lxml")
         tag = soup.find("title")
         if tag:
             title = tag.get_text(strip=True)
-            # arXiv API 返回格式: "title: FNO for Parametric PDEs"
+            # arXiv API returns: "title: FNO for Parametric PDEs"
             title = re.sub(r"^title:\s*", "", title, flags=re.IGNORECASE).strip()
             return title[:200]
         return ""
@@ -79,14 +85,14 @@ def verify_arxiv_title(aid: str, session: requests.Session = None) -> str:
 
 
 # ════════════════════════════════════════════
-# 异步搜索调度器
+# Async search dispatcher
 # ════════════════════════════════════════════
 
 
 class SearchDispatcher:
-    """异步搜索调度器
+    """Async search scheduler
 
-    用法:
+    Usage:
         dispatcher = SearchDispatcher(max_workers=5)
         dispatcher.add_task("neural operator", category="FNO")
         dispatcher.add_task("physics informed", category="PINN")
@@ -102,7 +108,7 @@ class SearchDispatcher:
         self._session: Optional[requests.Session] = None
         self._verify_enabled = True
 
-        # 确保搜索器已注册
+        # Ensure searchers are registered
         init_registry()
 
     def add_task(self, query: str, category: str = "", limit: int = 30, priority: int = 5):
@@ -113,10 +119,10 @@ class SearchDispatcher:
             limit=limit,
         )
         self.queue.put_nowait(task)
-        logger.debug(f"入队: [{priority}] {category}:{query}")
+        logger.debug(f"Enqueued: [{priority}] {category}:{query}")
 
     def add_tasks_from_config(self, queries_config: list[dict]):
-        """从配置文件批量添加任务"""
+        """Batch add tasks from config"""
         for q in queries_config:
             self.add_task(
                 query=q.get("query", ""),
@@ -124,7 +130,7 @@ class SearchDispatcher:
                 limit=q.get("limit", 30),
                 priority=q.get("priority", 5),
             )
-        logger.info(f"已加载 {len(queries_config)} 个搜索任务")
+        logger.info(f"Loaded {len(queries_config)} search tasks")
 
     @property
     def session(self) -> requests.Session:
@@ -134,7 +140,7 @@ class SearchDispatcher:
         return self._session
 
     async def _search_one_source(self, searcher: BaseSearcher, task: SearchTask) -> list[SearchResult]:
-        """用单个搜索器搜索"""
+        """Search with a single searcher"""
         try:
             loop = asyncio.get_event_loop()
             results = await loop.run_in_executor(
@@ -142,37 +148,37 @@ class SearchDispatcher:
             )
             return results
         except Exception as e:
-            logger.warning(f"[{searcher.name}] {task.query} 失败: {e}")
+            logger.warning(f"[{searcher.name}] {task.query} failed: {e}")
             return []
 
     async def _process_task(self, task: SearchTask):
-        """处理一个搜索任务（遍历所有可用搜索器，第一个成功即返回）"""
+        """Process a search task (iterate through all available searchers, return on first success)"""
         async with self.sem:
             searchers = get_available()
             for searcher in searchers:
                 results = await self._search_one_source(searcher, task)
                 if results:
-                    # 去重 + 验证
+                    # Deduplication + verification
                     new_results = self._dedup_and_verify(results)
                     if new_results:
                         self.results.extend(new_results)
                         logger.info(
                             f"  ✅ [{task.category}] {searcher.name}: "
-                            f"{len(results)}->{len(new_results)} 篇新论文"
+                            f"{len(results)}->{len(new_results)} new papers"
                         )
                         return
                 else:
-                    logger.debug(f"  [{task.category}] {searcher.name}: 0 结果，尝试下一源")
+                    logger.debug(f"  [{task.category}] {searcher.name}: 0 results, trying next source")
 
-            # 所有源都失败时重试
+            # Retry when all sources fail
             if task.retry_count < task.max_retries:
                 task.retry_count += 1
-                logger.debug(f"  [{task.category}] 所有源失败，重试 {task.retry_count}/{task.max_retries}")
-                await asyncio.sleep(2 ** task.retry_count)  # 指数退避
+                logger.debug(f"  [{task.category}] All sources failed, retry {task.retry_count}/{task.max_retries}")
+                await asyncio.sleep(2 ** task.retry_count)  # Exponential backoff
                 self.queue.put_nowait(task)
 
     def _dedup_and_verify(self, results: list[SearchResult]) -> list[SearchResult]:
-        """去重 + arXiv 标题验证"""
+        """Dedup + arXiv title verification"""
         verified = []
 
         for r in results:
@@ -182,16 +188,16 @@ class SearchDispatcher:
             if aid in self._seen_ids:
                 continue
 
-            # arXiv 验证
+            # arXiv verification
             if self._verify_enabled:
                 real_title = verify_arxiv_title(aid, self.session)
                 if real_title and r.title:
-                    # 检查标题相似度
+                    # Check title similarity
                     sim = _title_similarity(r.title, real_title)
                     from hfpapers.config import get as cfg_get
                     min_sim = cfg_get("classification.title_similarity_min", 0.40)
                     if sim < min_sim:
-                        logger.warning(f"  ⚠️ {aid} ID错配: sim={sim:.2f} (hf='{r.title[:40]}' vs arxiv='{real_title[:40]}')")
+                        logger.warning(f"  ⚠️ {aid} ID mismatch: sim={sim:.2f} (hf='{r.title[:40]}' vs arxiv='{real_title[:40]}')")
                         continue
                     r.title = real_title
 
@@ -201,9 +207,9 @@ class SearchDispatcher:
         return verified
 
     async def run(self) -> list[SearchResult]:
-        """运行调度器，直到队列清空"""
+        """Run dispatcher until queue is empty"""
         total = self.queue.qsize()
-        logger.info(f"🚀 启动搜索调度器: {total} 个任务, {self.max_workers} 并发")
+        logger.info(f"🚀 Starting search dispatcher: {total} tasks, {self.max_workers} concurrent")
 
         workers = []
         for _ in range(min(self.max_workers, total)):
@@ -216,11 +222,11 @@ class SearchDispatcher:
             self._session.close()
             self._session = None
 
-        logger.info(f"✅ 搜索完成: {len(self.results)} 篇新论文 (来自 {total} 个查询)")
+        logger.info(f"✅ Search complete: {len(self.results)} new papers (from {total} queries)")
         return self.results
 
     async def _worker_loop(self):
-        """Worker 循环 —— 从队列取任务并处理"""
+        """Worker loop — fetch tasks from queue and process"""
         while True:
             try:
                 task = self.queue.get_nowait()
@@ -230,18 +236,18 @@ class SearchDispatcher:
             try:
                 await self._process_task(task)
             except Exception as e:
-                logger.error(f"任务处理异常: {e}")
+                logger.error(f"Task processing exception: {e}")
             finally:
                 self.queue.task_done()
 
 
 # ════════════════════════════════════════════
-# 标题相似度（复用 evolved.py 的逻辑）
+# Title Similarity (reuses evolved.py logic)
 # ════════════════════════════════════════════
 
 
 def _title_similarity(t1: str, t2: str) -> float:
-    """三字母组 Jaccard 相似度"""
+    """Trigram Jaccard similarity"""
     t1, t2 = t1.lower().strip(), t2.lower().strip()
     t1 = re.sub(r"[^a-z0-9\s]", "", t1)
     t2 = re.sub(r"[^a-z0-9\s]", "", t2)

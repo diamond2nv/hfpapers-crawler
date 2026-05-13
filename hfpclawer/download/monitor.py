@@ -1,7 +1,9 @@
-"""MonitorDaemon — 后台守护进程，定时轮询 OAI-PMH 增量下载
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""MonitorDaemon — Background daemon, periodic OAI-PMH incremental download
 
-纯 Python 实现，不依赖 systemd/crontab。
-PID 文件 + 15 分钟轮询 + RotatingFileHandler 日志。
+Pure Python implementation, no systemd/crontab dependency.
+PID file + 15-min polling + RotatingFileHandler logging.
 """
 
 import logging
@@ -18,20 +20,20 @@ from hfpclawer.download.oai import OaiPmhDownloader
 
 logger = logging.getLogger("hfpclawer.download.monitor")
 
-# ─── 默认路径 ───────────────────────────────
+# ─── Default paths ───────────────────────────────
 PID_FILE = "data/monitor.pid"
 LOG_FILE = "data/monitor.log"
-POLL_INTERVAL = 900  # 15 分钟
+POLL_INTERVAL = 900  # 15 minutes
 
 
 class MonitorDaemon:
-    """后台监控守护
+    """Background monitor daemon
 
-    用法:
+    Usage:
         daemon = MonitorDaemon()
-        daemon.start()     # fork 后台进程
-        daemon.stop()      # kill 后台进程
-        daemon.status()    # 检查状态
+        daemon.start()     # fork background process
+        daemon.stop()      # kill background process
+        daemon.status()    # check status
     """
 
     def __init__(self, base_dir: str = "", interval: int = POLL_INTERVAL):
@@ -42,7 +44,7 @@ class MonitorDaemon:
         self._running = False
 
     def _setup_logging(self):
-        """守护进程独立日志"""
+        """Daemon standalone log"""
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         handler = RotatingFileHandler(
             str(self.log_path), maxBytes=10 * 1024 * 1024, backupCount=5,
@@ -59,55 +61,55 @@ class MonitorDaemon:
             f.write(str(os.getpid()))
 
     def _loop(self):
-        """守护进程主循环"""
+        """Daemon main loop"""
         self._running = True
 
         def _sigterm(sig, frame):
-            logger.info("收到 SIGTERM，退出...")
+            logger.info("Received SIGTERM, exiting...")
             self._running = False
 
         signal.signal(signal.SIGTERM, _sigterm)
         signal.signal(signal.SIGINT, _sigterm)
 
-        logger.info(f"MonitorDaemon 启动 (PID={os.getpid()}, interval={self.interval}s)")
-        logger.info(f"日志: {self.log_path}")
+        logger.info(f"MonitorDaemon started (PID={os.getpid()}, interval={self.interval}s)")
+        logger.info(f"Log: {self.log_path}")
 
         while self._running:
             try:
-                logger.info(f"开始轮询 ({datetime.now().isoformat()})")
+                logger.info(f"Starting poll ({datetime.now().isoformat()})")
                 downloader = OaiPmhDownloader()
                 downloader.run(incremental=True)
-                logger.info(f"轮询完成, 等待 {self.interval}s...")
+                logger.info(f"Poll complete, waiting {self.interval}s...")
             except Exception as e:
-                logger.error(f"轮询失败: {e}")
+                logger.error(f"Poll failed: {e}")
 
-            # 分片睡眠，以便响应 SIGTERM
+            # Sliced sleep to respond to SIGTERM
             for _ in range(self.interval // 5):
                 if not self._running:
                     break
                 time.sleep(5)
 
-        logger.info("MonitorDaemon 已退出")
+        logger.info("MonitorDaemon exited")
 
     def start(self):
-        """启动后台守护进程"""
+        """Start background daemon"""
         if self.is_running():
             pid = self._read_pid()
-            logger.warning(f"MonitorDaemon 已在运行 (PID={pid})")
+            logger.warning(f"MonitorDaemon already running (PID={pid})")
             return False
 
         pid = os.fork()
         if pid > 0:
-            # 父进程
-            logger.info(f"MonitorDaemon 已启动 (PID={pid})")
+            # Parent process
+            logger.info(f"MonitorDaemon started (PID={pid})")
             return True
 
-        # 子进程
+        # Child process
         os.setsid()
         sys.stdout.flush()
         sys.stderr.flush()
 
-        # 重定向 stdin/stdout/stderr
+        # Redirect stdin/stdout/stderr
         devnull = os.open(os.devnull, os.O_RDWR)
         os.dup2(devnull, 0)
         os.dup2(devnull, 1)
@@ -119,15 +121,15 @@ class MonitorDaemon:
         self._loop()
 
     def stop(self):
-        """停止守护进程"""
+        """Stop daemon"""
         pid = self._read_pid()
         if pid is None:
-            logger.warning("MonitorDaemon 未运行")
+            logger.warning("MonitorDaemon not running")
             return False
 
         try:
             os.kill(pid, signal.SIGTERM)
-            # 等待进程退出
+            # Wait for process to exit
             for _ in range(10):
                 try:
                     os.kill(pid, 0)
@@ -135,15 +137,15 @@ class MonitorDaemon:
                 except OSError:
                     break
             self._remove_pid()
-            logger.info(f"MonitorDaemon 已停止 (PID={pid})")
+            logger.info(f"MonitorDaemon stopped (PID={pid})")
             return True
         except OSError:
             self._remove_pid()
-            logger.warning("MonitorDaemon 进程已不存在")
+            logger.warning("MonitorDaemon process no longer exists")
             return False
 
     def is_running(self) -> bool:
-        """检查是否在运行"""
+        """Check if running"""
         pid = self._read_pid()
         if pid is None:
             return False
@@ -155,7 +157,7 @@ class MonitorDaemon:
             return False
 
     def status(self) -> dict:
-        """查看状态"""
+        """View status"""
         running = self.is_running()
         result = {
             "running": running,
@@ -165,7 +167,7 @@ class MonitorDaemon:
             "interval": self.interval,
         }
         if running:
-            # 读取下载状态
+            # Read download state
             try:
                 from hfpapers.config import get as cfg_get
                 from hfpclawer.download.base import ResumeState

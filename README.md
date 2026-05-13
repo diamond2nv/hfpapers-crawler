@@ -1,14 +1,21 @@
+<p align="center">
+  <a href="README.md">English</a> | <a href="docs/cn/README.zh-CN.md">简体中文</a>
+</p>
+
 # hfpapers-clawler
 
-> 命名哲学: **claw**（利爪）≠ **crawl**（爬行）。
-> `hfpclawer` = HF (HuggingFace Papers) + claw (爪) + er (者)
-> = "用利爪精准抓取 HF 论文的智能工具"
+> **Naming philosophy**: `claw` (sharp grasp) ≠ `crawl` (creep).
+> `hfpclawer` = **H**ugging**F**ace **P**apers + **claw** + **er**
+> = "A sharp tool that claws HF papers with precision" 🦞
 >
-> 不是 crawler（网络爬虫），而是比爬虫更快、更准、更猛的**爪取者** 🦞
-> 同系列: OpenClaw（开源爪取工具），Hermes Agent 生态
+> Not a crawler — faster, sharper, more precise. Same series: OpenClaw, Hermes Agent ecosystem.
 
-Multi-source academic paper clawler for PDE / neural operator / physics-informed ML.
-SQLite paper_store + Crossref cross-validation + Anti-crawl Scrapy pipelines + MCP server.
+A multi-source academic paper clawler for PDE / neural operator / physics-informed ML.
+Built with SQLite paper_store, Crossref cross-validation, anti-crawl Scrapy pipelines, and MCP server.
+
+---
+
+## Quick Install
 
 ---
 
@@ -46,20 +53,17 @@ hfpclawer --help
 
 ### Configuration
 
-Create a `config.yaml` in your project root (see [docs/USAGE.md](docs/USAGE.md) for full reference)
-or copy from the default:
+First run `hfpclawer init` to generate config and env template:
 
 ```bash
-cp config.yaml.example config.yaml
-# Edit config.yaml as needed
+hfpclawer init --quick          # Quick mode (defaults)
+# or
+hfpclawer init                  # Interactive wizard
+cp .env.template .env           # Fill in API keys
+# Edit config.yaml to customize search queries
 ```
 
-Set environment variables in `.env`:
-
-```bash
-DEEPSEEK_API_KEY=sk-...
-HF_TOKEN=hf_...
-```
+Or manually create files (see [docs/USAGE.md](docs/USAGE.md) for full reference):
 
 ---
 

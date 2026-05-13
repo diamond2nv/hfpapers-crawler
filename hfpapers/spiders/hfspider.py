@@ -1,32 +1,36 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 # spiders/hfspider.py
 """
-[LEGACY — 废弃，不再使用]
-HF Papers 多维度爬虫— 已迁移到 SearchDispatcher (hfpapers/search_queue.py)
-遗留原因: 参考。新开发请用 evolved.py / SearchDispatcher。
+[LEGACY — deprecated, no longer used]
+HF Papers multi-dimension crawler — migrated to SearchDispatcher (hfpapers/search_queue.py)
+Retained for reference. New development should use evolved.py / SearchDispatcher.
 """
 
 import re
+
 import scrapy
+
 from hfpapers.items import PaperItem
 
-# 搜索维度配置: (url, category, min_relevance)
+# Search dimension config: (url, category, min_relevance)
 SEARCH_DIMS = [
-    # 主维度: PDE + 神经算子 + 物理信息
+    # Main dimension: PDE + neural operator + physics-informed
     ("https://huggingface.co/papers/trending?q=PDE+neural+operator+physics-informed", "neural-operator", 3),
-    # 物理约束残差
+    # Physical constraint residual
     ("https://huggingface.co/papers?q=physical+constraint+residual+loss+PDE", "pinn", 3),
-    # AI4Science 代理模型
+    # AI4Science surrogate models
     ("https://huggingface.co/papers?q=AI+4+Science+neural+surrogate", "foundation-model", 3),
-    # 神经算子 + 物理信息
+    # Neural operator + physics-informed
     ("https://huggingface.co/papers?q=neural+operator+physics+informed", "neural-operator", 2),
-    # PDE 求解算子
+    # PDE solution operators
     ("https://huggingface.co/papers?q=PDE+solution+operators", "foundation-model", 2),
 ]
 
-# arXiv ID 正则 (从文本中提取)
+# arXiv ID regex (extracts from text)
 ARXIV_RE = re.compile(r"(?:arxiv\s*[:.]?\s*|/abs/|/pdf/)?(\d{4}\.\d{4,5})(?:v\d+)?", re.I)
 
-# 代码仓库 URL 正则
+# Code repository URL regex
 CODE_RE = re.compile(r"(?:github\.com|gitlab\.com|huggingface\.co)/([\w\-]+/[\w\-]+)")
 
 
@@ -40,7 +44,7 @@ class HFPapersSpider(scrapy.Spider):
     }
 
     def start_requests(self):
-        """多维度并行发起"""
+        """Initiate multi-dimensional requests in parallel"""
         for url, category, min_rel in SEARCH_DIMS:
             yield scrapy.Request(
                 url=url,
@@ -49,11 +53,11 @@ class HFPapersSpider(scrapy.Spider):
             )
 
     def parse_search_page(self, response):
-        """解析 HF Papers 搜索页——提取论文块"""
+        """Parse HF Papers search page — extract paper blocks"""
         category = response.meta["category"]
         min_rel = response.meta["min_relevance"]
 
-        # 尝试多种选择器提取论文卡片
+        # Try multiple CSS selectors to extract paper cards
         papers = response.css("article, .paper-card, [class*='paper'], li")
         if not papers:
             papers = response.css("div > a[href*='/papers/']")
@@ -63,10 +67,10 @@ class HFPapersSpider(scrapy.Spider):
             text = paper.css("::text").getall()
             full_text = " ".join(text)
 
-            # 提取 arXiv ID
+            # Extract arXiv ID
             arxiv_matches = ARXIV_RE.findall(full_text)
             if not arxiv_matches:
-                # 也可能在 href 里
+                # May also be in href
                 hrefs = paper.css("a[href]::attr(href)").getall()
                 for h in hrefs:
                     arxiv_matches = ARXIV_RE.findall(h)
@@ -80,22 +84,22 @@ class HFPapersSpider(scrapy.Spider):
                 continue
             seen_ids.add(arxiv_id)
 
-            # 提取标题 (通常是第一个 <a> 或 <h3> 内的 text)
+            # Extract title (usually first <a> or <h3> text)
             title = paper.css("h3::text, h2::text, a[href*='/papers/']::text").get()
             if not title:
-                # 从全文取第一行有意义文本
+                # Get first meaningful line from full text
                 lines = [t.strip() for t in text if t.strip() and len(t.strip()) > 10]
                 title = lines[0] if lines else ""
 
-            # 提取描述
+            # Extract description
             desc_lines = [t.strip() for t in text if t.strip() and t.strip() != title and len(t.strip()) > 20]
             description = desc_lines[0][:200] if desc_lines else ""
 
-            # GitHub 代码检查
+            # GitHub code check
             code_match = CODE_RE.search(full_text)
             code_url = f"https://github.com/{code_match.group(1)}" if code_match else ""
 
-            # 相关度打分
+            # Relevance scoring
             relevance = self._score_relevance(full_text, category)
 
             if relevance < min_rel:
@@ -114,7 +118,7 @@ class HFPapersSpider(scrapy.Spider):
             )
             yield item
 
-        # 递归翻页
+        # Recursive pagination
         next_page = response.css("a:contains('Next'), a:contains('next'), a[rel='next']::attr(href)").get()
         if next_page and "?" in next_page:
             yield scrapy.Request(
@@ -124,7 +128,7 @@ class HFPapersSpider(scrapy.Spider):
             )
 
     def _score_relevance(self, text, category):
-        """基于关键词打分 1-5"""
+        """Score 1-5 based on keywords"""
         score = 1
         keywords_high = [
             "neural operator", "fourier neural operator", "deeponet", "pino",

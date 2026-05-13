@@ -1,5 +1,8 @@
-"""测试 CLI — Typer 子命令调用"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Test CLI — Typer subcommand invocation"""
 from typer.testing import CliRunner
+
 from hfpapers.cli import app
 
 runner = CliRunner()
@@ -22,7 +25,7 @@ class TestCLI:
         assert result.exit_code == 0
 
     def test_search_dry_run(self, test_env):
-        """dry-run 搜索（mock 网络避免 hang）"""
+        """dry-run search (mock network to avoid hang)"""
         from unittest.mock import patch
         with patch("hfpapers.evolved.HFPapersCrawler.crawl", return_value=[]):
             result = runner.invoke(app, ["search", "--dry-run"])
@@ -46,29 +49,29 @@ class TestCLI:
 
 
 class TestStoreExport:
-    """测试 store export 功能"""
+    """Test store export functionality"""
 
     def test_export_json_empty(self, test_env):
-        """空库导出 JSON 应报错"""
+        """Empty store export JSON should raise error"""
         result = runner.invoke(app, ["store", "export", "json"])
         assert result.exit_code == 0
-        assert "没有论文" in result.output
+        assert "No papers" in result.output or "no papers" in result.output
 
     def test_export_unsupported_format(self, test_env):
         result = runner.invoke(app, ["store", "export", "xlsx"])
         assert result.exit_code == 1
-        assert "不支持" in result.output
+        assert "Unsupported" in result.output
 
     def test_export_json_with_papers(self, test_env):
-        """先插入一篇论文，再导出 JSON"""
+        """Insert a paper first, then export JSON"""
         from hfpapers.paper_store import ensure_paper
         sf_id, is_new = ensure_paper("2501.12345", title="Export Test Paper", source="test")
         result = runner.invoke(app, ["store", "export", "json"])
         assert result.exit_code == 0
-        assert "已导出" in result.output
+        assert "Exported" in result.output
         assert ".json" in result.output
 
-        # 验证文件内容
+        # Verify file content
         import json
         output_line = [l for l in result.output.split("\n") if l.strip().startswith("/")][0]
         out_path = output_line.strip()
@@ -85,10 +88,10 @@ class TestStoreExport:
         ensure_paper("2501.67890", title="CSV Export Paper", source="test")
         result = runner.invoke(app, ["store", "export", "csv"])
         assert result.exit_code == 0
-        assert "已导出" in result.output
+        assert "Exported" in result.output
         assert ".csv" in result.output
 
-        # 验证 CSV 内容
+        # Verify CSV content
         import csv
         output_line = [l for l in result.output.split("\n") if l.strip().startswith("/")][0]
         out_path = output_line.strip()
@@ -100,15 +103,16 @@ class TestStoreExport:
         assert rows[1][1] == "CSV Export Paper"
 
     def test_export_via_paperstore_direct(self, paper_store):
-        """直接测试 PaperStore.export_papers() 方法"""
-        # 先插几篇
+        """Directly test PaperStore.export_papers() method"""
+        # Insert a few papers first
         from hfpapers.paper_store import PaperRecord
         for i in range(3):
             r = PaperRecord(title=f"Test Paper {i}", source="direct_test")
             paper_store.upsert_paper(r)
 
-        # JSON 导出
-        import tempfile, json
+        # JSON export
+        import json
+        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
             tmp = f.name
         try:
@@ -122,7 +126,7 @@ class TestStoreExport:
             if os.path.exists(tmp):
                 os.unlink(tmp)
 
-        # CSV 导出
+        # CSV export
         import csv
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:
             tmp = f.name

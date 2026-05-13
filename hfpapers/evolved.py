@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-# hfpapers/evolved.py — 爬虫核心引擎 (paper_store 集成版)
-# v3.3: 使用 SearchDispatcher + AsyncPdfDownloader 实现多源并发搜索
+# hfpapers/evolved.py — Crawler core engine (paper_store integrated)
+# v3.3: Multi-source concurrent search via SearchDispatcher + AsyncPdfDownloader
 
-import json
-import os
-import re
 import hashlib
+import json
 import logging
-from pathlib import Path
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
-from hfpapers.config import get as cfg_get, load_config
+from hfpapers.config import get as cfg_get
+from hfpapers.config import load_config
 from hfpapers.hardware import HardwareProbe
-from hfpapers.paper_store import get_store, get_crossref, ensure_paper, PaperStore
+from hfpapers.paper_store import ensure_paper, get_store
 
 logger = logging.getLogger("hfpapers.evolved")
 
@@ -27,7 +27,7 @@ os.makedirs(PDF_DIR, exist_ok=True)
 os.makedirs(MD_DIR, exist_ok=True)
 
 # ════════════════════════════════════════════
-# 数据模型
+# Data Model
 # ════════════════════════════════════════════
 
 
@@ -45,15 +45,15 @@ class PaperInfo:
 
 
 # ════════════════════════════════════════════
-# 去重引擎（paper_store 适配器）
+# Dedup Engine (paper_store adapter)
 # ════════════════════════════════════════════
 
 
 class DedupEngine:
-    """去重引擎 — 基于 paper_store (SQLite)
+    """Dedup Engine — based on paper_store (SQLite)
 
-    兼容旧版接口: is_duplicate(), add(), count
-    实际使用 ensure_paper() 进行去重和交叉验证
+    Compatible with legacy interface: is_duplicate(), add(), count
+    Actually uses ensure_paper() for dedup and cross-validation
     """
 
     def __init__(self):
@@ -67,7 +67,7 @@ class DedupEngine:
         return None
 
     def add(self, papers: list[PaperInfo]):
-        """批量写入 paper_store"""
+        """Batch write to paper_store"""
         for p in papers:
             ensure_paper(
                 arxiv_id=p.arxiv_id,
@@ -84,7 +84,7 @@ class DedupEngine:
 
 
 # ════════════════════════════════════════════
-# 分类检测器
+# Relevance Detector
 # ════════════════════════════════════════════
 
 
@@ -140,18 +140,18 @@ class RelevanceDetector:
 
 
 # ════════════════════════════════════════════
-# 爬虫引擎
+# Crawler Engine
 # ════════════════════════════════════════════
 
 
 class HFPapersCrawler:
-    """异步搜索调度器 — 使用 SearchDispatcher + AsyncPdfDownloader
+    """Async Search Dispatcher — uses SearchDispatcher + AsyncPdfDownloader
 
-    支持:
-    - 多源并发搜索（HF CLI, arXiv本地/API, OpenReview）
-    - arXiv 标题自动验证
-    - 去重
-    - 相关度检测
+    Supports:
+    - Multi-source concurrent search (HF CLI, arXiv local/API, OpenReview)
+    - arXiv title auto-verification
+    - Deduplication
+    - Relevance detection
     """
 
     def __init__(self, dedup: DedupEngine, detector: RelevanceDetector):
@@ -161,18 +161,19 @@ class HFPapersCrawler:
         self.queries = cfg_get("search.queries", [])
 
     def crawl(self, max_pages: int = 3) -> list[PaperInfo]:
-        """搜索（同步接口，内部使用异步调度器）
+        """Search (sync interface, uses async dispatcher internally)
 
-        内部使用 SearchDispatcher 并发搜索所有维度。
-        max_pages 控制每维度的结果数 (max_pages * 10)。
+        Internally uses SearchDispatcher to search all dimensions concurrently.
+        max_pages controls results per dimension (max_pages * 10).
         """
         import asyncio
+
         from hfpapers.search_queue import SearchDispatcher
 
         limit = max_pages * 10
-        logger.info(f"🚀 搜索 {len(self.queries)} 个维度, top-{limit}")
+        logger.info(f"🚀 Searching {len(self.queries)} dimensions, top-{limit}")
 
-        # 使用异步调度器
+        # Use async dispatcher
         dispatcher = SearchDispatcher(max_workers=min(5, len(self.queries)))
 
         for q in self.queries:
@@ -183,7 +184,7 @@ class HFPapersCrawler:
                 priority=q.get("priority", 5),
             )
 
-        # 运行
+        # Run
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -191,7 +192,7 @@ class HFPapersCrawler:
         finally:
             loop.close()
 
-        # 相关度检测 + paper_store 去重
+        # Relevance detection + paper_store dedup
         for sr in search_results:
             p = PaperInfo(
                 arxiv_id=sr.arxiv_id,
@@ -212,17 +213,17 @@ class HFPapersCrawler:
                 self.found.append(p)
                 logger.info(f"  ✅ {sr.arxiv_id} {sr.title[:60]} (rel={score})")
 
-        logger.info(f"搜索完成: {len(self.found)} 篇新论文")
+        logger.info(f"Search complete: {len(self.found)} new papers")
         return self.found
 
 
 # ════════════════════════════════════════════
-# 下载 + 转换
+# Download + Convert
 # ════════════════════════════════════════════
 
 
 class PaperDownloader:
-    """PDF 下载器（同步接口，内部使用 AsyncPdfDownloader）"""
+    """PDF Downloader (sync interface, uses AsyncPdfDownloader internally)"""
 
     def __init__(self, dedup: DedupEngine):
         self.dedup = dedup
@@ -231,7 +232,7 @@ class PaperDownloader:
     def download_batch(self, papers: list[PaperInfo]):
         papers.sort(key=lambda p: p.relevance, reverse=True)
         total = len(papers)
-        logger.info(f"📥 下载 {total} 篇 PDF ({min(8, total)} 并发)...")
+        logger.info(f"📥 Downloading {total} PDFs ({min(8, total)} concurrent)...")
 
         from hfpapers.pdf_downloader_async import AsyncPdfDownloader
 
@@ -256,9 +257,9 @@ class PaperDownloader:
             loop.close()
 
         success = sum(1 for r in results if r["success"])
-        logger.info(f"✅ 下载完成: {success}/{total} 成功")
+        logger.info(f"✅ Download complete: {success}/{total} successful")
 
-        # 写入 paper_store
+        # Write to paper_store
         for p in papers:
             ensure_paper(
                 arxiv_id=p.arxiv_id,
@@ -271,12 +272,11 @@ class PaperDownloader:
 
 
 # ════════════════════════════════════════════
-# 候选列表持久化
+# Candidate List Persistence
 # ════════════════════════════════════════════
 
 
 def save_candidates(papers) -> None:
-    import json
     from datetime import datetime
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = DATA_DIR / f"candidates_{now}.json"
@@ -298,12 +298,11 @@ def save_candidates(papers) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
     import shutil
     shutil.copy2(path, latest)
-    logger.info(f"候选列表已保存: {path} ({len(papers)} 篇)")
-    print(f"💾 候选列表: {path}")
+    logger.info(f"Candidate list saved: {path} ({len(papers)} papers)")
+    print(f"💾 Candidate list: {path}")
 
 
 def load_candidates() -> list:
-    import json
     latest = DATA_DIR / "candidates_latest.json"
     if not latest.exists():
         return []
@@ -341,5 +340,5 @@ def convert_pdfs() -> int:
             count += 1
             logger.info(f"  MD: {aid}")
         except Exception as e:
-            logger.warning(f"  转换失败 {pdf_path.name}: {e}")
+            logger.warning(f"  Conversion failed {pdf_path.name}: {e}")
     return count

@@ -1,85 +1,86 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 # ─── MCP Server ──────────────────────────────
 # hfpapers/mcp_server.py
-# Hermes Agent / OpenCode 通过 MCP 远程调用爬虫功能
-# 标准输入输出 (stdio) 模式 — 天然集成
+# Hermes Agent / OpenCode remotely invoke crawler functions via MCP
+# Standard input/output (stdio) mode — native integration
 
 """
-MCP 工具清单:
-  hfpclawer_search    — 搜索新论文
-  hfpclawer_download  — 下载指定论文PDF
-  hfpclawer_convert   — 转换PDF→Markdown
-  hfpclawer_info      — 查论文详情
-  hfpclawer_list      — 列出已爬取论文
-  hfpclawer_stats     — 爬虫统计
-  hfpclawer_full      — 全流程pipeline
+MCP Tool List:
+  hfpclawer_search    — Search new papers
+  hfpclawer_download  — Download specified paper PDFs
+  hfpclawer_convert   — Convert PDF→Markdown
+  hfpclawer_info      — Lookup paper details
+  hfpclawer_list      — List crawled papers
+  hfpclawer_stats     — Crawler statistics
+  hfpclawer_full      — Full pipeline
 """
 
 import json
-import sys
 import logging
-from typing import Any
+import sys
 
 logger = logging.getLogger("hfpapers.mcp")
 
 
-# 工具定义（MCP JSON Schema）
+# Tool definitions (MCP JSON Schema)
 MCP_TOOLS = {
     "hfpclawer_search": {
         "name": "hfpclawer_search",
-        "description": "搜索 HF Papers 中 PDE/神经算子/物理信息相关论文，返回新论文候选",
+        "description": "Search HF Papers for PDE/neural operator/physics-informed related papers, return new candidate papers",
         "input_schema": {
             "type": "object",
             "properties": {
-                "max_pages": {"type": "integer", "default": 2, "description": "每维度搜索页数"},
-                "threshold": {"type": "integer", "default": 30, "description": "相关度阈值 0-100"},
-                "dry_run": {"type": "boolean", "default": False, "description": "仅显示不保存"},
+                "max_pages": {"type": "integer", "default": 2, "description": "Pages per dimension"},
+                "threshold": {"type": "integer", "default": 30, "description": "Relevance threshold 0-100"},
+                "dry_run": {"type": "boolean", "default": False, "description": "Display only, don't save"},
             },
         },
     },
     "hfpclawer_download": {
         "name": "hfpclawer_download",
-        "description": "下载候选论文 PDF",
+        "description": "Download candidate paper PDFs",
         "input_schema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "default": 10, "description": "最多下载篇数"},
+                "limit": {"type": "integer", "default": 10, "description": "Max PDFs to download"},
             },
         },
     },
     "hfpclawer_convert": {
         "name": "hfpclawer_convert",
-        "description": "pymupdf4llm 转换 PDF 为 Markdown",
+        "description": "pymupdf4llm convert PDF to Markdown",
         "input_schema": {"type": "object", "properties": {}},
     },
     "hfpclawer_info": {
         "name": "hfpclawer_info",
-        "description": "查询单篇论文详情",
+        "description": "Query single paper details",
         "input_schema": {
             "type": "object",
             "properties": {
-                "arxiv_id": {"type": "string", "description": "arXiv ID (如 2509.05117)"},
+                "arxiv_id": {"type": "string", "description": "arXiv ID (e.g. 2509.05117)"},
             },
             "required": ["arxiv_id"],
         },
     },
     "hfpclawer_list": {
         "name": "hfpclawer_list",
-        "description": "列出已爬取论文",
+        "description": "List crawled papers",
         "input_schema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "default": 20, "description": "显示条数"},
+                "limit": {"type": "integer", "default": 20, "description": "Display count"},
             },
         },
     },
     "hfpclawer_stats": {
         "name": "hfpclawer_stats",
-        "description": "爬虫统计信息",
+        "description": "Crawler statistics",
         "input_schema": {"type": "object", "properties": {}},
     },
     "hfpclawer_full": {
         "name": "hfpclawer_full",
-        "description": "全流程: search → download → convert",
+        "description": "Full pipeline: search → download → convert",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -93,7 +94,7 @@ MCP_TOOLS = {
 
 
 def _handle_search(args: dict) -> str:
-    from hfpapers.evolved import HFPapersCrawler, DedupEngine, RelevanceDetector
+    from hfpapers.evolved import DedupEngine, HFPapersCrawler, RelevanceDetector
 
     dedup = DedupEngine()
     detector = RelevanceDetector()
@@ -123,13 +124,13 @@ def _handle_search(args: dict) -> str:
 
 
 def _handle_download(args: dict) -> str:
-    from hfpapers.evolved import PaperDownloader, DedupEngine, load_candidates
+    from hfpapers.evolved import DedupEngine, PaperDownloader, load_candidates
 
     dedup = DedupEngine()
     downloader = PaperDownloader(dedup=dedup)
     candidates = load_candidates()
     if not candidates:
-        return json.dumps({"error": "没有候选列表"})
+        return json.dumps({"error": "No candidate list"})
     papers = candidates[: args.get("limit", 10)]
     downloader.download_batch(papers)
     return json.dumps({"downloaded": len(papers)})
@@ -142,7 +143,9 @@ def _handle_convert(args: dict) -> str:
 
 
 def _handle_info(args: dict) -> str:
-    import json as j, os
+    import json as j
+    import os
+
     from hfpapers.config import get as cfg_get
 
     dedup_path = os.path.expanduser(cfg_get("paths.global_dedup"))
@@ -155,7 +158,9 @@ def _handle_info(args: dict) -> str:
 
 
 def _handle_list(args: dict) -> str:
-    import json as j, os
+    import json as j
+    import os
+
     from hfpapers.config import get as cfg_get
 
     dedup_path = os.path.expanduser(cfg_get("paths.global_dedup"))
@@ -175,7 +180,9 @@ def _handle_list(args: dict) -> str:
 
 
 def _handle_stats(args: dict) -> str:
-    import json as j, os
+    import json as j
+    import os
+
     from hfpapers.config import get as cfg_get
 
     dedup_path = os.path.expanduser(cfg_get("paths.global_dedup"))
@@ -222,10 +229,10 @@ HANDLERS = {
 
 
 def run_mcp_server(host: str = "127.0.0.1", port: int = 8765, mode: str = "stdio"):
-    """启动 MCP Server — 支持 stdio 和 HTTP 两种模式
+    """Start MCP Server — supports stdio and HTTP modes
 
-    stdio 模式: 用于 Hermes Agent 原生 MCP 客户端集成
-    http 模式: 用于 OpenCode subagent 子进程调用或调试
+    stdio mode: For Hermes Agent native MCP client integration
+    http mode: For OpenCode subagent subprocess calls or debugging
     """
     if mode == "stdio":
         _run_stdio()
@@ -234,13 +241,12 @@ def run_mcp_server(host: str = "127.0.0.1", port: int = 8765, mode: str = "stdio
 
 
 def _run_stdio():
-    """stdio 模式 — 标准 MCP JSON-RPC 协议
+    """stdio mode — Standard MCP JSON-RPC protocol
 
-    支持 Hermes Agent 原生 MCP 客户端集成：
-      - tools/list → 返回工具列表
-      - tools/call → 执行工具
+    Supports Hermes Agent native MCP client integration:
+      - tools/list → Returns tool list
+      - tools/call → Executes a tool
     """
-    import sys
 
     def respond(req_id, result=None, error=None):
         resp = {"jsonrpc": "2.0", "id": req_id}
@@ -251,8 +257,8 @@ def _run_stdio():
         sys.stdout.write(json.dumps(resp) + "\n")
         sys.stdout.flush()
 
-    # 先输出 tools/list 需要的完整工具 schema
-    # 后续请求通过 stdin 逐行读取
+    # First output full tool schema for tools/list
+    # Subsequent requests read line by line from stdin
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -280,7 +286,7 @@ def _run_stdio():
                 respond(req_id, {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "hfpapers-mcp", "version": "0.2.0"},
+                    "serverInfo": {"name": "hfpapers-mcp", "version": "0.3.0"},
                 })
 
             elif method == "notifications/initialized":
@@ -290,7 +296,7 @@ def _run_stdio():
                 respond(req_id, error=f"unknown method: {method}")
 
         except json.JSONDecodeError:
-            # 兼容旧版 line-JSON 协议
+            # Compatible with legacy line-JSON protocol
             try:
                 req = json.loads(line)
                 name = req.get("tool", req.get("name", ""))
@@ -309,11 +315,11 @@ def _run_stdio():
 
 
 def _run_http(host: str, port: int):
-    """HTTP 模式 — Hermes Agent 通过 REST API 调用"""
+    """HTTP mode — Hermes Agent invokes via REST API"""
     try:
-        from http.server import HTTPServer, BaseHTTPRequestHandler
+        from http.server import BaseHTTPRequestHandler, HTTPServer
     except ImportError:
-        logger.error("http.server 不可用")
+        logger.error("http.server not available")
         return
 
     class MCPHandler(BaseHTTPRequestHandler):

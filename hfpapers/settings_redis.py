@@ -1,32 +1,33 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-分布式部署配置文件
+Distributed deployment configuration
 
-用法:
-  # 单机（默认）
+Usage:
+  # Standalone (default)
   scrapy crawl multi_source
 
-  # 分布式（需要 Redis，且安装 scrapy-redis）
+  # Distributed (requires Redis + scrapy-redis)
   scrapy crawl multi_source -s SETTINGS_MODULE=hfpapers.settings_redis
 
-在 GPU/CPU 服务器和笔记本上各安装一份代码，
-改 .env 里的 redis 地址即可共享去重队列。
+Install code on both GPU/CPU servers and laptops,
+set the redis address in .env to share the deduplication queue.
 """
 
 import os
-import sys
 
-# 继承基础配置
+# Inherit base configuration
 from hfpapers.settings import *  # noqa: F401, F403
 
-# ─── Redis 配置 ─────────────────────────────
-# 需要安装: pip install scrapy-redis
+# ─── Redis Configuration ─────────────────────────────
+# Requires: pip install scrapy-redis
 
-# 共享去重
+# Shared deduplication
 DUPEFILTER_CLASS = "scrapy_redis.dupefilter.RFPDupeFilter"
 SCHEDULER = "scrapy_redis.scheduler.Scheduler"
-SCHEDULER_PERSIST = True  # 爬取结束后不清空队列，下次续爬
+SCHEDULER_PERSIST = True  # Keep queue after crawl, resume next time
 
-# Redis 连接（从 config.yaml 或环境变量读取）
+# Redis connection (from config.yaml or environment variables)
 REDIS_HOST = os.environ.get("SCRAPY_REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("SCRAPY_REDIS_PORT", 6379))
 REDIS_PARAMS = {
@@ -36,12 +37,12 @@ REDIS_PARAMS = {
     "db": int(os.environ.get("SCRAPY_REDIS_DB", 0)),
 }
 
-# 队列KEY前缀
+# Queue key prefix
 SCHEDULER_QUEUE_KEY = "hfpapers:requests"
 SCHEDULER_DUPEFILTER_KEY = "hfpapers:dupefilter"
 SCHEDULER_SERIALIZER = "scrapy_redis.serializer.JsonSerializer"
 
-# ─── 分布式去重: 也写入共享 JSON ───────────
+# ─── Distributed deduplication: also write to shared JSON ───────────
 ITEM_PIPELINES = {
     "hfpapers.pipelines.DedupPipeline": 100,
     "hfpapers.pipelines.ArxivVerifyPipeline": 150,

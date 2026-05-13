@@ -1,4 +1,6 @@
-"""测试 hardware 模块 — 探针检测 + 硬件降级"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Test hardware module — probe detection + hardware degradation"""
 from hfpapers.hardware import HardwareProbe
 
 
@@ -17,7 +19,7 @@ class TestHardwareProbe:
 
     def test_use_bert_property(self):
         hw = HardwareProbe()
-        # 没有 CUDA 或没有 sentence-transformers 时返回 False
+        # Returns False without CUDA or sentence-transformers
         if not hw.has_cuda:
             assert hw.use_bert is False
         if not hw.has_sentence_transformers:

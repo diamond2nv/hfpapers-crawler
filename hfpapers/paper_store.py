@@ -1,31 +1,31 @@
 #!/usr/bin/env python3
 """
-paper_store.py — 论文统一存储引擎
+paper_store.py — Unified Paper Storage Engine
 
-功能:
-  - 雪花 ID 生成器 (Snowflake ID, 64-bit)
-  - SQLite 统一存储: papers 主表 + identifiers 映射表
-  - 多标识符交叉验证: arXiv ID ↔ DOI ↔ OpenReview Forum ↔ ISSN ↔ PNS
-  - Crossref API 查询: title→DOI, DOI→arXiv (eprint)
+Features:
+  - Snowflake ID Generator (Snowflake ID, 64-bit)
+  - SQLite unified storage: papers main table + identifiers mapping table
+  - Multi-identifier cross-validation: arXiv ID ↔ DOI ↔ OpenReview Forum ↔ ISSN ↔ PNS
+  - Crossref API lookup: title→DOI, DOI→arXiv (eprint)
 
-架构:
+Architecture:
                    ┌──────────────────┐
                    │   paper_store    │
                    ├──────────────────┤
                    │ Snowflake ID gen │
-                   │ SQLite (3 表)    │
+                   │ SQLite (3 tables)│
                    │ Crossref client  │
                    └────────┬─────────┘
                             │
           ┌─────────────────┼──────────────────┐
           ▼                 ▼                   ▼
    pipeline.py        evolved.py          sources.py
-   (Scrapy)           (CLI 爬虫)          (多源搜索)
+   (Scrapy)           (CLI crawler)       (multi-source search)
 
-状态管理:
-  - 去重文件 ~/wiki/raw/papers/hfpapers-crawled.json 继续保留
-  - SQLite 作为权威数据源，JSON 作为快速查询缓存
-  - 迁移过渡期双写
+State management:
+  - Dedup file ~/wiki/raw/papers/hfpapers-crawled.json still maintained
+  - SQLite as authoritative source, JSON as fast query cache
+  - Dual-write during migration
 """
 
 import json
@@ -35,35 +35,35 @@ import re
 import sqlite3
 import threading
 import time
-import requests
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
-from urllib.parse import urlencode
+
+import requests
 
 from hfpapers.config import get as cfg_get
 
 logger = logging.getLogger("hfpapers.paper_store")
 
-# ─── 常量 ───────────────────────────────────
+# ─── Constants ──────────────────────────────────
 ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?")
 DOI_RE = re.compile(r"10\.\d{4,}/[^\s]+")
 
-# ─── 雪花 ID 生成器（yitter 雪花漂移算法）────
-# 来源: https://github.com/yitter/IdGenerator
-# 优化的雪花算法 — 支持时间回拨处理、更短ID、更高性能
-# 线程安全，单机 50W/0.1s 并发能力
+# ─── Snowflake ID generator (yitter snowflake drift algorithm)────
+# Source: https://github.com/yitter/IdGenerator
+# Optimized snowflake algorithm — supports time rollback, shorter IDs, higher performance
+# Thread-safe, 500K/0.1s concurrency on single machine
 #
-# 外部接口（保持兼容）:
+# External interface (backward compatible):
 #   snowflake_id(worker_id=None) -> int
 #   snowflake_timestamp(sf_id) -> datetime
-#   init_snowflake_worker(worker_id)  — 初始化 WorkerId
+#   init_snowflake_worker(worker_id)  — Initialize WorkerId
 #
-# WorkerId 配置优先级:
-#   1. 显式调用 init_snowflake_worker()
-#   2. _TEST_SNOWFLAKE_WORKER 环境变量
-#   3. 配置文件 snowflake.worker_id
-#   4. PID 哈希到 0-63 (fallback)
+# WorkerId configuration priority:
+#   1. Explicit call to init_snowflake_worker()
+#   2. _TEST_SNOWFLAKE_WORKER Environment variable
+#   3. Config file snowflake.worker_id
+#   4. PID hash to 0-63 (fallback)
 
 _SNOWFLAKE_LOCK = threading.Lock()
 _SNOWFLAKE_GEN: Optional["_SnowflakeM1"] = None
@@ -72,21 +72,21 @@ _SNOWFLAKE_BASE_TIME: int = 1728000000000  # 2024-10-04
 
 
 class _IdGeneratorOptions:
-    """雪花漂移算法配置选项"""
+    """Snowflake drift algorithm configuration options"""
 
     def __init__(self, worker_id: int = 0):
-        self.method: int = 1                   # 1=漂移算法
+        self.method: int = 1                   # 1=Drift algorithm
         self.base_time: int = _SNOWFLAKE_BASE_TIME
         self.worker_id: int = worker_id
-        self.worker_id_bit_length: int = 6     # [1,15] WorkerId 范围 0-63
-        self.seq_bit_length: int = 6           # [3,21] 每毫秒基础 64 ID
-        self.max_seq_number: int = 0           # 0=自动 (2^seq_bit_length-1)
-        self.min_seq_number: int = 5           # 前5个保留位(回拨预留)
-        self.top_over_cost_count: int = 2000   # 最大漂移次数
+        self.worker_id_bit_length: int = 6     # [1,15] WorkerId range 0-63
+        self.seq_bit_length: int = 6           # [3,21] 64 base IDs per millisecond
+        self.max_seq_number: int = 0           # 0=auto (2^seq_bit_length-1)
+        self.min_seq_number: int = 5           # First 5 reserved bits (rollback reserve)
+        self.top_over_cost_count: int = 2000   # Max drift count
 
 
 class _SnowflakeM1:
-    """雪花漂移算法 M1 实现"""
+    """Snowflake drift algorithm M1 implementation"""
 
     def __init__(self, options: _IdGeneratorOptions):
         self.base_time = int(options.base_time)
@@ -162,7 +162,7 @@ class _SnowflakeM1:
     def _next_normal_id(self) -> int:
         current = self._get_current_time_tick()
         if current < self._last_time_tick:
-            # 时间回拨处理
+            # Time rollback handling
             if self._turn_back_time_tick < 1:
                 self._turn_back_time_tick = self._last_time_tick - 1
                 self._turn_back_index += 1
@@ -194,25 +194,25 @@ class _SnowflakeM1:
 
 
 def _resolve_worker_id() -> int:
-    """决定 WorkerId 值"""
-    # 1. 环境变量
+    """Determine WorkerId value"""
+    # 1. Environment variable
     env_wid = os.environ.get("_TEST_SNOWFLAKE_WORKER")
     if env_wid:
         return int(env_wid)
-    # 2. 配置文件
+    # 2. Config file
     try:
         cfg_wid = cfg_get("snowflake.worker_id", 0)
         if cfg_wid:
             return int(cfg_wid)
     except Exception:
         pass
-    # 3. fallback: PID 哈希到 0-63
+    # 3. fallback: PID hash to 0-63
     pid = os.getpid()
-    return (pid * 2654435761) & 0x3F  # Knuth 乘数哈希
+    return (pid * 2654435761) & 0x3F  # Knuth multiplicative hash
 
 
 def _get_snowflake() -> _SnowflakeM1:
-    """获取/初始化雪花生成器单例"""
+    """Get/initialize snowflake generator singleton"""
     global _SNOWFLAKE_GEN, _SNOWFLAKE_WORKER_ID
     if _SNOWFLAKE_GEN is not None:
         return _SNOWFLAKE_GEN
@@ -228,7 +228,7 @@ def _get_snowflake() -> _SnowflakeM1:
 
 
 def init_snowflake_worker(worker_id: int):
-    """显式初始化 WorkerId（分布式部署时使用）"""
+    """Explicitly initialize WorkerId (for distributed deployment)"""
     global _SNOWFLAKE_GEN, _SNOWFLAKE_WORKER_ID
     with _SNOWFLAKE_LOCK:
         _SNOWFLAKE_WORKER_ID = worker_id
@@ -238,13 +238,13 @@ def init_snowflake_worker(worker_id: int):
 
 
 def snowflake_id(worker_id: int = None) -> int:
-    """生成雪花 ID（保持兼容接口）
+    """Generate snowflake ID (backward compatible interface)
 
-    如果传递 worker_id，会在当前线程中覆盖使用指定 worker_id，
-    但不影响全局生成器。全局生成器使用自动解析的 worker_id。
+    If worker_id is passed, it will override globally in the current thread,
+    but does not affect the global generator. The global generator uses auto-resolved worker_id.
     """
     if worker_id is not None:
-        # 临时用指定 worker_id 生成（用于测试）
+        # Temporarily generate with specified worker_id (for testing)
         opts = _IdGeneratorOptions(worker_id=worker_id)
         gen = _SnowflakeM1(opts)
         return gen.next_id()
@@ -252,14 +252,14 @@ def snowflake_id(worker_id: int = None) -> int:
 
 
 def snowflake_timestamp(sf_id: int) -> datetime:
-    """从雪花 ID 提取时间戳（保持兼容接口）
+    """Extract timestamp from snowflake ID (backward compatible interface)
 
-    注意: yitter 的 ID 位布局:
+    Note: yitter ID bit layout:
       ID = (time_tick << shift) + (worker_id << seq_bit) + seq
-    其中 time_tick = 当前毫秒 - base_time
-    因此 time_tick = sf_id >> shift （当 seq和worker不超位宽时）
+    Where time_tick = current ms - base_time
+    Therefore time_tick = sf_id >> shift (when seq and worker don't exceed bit width)
     """
-    shift = 12  # 默认6+6
+    shift = 12  # default 6+6
     try:
         if _SNOWFLAKE_GEN:
             shift = _SNOWFLAKE_GEN._timestamp_shift
@@ -270,44 +270,44 @@ def snowflake_timestamp(sf_id: int) -> datetime:
     return datetime.fromtimestamp(ms / 1000.0)
 
 
-# ─── 数据模型 ───────────────────────────────
+# ─── Data Model ───────────────────────────────
 
 
 @dataclass
 class PaperRecord:
-    """论文主记录"""
-    sf_id: int = 0               # 雪花 ID
+    """Paper main record"""
+    sf_id: int = 0               # Snowflake ID
     title: str = ""
     abstract: str = ""
     year: int = 0
-    source: str = ""             # 首次发现来源
-    venue: str = ""              # 会议/期刊全名
-    relevance: int = 0           # 相关度 0-100
+    source: str = ""             # First discovered source
+    venue: str = ""              # Venue full name
+    relevance: int = 0           # Relevance 0-100
     has_code: bool = False
     code_url: str = ""
-    verified: bool = False       # 是否经过交叉验证
+    verified: bool = False       # Cross-verified
     created_at: str = ""
     updated_at: str = ""
 
 
 @dataclass
 class PaperIdentifier:
-    """论文标识符映射 (N:1 → PaperRecord)"""
-    sf_id: int                   # 关联的论文雪花 ID
+    """Paper identifier mapping (N:1 → PaperRecord)"""
+    sf_id: int                   # Associated paper snowflake ID
     id_type: str                 # "arxiv" / "doi" / "openreview" / "issn" / "pns" / "isbn"
-    id_value: str                # 标识符值
-    source: str = ""             # 此 ID 的来源
-    confidence: float = 1.0      # 置信度 0-1
-    verified_at: str = ""        # 验证时间
+    id_value: str                # Identifier value
+    source: str = ""             # Source of this ID
+    confidence: float = 1.0      # Confidence 0-1
+    verified_at: str = ""        # Verification time
 
 
-# ─── SQLite 存储层 ──────────────────────────
+# ─── SQLite Storage Layer ──────────────────────────
 
 
 def _db_path() -> str:
-    """数据库文件路径"""
+    """Database file path"""
     base = cfg_get("paths.data_dir", "data")
-    # 如果 base 是相对路径，则相对于当前工作目录
+    # If base is a relative path, resolve relative to current working directory
     if not os.path.isabs(base):
         base = os.path.join(os.getcwd(), base)
     os.makedirs(base, exist_ok=True)
@@ -315,7 +315,7 @@ def _db_path() -> str:
 
 
 class PaperStore:
-    """论文存储引擎 — SQLite 后端"""
+    """Paper storage engine — SQLite backend"""
 
     def __init__(self, db_path: str = None):
         self.db_path = db_path or _db_path()
@@ -331,31 +331,31 @@ class PaperStore:
         return conn
 
     def _init_db(self):
-        """初始化表结构"""
+        """Initialize table schema"""
         with self._lock, self._conn() as conn:
             conn.executescript("""
                 CREATE TABLE IF NOT EXISTS papers (
-                    sf_id       INTEGER PRIMARY KEY,  -- 雪花 ID
+                    sf_id       INTEGER PRIMARY KEY,  -- Snowflake ID
                     title       TEXT NOT NULL DEFAULT '',
                     abstract    TEXT DEFAULT '',
                     year        INTEGER DEFAULT 0,
-                    source      TEXT DEFAULT '',       -- 首次来源
-                    venue       TEXT DEFAULT '',       -- 会议/期刊
-                    relevance   INTEGER DEFAULT 0,     -- 相关度 0-100
-                    has_code    INTEGER DEFAULT 0,     -- 是否有代码
+                    source      TEXT DEFAULT '',       -- First source
+                    venue       TEXT DEFAULT '',       -- Venue
+                    relevance   INTEGER DEFAULT 0,     -- Relevance 0-100
+                    has_code    INTEGER DEFAULT 0,     -- Has code
                     code_url    TEXT DEFAULT '',
-                    verified    INTEGER DEFAULT 0,     -- 是否经过交叉验证
+                    verified    INTEGER DEFAULT 0,     -- Cross-verified
                     created_at  TEXT DEFAULT (datetime('now')),
                     updated_at  TEXT DEFAULT (datetime('now'))
                 );
 
                 CREATE TABLE IF NOT EXISTS identifiers (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sf_id       INTEGER NOT NULL,       -- 关联论文
+                    sf_id       INTEGER NOT NULL,       -- Associated paper
                     id_type     TEXT NOT NULL,            -- arxiv/doi/openreview/issn/pns
-                    id_value    TEXT NOT NULL,            -- 标识符值
-                    source      TEXT DEFAULT '',          -- 此 ID 的来源
-                    confidence  REAL DEFAULT 1.0,         -- 置信度
+                    id_value    TEXT NOT NULL,            -- Identifier value
+                    source      TEXT DEFAULT '',          -- Source of this ID
+                    confidence  REAL DEFAULT 1.0,         -- Confidence
                     verified_at TEXT DEFAULT (datetime('now')),
                     UNIQUE(id_type, id_value),
                     FOREIGN KEY (sf_id) REFERENCES papers(sf_id)
@@ -364,11 +364,11 @@ class PaperStore:
                 CREATE TABLE IF NOT EXISTS crossref_cache (
                     doi         TEXT PRIMARY KEY,
                     title       TEXT DEFAULT '',
-                    arxiv_id    TEXT DEFAULT '',        -- 从 BibTeX eprint 提取
+                    arxiv_id    TEXT DEFAULT '',        -- Extracted from BibTeX eprint
                     venue       TEXT DEFAULT '',
                     authors     TEXT DEFAULT '',        -- JSON array
                     year        INTEGER DEFAULT 0,
-                    raw_json    TEXT DEFAULT '',        -- 原始响应摘要
+                    raw_json    TEXT DEFAULT '',        -- Raw response summary
                     queried_at  TEXT DEFAULT (datetime('now'))
                 );
 
@@ -382,13 +382,13 @@ class PaperStore:
                     ON papers(created_at DESC);
             """)
 
-    # ─── 论文 CRUD ───────────────────────────
+    # ─── Paper CRUD ───────────────────────────
 
     def upsert_paper(self, record: PaperRecord) -> int:
-        """写入或更新论文。返回 sf_id。"""
+        """Write or update paper. Returns sf_id."""
         with self._lock, self._conn() as conn:
             if record.sf_id:
-                # 更新
+                # Update
                 conn.execute("""
                     UPDATE papers SET
                         title=?, abstract=?, year=?, source=?,
@@ -402,7 +402,7 @@ class PaperStore:
                     int(record.verified), record.sf_id,
                 ))
             else:
-                # 插入
+                # Insert
                 sf_id = snowflake_id()
                 record.sf_id = sf_id
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -443,7 +443,7 @@ class PaperStore:
             return None
 
     def get_all_papers(self) -> list[PaperRecord]:
-        """获取全部论文，按创建时间降序"""
+        """Get all papers, ordered by creation time descending"""
         with self._conn() as conn:
             rows = conn.execute("""
                 SELECT * FROM papers
@@ -452,18 +452,18 @@ class PaperStore:
             return [self._row_to_record(r) for r in rows]
 
     def export_papers(self, format: str = "json", filepath: str = None) -> str:
-        """导出全部论文到文件。
+        """Export all papers to file.
 
         Args:
-            format: "json" 或 "csv"
-            filepath: 输出路径，None 则自动命名
+            format: "json" or "csv"
+            filepath: Output path, None for auto-naming
 
         Returns:
-            输出文件的绝对路径
+            Absolute path to output file
         """
         papers = self.get_all_papers()
         if not papers:
-            raise ValueError("PaperStore 中没有论文可导出")
+            raise ValueError("PaperStore has no papers to export")
 
         if filepath is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -513,9 +513,9 @@ class PaperStore:
                         p.created_at, p.updated_at, id_str,
                     ])
         else:
-            raise ValueError(f"不支持的格式: {format}，仅支持 json/csv")
+            raise ValueError(f"Unsupported format: {format}, only json/csv supported")
 
-        logger.info(f"导出 {len(papers)} 篇论文到 {filepath}")
+        logger.info(f"Exported {len(papers)} papers to {filepath}")
         return os.path.abspath(filepath)
 
     def search_papers(self, keyword: str = "", limit: int = 50) -> list[PaperRecord]:
@@ -536,7 +536,7 @@ class PaperStore:
             return [self._row_to_record(r) for r in rows]
 
     def update_paper(self, sf_id: int, **kwargs) -> bool:
-        """更新论文的指定字段 (relevance/code_url/venue)"""
+        """Update specific fields of a paper (relevance/code_url/venue)"""
         allowed = {"relevance", "code_url", "venue", "has_code", "year", "abstract", "source"}
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
@@ -552,11 +552,11 @@ class PaperStore:
                 )
             return True
         except Exception as e:
-            logger.warning(f"update_paper 失败: {e}")
+            logger.warning(f"update_paper failed: {e}")
             return False
 
     def stats(self) -> dict:
-        """统计信息（同 store_stats()）"""
+        """Statistics (same as store_stats())"""
         with self._conn() as conn:
             total = conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
             verified = conn.execute("SELECT COUNT(*) FROM papers WHERE verified=1").fetchone()[0]
@@ -590,11 +590,11 @@ class PaperStore:
             updated_at=row["updated_at"],
         )
 
-    # ─── 标识符管理 ──────────────────────────
+    # ─── Identifier Management ──────────────────────────
 
     def add_identifier(self, sf_id: int, id_type: str, id_value: str,
                        source: str = "", confidence: float = 1.0) -> bool:
-        """为论文添加一个标识符映射。已存在则跳过。"""
+        """Add an identifier mapping to a paper. Skip if exists."""
         try:
             with self._lock, self._conn() as conn:
                 conn.execute("""
@@ -604,7 +604,7 @@ class PaperStore:
                 """, (sf_id, id_type, id_value, source, confidence))
                 return True
         except Exception as e:
-            logger.warning(f"add_identifier 失败: {e}")
+            logger.warning(f"add_identifier failed: {e}")
             return False
 
     def get_identifiers(self, sf_id: int) -> list[PaperIdentifier]:
@@ -625,21 +625,21 @@ class PaperStore:
             ]
 
     def find_paper_by_any_id(self, id_value: str) -> Optional[PaperRecord]:
-        """通过任意标识符值查找论文（自动识别类型）"""
-        # 先尝试直接匹配
+        """Find paper by any identifier value (auto-detect type)"""
+        # Try direct match first
         for id_type in ("arxiv", "doi", "openreview", "issn", "pns", "isbn"):
             paper = self.get_paper_by_identifier(id_type, id_value)
             if paper:
                 return paper
 
-        # 尝试 ARXIV_ID_RE 匹配
+        # Try ARXIV_ID_RE match
         m = ARXIV_ID_RE.search(id_value)
         if m:
             paper = self.get_paper_by_identifier("arxiv", m.group(1))
             if paper:
                 return paper
 
-        # 尝试 DOI_RE 匹配
+        # Try DOI_RE match
         m = DOI_RE.search(id_value)
         if m:
             paper = self.get_paper_by_identifier("doi", m.group(0))
@@ -648,10 +648,10 @@ class PaperStore:
 
         return None
 
-    # ─── 交叉验证 ────────────────────────────
+    # ─── Cross validation ────────────────────────────
 
     def verify_paper(self, sf_id: int) -> bool:
-        """检查论文是否有 ≥2 个标识符来自不同源，标记为已验证"""
+        """Check if paper has ≥2 identifiers from different sources, mark as verified"""
         ids = self.get_identifiers(sf_id)
         types = set(i.id_type for i in ids)
         if len(types) >= 2:
@@ -664,11 +664,11 @@ class PaperStore:
         return False
 
 
-# ─── Crossref 客户端 ─────────────────────────
+# ─── Crossref Client ─────────────────────────
 
 
 class CrossrefClient:
-    """Crossref API 客户端 — DOI 查询 + 交叉验证"""
+    """Crossref API client — DOI query + cross validation"""
 
     BASE = "https://api.crossref.org"
 
@@ -682,7 +682,7 @@ class CrossrefClient:
         self._cache: dict = {}
 
     def title_to_doi(self, title: str) -> list[dict]:
-        """通过标题搜索 DOI"""
+        """Search DOI by title"""
         try:
             resp = self.session.get(
                 f"{self.BASE}/works",
@@ -698,7 +698,7 @@ class CrossrefClient:
                 item_title = (item.get("title") or [""])[0]
                 doi = item.get("DOI", "")
                 if doi:
-                    # 尝试从 BibTeX 中提取 arXiv 信息
+                    # Try extracting arXiv info from BibTeX
                     arxiv = self._extract_arxiv_from_item(item)
                     results.append({
                         "doi": doi,
@@ -710,11 +710,11 @@ class CrossrefClient:
                     })
             return results
         except Exception as e:
-            logger.warning(f"[Crossref] title_to_doi 失败: {e}")
+            logger.warning(f"[Crossref] title_to_doi failed: {e}")
             return []
 
     def doi_to_details(self, doi: str) -> Optional[dict]:
-        """DOI → 论文详情（含人工提取的 arXiv ID）"""
+        """DOI → paper details (with manually extracted arXiv ID)"""
         try:
             resp = self.session.get(
                 f"{self.BASE}/works/{doi}",
@@ -737,14 +737,14 @@ class CrossrefClient:
                 ], ensure_ascii=False),
             }
         except Exception as e:
-            logger.warning(f"[Crossref] doi_to_details 失败: {e}")
+            logger.warning(f"[Crossref] doi_to_details failed: {e}")
             return None
 
     def cross_verify(self, arxiv_id: str, title: str) -> Optional[dict]:
-        """交叉验证: arXiv ID + title → DOI
+        """Cross validation: arXiv ID + title → DOI
 
-        用 title 查 Crossref → 得到 DOI 列表 → 匹配最相似的标题
-        → 返回匹配结果（含 DOI、venue、可信度）
+        Query Crossref by title → get DOI list → match most similar title
+        → Return match result (with DOI, venue, confidence)
         """
         results = self.title_to_doi(title)
         if not results:
@@ -756,7 +756,7 @@ class CrossrefClient:
         best_sim = 0.0
 
         for r in results:
-            # 标题相似度
+            # Title similarity
             sim = HFPapersCrawler._title_similarity(title, r["title"])
             if sim > best_sim:
                 best_sim = sim
@@ -769,15 +769,15 @@ class CrossrefClient:
                 "title": best["title"],
                 "venue": best["venue"],
                 "year": best["year"],
-                "confidence": min(best_sim + 0.2, 1.0),  # 标题匹配 + 加分
+                "confidence": min(best_sim + 0.2, 1.0),  # Title match + bonus
             }
 
         return None
 
     @staticmethod
     def _extract_arxiv_from_item(item: dict) -> Optional[str]:
-        """从 Crossref item 中提取 arXiv ID"""
-        # 关系字段
+        """Extract arXiv ID from Crossref item"""
+        # Relation fields
         for rel_type, targets in item.get("relation", {}).items():
             for t in targets:
                 val = t.get("id", "")
@@ -785,7 +785,7 @@ class CrossrefClient:
                 if m:
                     return m.group(1)
 
-        # 全字段文本搜索
+        # Full-field text search
         all_text = str(item)
         m = ARXIV_ID_RE.search(all_text)
         return m.group(1) if m else None
@@ -800,7 +800,7 @@ class CrossrefClient:
         return 0
 
 
-# ─── 高层接口 ────────────────────────────────
+# ─── High-level Interface ────────────────────────────────
 
 
 _store_instance: PaperStore | None = None
@@ -824,16 +824,16 @@ def get_crossref() -> CrossrefClient:
 def ensure_paper(arxiv_id: str, title: str = "", source: str = "",
                  abstract: str = "", venue: str = "",
                  code_url: str = "", relevance: int = 0) -> tuple[int, bool]:
-    """确保论文存在，返回 (sf_id, is_new)。
+    """Ensure paper exists, returns (sf_id, is_new).
 
-    会根据 arxiv_id 查找已有记录，若不存在则创建。
-    然后尝试（异步/懒）通过 Crossref 交叉验证。
+    Looks up existing record by arxiv_id, creates if not exists.
+    Then attempts (async/lazy) cross-validation via Crossref.
     """
     store = get_store()
     existing = store.get_paper_by_identifier("arxiv", arxiv_id)
 
     if existing:
-        # 更新信息
+        # Update info
         changed = False
         if title and not existing.title:
             existing.title = title
@@ -854,7 +854,7 @@ def ensure_paper(arxiv_id: str, title: str = "", source: str = "",
             store.upsert_paper(existing)
         return existing.sf_id, False
 
-    # 创建新记录
+    # Create new record
     record = PaperRecord(
         title=title[:500],
         abstract=abstract[:2000],
@@ -866,7 +866,7 @@ def ensure_paper(arxiv_id: str, title: str = "", source: str = "",
     sf_id = store.upsert_paper(record)
     store.add_identifier(sf_id, "arxiv", arxiv_id, source=source)
 
-    # 如果给了 title，尝试 Crossref 验证
+    # If title is provided, try Crossref validation
     if title:
         try:
             cr = get_crossref()
@@ -886,16 +886,16 @@ def ensure_paper(arxiv_id: str, title: str = "", source: str = "",
                 store.verify_paper(sf_id)
                 logger.info(f"[CROSSREF] {arxiv_id} → DOI={doi} (conf={result['confidence']:.2f})")
         except Exception as e:
-            logger.debug(f"[CROSSREF] {arxiv_id} 查询失败: {e}")
+            logger.debug(f"[CROSSREF] {arxiv_id} Search failed: {e}")
 
     return sf_id, True
 
 
-# ─── 统计 ────────────────────────────────────
+# ─── Statistics ────────────────────────────────────
 
 
 def store_stats() -> dict:
-    """查看存储统计"""
+    """View storage statistics"""
     store = get_store()
     with store._conn() as conn:
         total = conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
@@ -914,7 +914,7 @@ def store_stats() -> dict:
         }
 
 
-# ─── 简单测试 ────────────────────────────────
+# ─── Simple Test ────────────────────────────────
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
@@ -929,30 +929,30 @@ if __name__ == "__main__":
         aid = sys.argv[2]
         title = sys.argv[3] if len(sys.argv) > 3 else ""
         sf_id, is_new = ensure_paper(aid, title=title, source="cli_test")
-        print(f"{'新建' if is_new else '已有'}: sf_id={sf_id} {aid} {title[:40]}")
+        print(f"{'New' if is_new else 'Existing'}: sf_id={sf_id} {aid} {title[:40]}")
 
         paper = get_store().get_paper_by_id(sf_id)
         ids = get_store().get_identifiers(sf_id)
-        print(f"  标题: {paper.title}")
-        print(f"  标识符: {[(i.id_type, i.id_value) for i in ids]}")
+        print(f"  Title: {paper.title}")
+        print(f"  Identifiers: {[(i.id_type, i.id_value) for i in ids]}")
         sys.exit(0)
 
     if len(sys.argv) > 1 and sys.argv[1] == "search":
         keyword = sys.argv[2] if len(sys.argv) > 2 else ""
         papers = get_store().search_papers(keyword)
-        print(f"找到 {len(papers)} 篇论文:")
+        print(f"Found {len(papers)} papers:")
         for p in papers:
             ids = get_store().get_identifiers(p.sf_id)
             id_str = ", ".join(f"{i.id_type}={i.id_value}" for i in ids[:3])
             print(f"  [{p.sf_id}] {p.title[:50]} | {id_str}")
         sys.exit(0)
 
-    # 默认: 测试
-    print("=== 测试 PaperStore ===")
+    # Default: test
+    print("=== Testing PaperStore ===")
     store = get_store()
     print(f"DB: {store.db_path}")
 
-    # 创建
+    # Create
     sf_id, is_new = ensure_paper("9999.99999",
                                   title="Test Paper for SQLite Store",
                                   source="paper_store_test",
@@ -961,17 +961,17 @@ if __name__ == "__main__":
                                   relevance=50)
     print(f"Paper: sf_id={sf_id} new={is_new}")
 
-    # 查询
+    # Search
     p = store.get_paper_by_id(sf_id)
-    print(f"  查询: {p.title}")
+    print(f"  Search: {p.title}")
 
     p2 = store.get_paper_by_identifier("arxiv", "9999.99999")
-    print(f"  按 ID 查询: {p2.title if p2 else 'NOT FOUND'}")
+    print(f"  By ID: {p2.title if p2 else 'NOT FOUND'}")
 
     ids = store.get_identifiers(sf_id)
-    print(f"  标识符: {[(i.id_type, i.id_value) for i in ids]}")
+    print(f"  Identifiers: {[(i.id_type, i.id_value) for i in ids]}")
 
-    # 交叉验证
+    # Cross validation
     store.verify_paper(sf_id)
     p3 = store.get_paper_by_id(sf_id)
-    print(f"  验证状态: {p3.verified}")
+    print(f"  Verified: {p3.verified}")

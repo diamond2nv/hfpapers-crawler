@@ -1,12 +1,13 @@
-# ─── 本地 arXiv 元数据搜索引擎 ──────────────
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ─── Local arXiv Metadata Search Engine ──────────────
 # hfpapers/arxiv_search.py
-# 基于 Kaggle arXiv 全量元数据 (269 万篇) 构建的本地 FTS5 检索引擎
-# 作为 arXiv API 的 fallback，实现 0 网络依赖、毫秒级响应
-# 支持跨库验证（到 paper_store 的 DOI ↔ CrossRef 双向交叉验证）
+# Local FTS5 search engine built from Kaggle arXiv full metadata (2.69M papers)
+# Fallback for arXiv API — zero network dependency, millisecond response
+# Supports cross-database validation (bidirectional DOI ↔ CrossRef with paper_store)
 
 import json
 import logging
-import os
 import re
 import sqlite3
 import threading
@@ -18,7 +19,7 @@ from hfpapers.config import get as cfg_get
 
 logger = logging.getLogger("hfpapers.arxiv_search")
 
-# FTS5 全文索引 + 元数据表
+# FTS5 full-text index + metadata table
 FTS_SCHEMA = """
 CREATE VIRTUAL TABLE IF NOT EXISTS arxiv_fts USING fts5(
     arxiv_id UNINDEXED,
@@ -52,12 +53,12 @@ CREATE INDEX IF NOT EXISTS idx_arxiv_meta_doi ON arxiv_meta(doi);
 
 
 class ArxivLocalSearch:
-    """本地 arXiv 元数据 FTS5 引擎
+    """Local arXiv Metadata FTS5 Engine
 
-    单机部署，无需网络，毫秒级搜索 269 万篇论文。
-    支持跨库 DOI 交叉验证（与 paper_store 的 CrossrefClient 联动）。
+    Standalone deployment, no network needed, millisecond search across 2.69M papers.
+    Supports cross-database DOI cross-validation (integrated with paper_store CrossrefClient).
 
-    用法:
+    Usage:
         engine = ArxivLocalSearch()
         results = engine.search("neural operator", limit=50, year_from=2017)
         paper = engine.get_by_id("2010.08895")
@@ -78,7 +79,7 @@ class ArxivLocalSearch:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=OFF")
-        conn.execute("PRAGMA cache_size=-80000")  # 80MB cache
+        conn.execute("PRAGMA cache_size=-80000")  # 80 MB cache
         return conn
 
     def _init_db(self):
@@ -90,14 +91,14 @@ class ArxivLocalSearch:
     def search(self, query: str, limit: int = 50, year_from: int = 0,
                year_to: int = 0, categories: list[str] = None,
                sort: str = "relevance") -> list[dict]:
-        """全文搜索 arXiv 元数据
+        """Full-text search arXiv metadata
 
         Args:
-            query: FTS5 查询语法
-            limit: 最大结果数
-            year_from: 起始年份
-            year_to: 结束年份，0=不限
-            categories: 分类过滤（如 ["cs.LG", "math.NA"]）
+            query: FTS5 query syntax
+            limit: Maximum number of results
+            year_from: Start year
+            year_to: End year, 0=unlimited
+            categories: Category filter (e.g. ["cs.LG", "math.NA"])
             sort: "relevance" | "date"
 
         Returns:
@@ -106,7 +107,7 @@ class ArxivLocalSearch:
         """
         with self._lock, self._conn() as conn:
             if sort == "date":
-                # 先按年份过滤再按日期排序（需要 JOIN meta）
+                # Filter by year then sort by date (needs JOIN meta)
                 sql = """SELECT f.arxiv_id, title, authors, abstract, categories,
                                 doi, journal_ref, update_date, rank
                          FROM arxiv_fts f
@@ -129,7 +130,7 @@ class ArxivLocalSearch:
             update = (r.get("update_date") or "")
             year_str = update[:4]
 
-            # 年份过滤
+            # Year filter
             if year_from and year_str:
                 try:
                     if int(year_str) < year_from:
@@ -143,7 +144,7 @@ class ArxivLocalSearch:
                 except ValueError:
                     pass
 
-            # 分类过滤
+            # Category filter
             if categories:
                 cats = (r.get("categories") or "").split()
                 if not any(c in cats for c in categories):
@@ -166,7 +167,7 @@ class ArxivLocalSearch:
         return results
 
     def get_by_id(self, arxiv_id: str) -> Optional[dict]:
-        """根据 arXiv ID 查询单篇论文"""
+        """Lookup a single paper by arXiv ID"""
         with self._conn() as conn:
             r = conn.execute(
                 "SELECT * FROM arxiv_meta WHERE arxiv_id = ?", (arxiv_id,)
@@ -176,7 +177,7 @@ class ArxivLocalSearch:
         return None
 
     def get_by_dois(self, dois: list[str]) -> list[dict]:
-        """批量根据 DOI 查询"""
+        """Batch lookup by DOI"""
         if not dois:
             return []
         placeholders = ",".join("?" for _ in dois)
@@ -187,10 +188,10 @@ class ArxivLocalSearch:
         return [dict(r) for r in rows]
 
     def cross_validate(self, paper_store_doi: str) -> Optional[dict]:
-        """从 paper_store 的 DOI 反向验证 arXiv ID
+        """Reverse-validate arXiv ID from paper_store DOI
 
-        当 paper_store 中的某篇论文有 DOI 但无 arXiv ID，
-        可以用 ArxivLocalSearch 的 DOI 索引反查 arXiv ID。
+        When a paper in paper_store has a DOI but no arXiv ID,
+        use ArxivLocalSearch's DOI index to look up the arXiv ID.
         """
         with self._conn() as conn:
             r = conn.execute(
@@ -202,7 +203,7 @@ class ArxivLocalSearch:
         return None
 
     def stats(self) -> dict:
-        """数据库统计"""
+        """Database statistics"""
         with self._conn() as conn:
             total = conn.execute("SELECT COUNT(*) FROM arxiv_meta").fetchone()[0]
             has_doi = conn.execute(
@@ -215,7 +216,7 @@ class ArxivLocalSearch:
                 "SELECT substr(update_date,1,4) as y, COUNT(*) as c "
                 "FROM arxiv_meta GROUP BY y ORDER BY y DESC"
             ).fetchall()
-            # DOI 覆盖率
+            # DOI coverage
             doi_with_journal = conn.execute(
                 "SELECT COUNT(*) FROM arxiv_meta WHERE doi != '' AND journal_ref != ''"
             ).fetchone()[0]
@@ -228,9 +229,9 @@ class ArxivLocalSearch:
         }
 
     def import_json_lines(self, jsonl_path: str, batch_size: int = 2000):
-        """从 Kaggle JSON Lines 文件批量导入
+        """Batch import from Kaggle JSON Lines file
 
-        格式: 每行一个 JSON
+        Format: One JSON per line
         {"id": "0704.0001", "title": "...", "authors": "...",
          "abstract": "...", "categories": "cs.LG math.NA",
          "doi": "10.xxx/yyy", "journal_ref": "NeurIPS 2023",
@@ -283,7 +284,7 @@ class ArxivLocalSearch:
         return total
 
     def _import_batch(self, batch: list[tuple]):
-        """写入一批数据到 SQLite + FTS5"""
+        """Write a batch to SQLite + FTS5"""
         with self._lock, self._conn() as conn:
             conn.executemany(
                 """INSERT OR IGNORE INTO arxiv_meta
@@ -302,7 +303,7 @@ class ArxivLocalSearch:
             conn.commit()
 
     def count(self) -> int:
-        """论文总数"""
+        """Total paper count"""
         with self._conn() as conn:
             return conn.execute("SELECT COUNT(*) FROM arxiv_meta").fetchone()[0]
 
@@ -310,14 +311,14 @@ class ArxivLocalSearch:
         return f"<ArxivLocalSearch {self.db_path} count={self.count()}>"
 
 
-# ─── Scrapy 集成：arXiv Local Spider ──────────
-# 不需要网络请求，直接从本地 FTS5 索引搜索
+# ─── Scrapy Integration: arXiv Local Spider ──────────
+# No network requests — search directly from local FTS5 index
 
 class ArxivLocalSpider:
-    """本地 arXiv 搜索 Spider（输出统一的 SourcePaper）
+    """Local arXiv Search Spider (outputs unified SourcePaper)
 
-    不需要网络，毫秒级响应。替代 ArxivApiSource 和 HfCliSource 的 fallback。
-    特别适合大规模批量搜索场景（1000+ 查询）。
+    No network required, millisecond response. Replaces ArxivApiSource and HfCliSource fallback.
+    Particularly suitable for large-scale batch search (1000+ queries).
     """
     name = "arxiv_local"
 
@@ -326,12 +327,12 @@ class ArxivLocalSpider:
 
     def search(self, query: str, limit: int = 100,
                year_from: int = 2017, categories: list[str] = None) -> list[dict]:
-        """搜索并返回 hfpapers.sources.SourcePaper 兼容格式"""
+        """Search and return format compatible with hfpapers.sources.SourcePaper"""
         results = self.engine.search(
             query=query, limit=limit, year_from=year_from,
             categories=categories, sort="date",
         )
-        # 转换为统一格式
+        # Convert to unified format
         papers = []
         for r in results:
             doi = r.get("doi", "")
@@ -347,7 +348,7 @@ class ArxivLocalSpider:
                 "venue": journal_ref,
                 "authors": r.get("authors", ""),
                 "published_date": r.get("update_date", ""),
-                # 学术置信度：有 DOI + 有期刊/会议 → 高置信度
+                # Academic confidence: DOI + venue → high confidence
                 "confidence": 0.9 if doi and journal_ref else (
                     0.6 if doi else 0.3
                 ),

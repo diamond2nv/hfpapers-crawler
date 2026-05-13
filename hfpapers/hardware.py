@@ -1,14 +1,15 @@
-# ─── 硬件探针 ──────────────────────────────
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ─── Hardware Probe ──────────────────────────────
 # hfpapers/hardware.py
 
 import logging
-from typing import Optional
 
 logger = logging.getLogger("hfpapers.hw")
 
 
 class HardwareProbe:
-    """硬件能力探测——自适应降级"""
+    """Hardware capability probe — adaptive degradation"""
     has_torch: bool = False
     has_cuda: bool = False
     has_sentence_transformers: bool = False
@@ -59,12 +60,12 @@ class HardwareProbe:
 
     @property
     def use_bert(self) -> bool:
-        """有 GPU 才启用 BERT"""
+        """BERT only enabled when GPU is available"""
         return self.has_cuda and self.has_sentence_transformers
 
     @property
     def use_pdf_converter(self) -> bool:
-        """pymupdf4llm 可用"""
+        """pymupdf4llm available"""
         return self.has_pymupdf4llm
 
     def summary(self) -> str:

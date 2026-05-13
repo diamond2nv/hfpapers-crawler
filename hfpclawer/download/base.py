@@ -1,4 +1,6 @@
-"""BaseDownloader — 下载器基类，提供进度跟踪、checksum 校验、download_state 表读写。"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""BaseDownloader — Base downloader with progress tracking, checksum verification, and download_state table read/write."""
 
 import hashlib
 import json
@@ -6,15 +8,13 @@ import logging
 import os
 import sqlite3
 import threading
-import time
 from abc import ABC, abstractmethod
 from datetime import datetime
-from pathlib import Path
 from typing import Callable, Optional
 
 logger = logging.getLogger("hfpclawer.download.base")
 
-# ─── download_state 表 ─────────────────────────────────
+# ─── download_state table ─────────────────────────────────
 STATE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS download_state (
     source TEXT PRIMARY KEY,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS download_state (
 
 
 class ResumeState:
-    """断点续传状态 — 读写 download_state 表 + JSON fallback"""
+    """Resume state — read/write download_state table + JSON fallback"""
 
     def __init__(self, db_path: str, source: str):
         self.db_path = db_path
@@ -40,22 +40,22 @@ class ResumeState:
         self._init_table()
 
     def _write_json_fallback(self, state: dict):
-        """将状态写入 JSON 文件作为 fallback 持久化"""
+        """Write state to JSON file as fallback persistence"""
         try:
             os.makedirs(self._state_dir, exist_ok=True)
             with open(self._json_path, "w") as f:
                 json.dump(state, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            logger.warning(f"[{self.source}] JSON fallback 写入失败: {e}")
+            logger.warning(f"[{self.source}] JSON fallback write failed: {e}")
 
     def _read_json_fallback(self) -> dict:
-        """尝试从 JSON fallback 读取状态"""
+        """Try to read state from JSON fallback"""
         try:
             if os.path.exists(self._json_path):
                 with open(self._json_path) as f:
                     return json.load(f)
         except Exception as e:
-            logger.warning(f"[{self.source}] JSON fallback 读取失败: {e}")
+            logger.warning(f"[{self.source}] JSON fallback read failed: {e}")
         return {}
 
     def _conn(self):
@@ -70,21 +70,21 @@ class ResumeState:
             conn.commit()
 
     def get(self) -> dict:
-        """读取当前状态（优先 SQLite，fallback JSON）"""
+        """Read current state (SQLite first, fallback JSON)"""
         with self._lock, self._conn() as conn:
             r = conn.execute(
                 "SELECT * FROM download_state WHERE source = ?", (self.source,)
             ).fetchone()
         if r:
             return dict(r)
-        # fallback: JSON 文件
+        # fallback: JSON file
         fb = self._read_json_fallback()
         if fb:
             return fb
         return {"source": self.source, "status": "pending"}
 
     def set_status(self, status: str, checksum: str = "", error: str = ""):
-        """更新状态"""
+        """Update status"""
         now = datetime.now().isoformat()
         with self._lock, self._conn() as conn:
             conn.execute(
@@ -107,7 +107,7 @@ class ResumeState:
 
     def update_progress(self, total_fetched: int = 0, total_new: int = 0,
                         checksum: str = "", error: str = ""):
-        """更新进度（增量累加）"""
+        """Update progress (incremental accumulation)"""
         now = datetime.now().isoformat()
         with self._lock, self._conn() as conn:
             conn.execute(
@@ -139,15 +139,15 @@ class ResumeState:
         })
 
     def mark_done(self):
-        """标记完成"""
+        """Mark done"""
         self.set_status("done")
 
     def mark_failed(self, error_msg: str):
-        """标记失败"""
+        """Mark failed"""
         self.set_status("failed", error=error_msg[:500])
 
     def checksum_file(self, filepath: str) -> str:
-        """计算文件 MD5"""
+        """Calculate file MD5"""
         md5 = hashlib.md5()
         with open(filepath, "rb") as f:
             for chunk in iter(lambda: f.read(64 * 1024 * 1024), b""):
@@ -156,14 +156,14 @@ class ResumeState:
 
     @staticmethod
     def date_range_to_checksum(from_date: str, to_date: str = "") -> str:
-        """OAI 源: 日期范围编码为 checksum"""
+        """OAI source: encode date range as checksum"""
         if not to_date:
             to_date = datetime.now().strftime("%Y-%m-%d")
         return f"{from_date}:{to_date}"
 
     @staticmethod
     def parse_date_range(checksum: str) -> tuple[str, str]:
-        """解析 OAI 日期范围 checksum"""
+        """Parse OAI date range checksum"""
         parts = checksum.split(":")
         if len(parts) == 2:
             return parts[0], parts[1]
@@ -171,12 +171,12 @@ class ResumeState:
 
 
 class BaseDownloader(ABC):
-    """下载器基类
+    """Base downloader class
 
-    子类需实现:
-        - source_name: str 常量（如 'oai', 'kaggle'）
-        - run(): 实际下载逻辑
-        - 在 run() 中调用 self._update_progress() 报告进度
+    Subclasses must implement:
+        - source_name: str constant (e.g. 'oai', 'kaggle')
+        - run(): Actual download logic
+        - Call self._update_progress() from run() to report progress
     """
 
     source_name: str = "base"
@@ -189,20 +189,20 @@ class BaseDownloader(ABC):
 
     @abstractmethod
     def _default_db_path(self) -> str:
-        """默认数据库路径"""
+        """Default database path"""
         ...
 
     @abstractmethod
     def run(self, **kwargs) -> int:
-        """执行下载，返回新增条数"""
+        """Execute download, return number of new records"""
         ...
 
     def bump_version(self):
-        """版本标记"""
+        """Version marker"""
         pass
 
     def _update_progress(self, fetched: int, new_count: int, checksum: str = ""):
-        """更新进度并通知回调"""
+        """Update progress and notify callback"""
         self.state.update_progress(
             total_fetched=fetched,
             total_new=new_count,
@@ -216,10 +216,10 @@ class BaseDownloader(ABC):
             })
 
     def interrupt(self):
-        """请求中断"""
+        """Request interruption"""
         self._interrupted = True
 
     @property
     def status(self) -> dict:
-        """当前下载状态"""
+        """Current download status"""
         return self.state.get()

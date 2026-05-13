@@ -1,7 +1,10 @@
-"""测试 config 模块 — YAML 加载 + env 合并 + budget 检查"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Test config module — YAML loading + env merging + budget checking"""
 import os
 import tempfile
-from hfpapers.config import load_config, get, estimate_cost, check_token_budget, check_cost_budget
+
+from hfpapers.config import check_cost_budget, check_token_budget, estimate_cost, get, load_config
 
 
 class TestConfigLoad:
@@ -29,7 +32,7 @@ class TestConfigLoad:
             cfg = load_config(reload=True)
             assert get("search.max_per_dim") == 99
             del os.environ["_TEST_HFPAPERS_CONFIG"]
-            # 清空缓存，避免后续测试读到这个 mini 配置
+            # Clear cache so subsequent tests don't see this mini config
             from hfpapers.config import _config_cache
             _config_cache = None
 
@@ -46,7 +49,7 @@ class TestBudget:
         assert not check_token_budget(100000, 50000)
 
     def test_check_cost_budget_free_model(self):
-        # Ollama 等本地模型返回 True（不花钱）
+        # Local models like Ollama return True (free)
         assert check_cost_budget("ollama/llama3", 100000, 50000)
 
     def test_check_cost_budget_exceeded(self):
