@@ -1,0 +1,12 @@
+# hfpapers-clawler runtime dependencies (from pyproject.toml)
+# Install: pip install -e .
+#
+
+pyyaml>=6.0
+python-dotenv>=1.0
+requests>=2.28
+beautifulsoup4>=4.12
+lxml>=4.9
+typer>=0.9
+litellm
+pymupdf4llm

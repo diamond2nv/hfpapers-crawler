@@ -1,0 +1,48 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# ── 数据 / 输出 ──
+data/
+pdfs/
+mds/
+md_extracts/
+logs/
+
+# ── 数据库 ──
+*.db
+*.db-wal
+*.db-shm
+
+# ── 外部依赖 ──
+venv/
+.venv/
+.uv/
+uv.lock
+.env
+
+# ── 安全 ──
+# .env 和 .env.* 包含 API Key 和私密信息，禁止提交
+.env*
+!.env.template
+
+# ── 系统 ──
+.DS_Store
+*.swp
+*.swo
+
+# ── IDE ──
+.vscode/
+.idea/
+
+# ── Scrapy ──
+*.pyc
+.cache/
+
+# ── 测试报告 ──
+htmlcov/
+.coverage
+.pytest_cache/
