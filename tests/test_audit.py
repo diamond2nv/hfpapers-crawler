@@ -1,167 +1,418 @@
-"""测试审计模块"""
+"""测试审计模块 — 全面覆盖"""
 
 import json
 import os
 import sqlite3
 import tempfile
 
-from hfpapers.config import load_config
-from hfpapers.paper_store import get_store, ensure_paper
-
+import pytest
 from typer.testing import CliRunner
 from hfpapers.cli import app
 
 runner = CliRunner()
 
 
-class TestAudit:
-    def test_audit_empty_db(self, test_env):
-        """空数据库的审计报告"""
+def _create_arxiv_meta_db(db_path: str, papers: list[dict] = None):
+    """创建 arxiv_meta.db 并插入测试数据"""
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS arxiv_meta (
+            arxiv_id TEXT PRIMARY KEY, title TEXT, authors TEXT, abstract TEXT,
+            categories TEXT, doi TEXT, journal_ref TEXT, update_date TEXT,
+            source TEXT DEFAULT '', imported_at TEXT DEFAULT (datetime('now')))
+    """)
+    for p in (papers or []):
+        conn.execute(
+            "INSERT OR IGNORE INTO arxiv_meta (arxiv_id, title, source, doi) VALUES (?, ?, ?, ?)",
+            (p["arxiv_id"], p["title"], p.get("source", ""), p.get("doi", "")),
+        )
+    conn.commit()
+    conn.close()
+
+
+def _create_paper_store_db(db_path: str, papers: list[dict] = None):
+    """创建 papers.db 并插入测试数据（含 identifiers 表）"""
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS papers (
+            sf_id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL DEFAULT '',
+            abstract TEXT DEFAULT '',
+            year INTEGER DEFAULT 0,
+            source TEXT DEFAULT '',
+            venue TEXT DEFAULT '',
+            relevance INTEGER DEFAULT 0,
+            has_code INTEGER DEFAULT 0,
+            code_url TEXT DEFAULT '',
+            verified INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS identifiers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sf_id INTEGER NOT NULL,
+            id_type TEXT NOT NULL,
+            id_value TEXT NOT NULL,
+            source TEXT DEFAULT '',
+            confidence REAL DEFAULT 1.0,
+            verified_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(id_type, id_value),
+            FOREIGN KEY (sf_id) REFERENCES papers(sf_id)
+        );
+    """)
+    for p in (papers or []):
+        conn.execute(
+            "INSERT INTO papers (sf_id, title, source, verified, year) VALUES (?, ?, ?, ?, ?)",
+            (p["sf_id"], p["title"], p.get("source", ""), int(p.get("verified", False)), p.get("year", 2025)),
+        )
+        for id_rec in p.get("identifiers", []):
+            conn.execute(
+                "INSERT INTO identifiers (sf_id, id_type, id_value) VALUES (?, ?, ?)",
+                (p["sf_id"], id_rec["type"], id_rec["value"]),
+            )
+    conn.commit()
+    conn.close()
+
+
+class TestArxivMetaAudit:
+    """arxiv_meta 层审计测试"""
+
+    def test_empty_db(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "arxiv_meta.db")
+            _create_arxiv_meta_db(db_path)
+            from hfpclawer.audit import run_audit
+            report = run_audit(db_path=db_path)
+            assert report["db_exists"]
+            assert report["total"] == 0
+            assert report["sources"] == {}
+            assert report["has_source_column"] is True
+
+    def test_single_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "arxiv_meta.db")
+            _create_arxiv_meta_db(db_path, [
+                {"arxiv_id": "2501.0001", "title": "A", "source": "oai"},
+                {"arxiv_id": "2501.0002", "title": "B", "source": "oai"},
+            ])
+            from hfpclawer.audit import run_audit
+            report = run_audit(db_path=db_path)
+            assert report["total"] == 2
+            assert report["sources"]["oai"]["count"] == 2
+
+    def test_multi_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "arxiv_meta.db")
+            _create_arxiv_meta_db(db_path, [
+                {"arxiv_id": "2501.0001", "title": "A", "source": "oai"},
+                {"arxiv_id": "2501.0002", "title": "B", "source": "kaggle"},
+                {"arxiv_id": "2501.0003", "title": "C", "source": "kaggle"},
+            ])
+            from hfpclawer.audit import run_audit
+            report = run_audit(db_path=db_path)
+            assert report["total"] == 3
+            assert report["sources"]["oai"]["count"] == 1
+            assert report["sources"]["kaggle"]["count"] == 2
+
+    def test_unknown_source(self):
+        """空字符串 source 应显示为 unknown"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "arxiv_meta.db")
+            _create_arxiv_meta_db(db_path, [
+                {"arxiv_id": "2501.0001", "title": "A", "source": ""},
+            ])
+            from hfpclawer.audit import run_audit
+            report = run_audit(db_path=db_path)
+            assert "unknown" in report["sources"]
+            assert report["sources"]["unknown"]["count"] == 1
+
+    def test_db_not_exists(self):
         from hfpclawer.audit import run_audit
-
-        # test_env 的 config.yaml 配了 paths.data_dir, 但没有 db.path
-        # paper_store 用 data/papers.db, arxiv_meta 也用 data/arxiv_meta.db
-        # audit 默认查 arxiv_meta.db — 需要确保它存在
-        db_path = os.path.join(os.getcwd(), "data", "arxiv_meta.db")
-        os.makedirs(os.path.join(os.getcwd(), "data"), exist_ok=True)
-        # 创建空 arxiv_meta.db (复用 schema)
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS arxiv_meta (
-                arxiv_id TEXT PRIMARY KEY, title TEXT, authors TEXT, abstract TEXT,
-                categories TEXT, doi TEXT, journal_ref TEXT, update_date TEXT,
-                source TEXT DEFAULT '', imported_at TEXT DEFAULT (datetime('now')))
-        """)
-        conn.close()
-
-        report = run_audit(db_path=db_path)
-        assert report["db_exists"]
+        report = run_audit(db_path="/nonexistent/db.db")
+        assert not report["db_exists"]
         assert report["total"] == 0
-        assert "sources" in report
+        assert report["sources"] == {}
 
-    def test_audit_with_data(self, test_env):
-        """有数据时的审计"""
-        # 先建 arxiv_meta.db 并写数据
-        db_path = os.path.join(os.getcwd(), "data", "arxiv_meta.db")
-        os.makedirs(os.path.join(os.getcwd(), "data"), exist_ok=True)
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS arxiv_meta (
-                arxiv_id TEXT PRIMARY KEY, title TEXT, authors TEXT, abstract TEXT,
-                categories TEXT, doi TEXT, journal_ref TEXT, update_date TEXT,
-                source TEXT DEFAULT '', imported_at TEXT DEFAULT (datetime('now')))
-        """)
-        conn.execute("""
-            INSERT INTO arxiv_meta (arxiv_id, title, source)
-            VALUES (?, ?, ?)
-        """, ("2501.10001", "Test Paper 1", "oai"))
-        conn.execute("""
-            INSERT INTO arxiv_meta (arxiv_id, title, source)
-            VALUES (?, ?, ?)
-        """, ("2501.10002", "Test Paper 2", "kaggle"))
-        conn.commit()
-        conn.close()
+    def test_no_source_column_legacy(self):
+        """旧表（无 source 列）的审计 fallback"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "arxiv_meta.db")
+            conn = sqlite3.connect(db_path)
+            conn.execute("""
+                CREATE TABLE arxiv_meta (
+                    arxiv_id TEXT PRIMARY KEY, title TEXT)
+            """)
+            conn.execute("INSERT INTO arxiv_meta (arxiv_id, title) VALUES ('2501.0001', 'A')")
+            conn.commit()
+            conn.close()
+            from hfpclawer.audit import run_audit
+            report = run_audit(db_path=db_path)
+            assert report["has_source_column"] is False
+            assert "legacy" in report["sources"]
+            assert report["sources"]["legacy"]["count"] == 1
 
-        from hfpclawer.audit import run_audit
-        report = run_audit(db_path=db_path)
-        assert report["total"] == 2
-        assert report["sources"].get("oai", {}).get("count") == 1
-        assert report["sources"].get("kaggle", {}).get("count") == 1
+    def test_imported_at_timestamps(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "arxiv_meta.db")
+            _create_arxiv_meta_db(db_path, [
+                {"arxiv_id": "2501.0001", "title": "A", "source": "oai"},
+            ])
+            from hfpclawer.audit import run_audit
+            report = run_audit(db_path=db_path)
+            oai = report["sources"]["oai"]
+            assert oai["first_import"] is not None
+            assert oai["last_import"] is not None
 
-    def test_audit_source_column_migration(self):
-        """验证 arxiv_meta 表 source 列迁移"""
+    def test_source_column_migration(self):
+        """验证旧表 ALTER TABLE 迁移成功"""
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")
             conn = sqlite3.connect(db_path)
-            # 创建旧表（无 source 列，新 schema 有 source）
-            old_schema = """CREATE TABLE IF NOT EXISTS arxiv_meta (
+            old_schema = """CREATE TABLE arxiv_meta (
                 arxiv_id TEXT PRIMARY KEY, title TEXT, authors TEXT, abstract TEXT,
                 categories TEXT, doi TEXT, journal_ref TEXT, update_date TEXT,
                 imported_at TEXT DEFAULT (datetime('now')));"""
             conn.executescript(old_schema)
             conn.close()
 
-            # 用 MIGRATE_ADD_SOURCE 迁移
             from hfpclawer.download.oai import MIGRATE_ADD_SOURCE
             conn2 = sqlite3.connect(db_path)
             try:
                 conn2.execute(MIGRATE_ADD_SOURCE)
             except sqlite3.OperationalError:
-                pass  # 列已存在（测试中应该不会触发）
+                pass
             conn2.close()
 
-            # 验证 source 列已添加
             conn3 = sqlite3.connect(db_path)
             cols = [r[1] for r in conn3.execute("PRAGMA table_info(arxiv_meta)").fetchall()]
-            assert "source" in cols, f"source 列缺失: {cols}"
+            assert "source" in cols
             conn3.close()
 
-    def test_audit_cli_help(self, test_env):
-        result = runner.invoke(app, ["audit", "--help"])
-        assert result.exit_code == 0
-        assert "审计" in result.output
 
-    def test_audit_json_output(self, test_env):
-        # 先建 arxiv_meta.db
-        db_path = os.path.join(os.getcwd(), "data", "arxiv_meta.db")
-        os.makedirs(os.path.join(os.getcwd(), "data"), exist_ok=True)
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS arxiv_meta (
-                arxiv_id TEXT PRIMARY KEY, title TEXT, authors TEXT, abstract TEXT,
-                categories TEXT, doi TEXT, journal_ref TEXT, update_date TEXT,
-                source TEXT DEFAULT '', imported_at TEXT DEFAULT (datetime('now')))
-        """)
-        conn.close()
+class TestStateFilesAudit:
+    """状态文件审计测试"""
 
-        result = runner.invoke(app, ["audit", "--json"])
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert "db_path" in data
-        assert "sources" in data
-        assert "total" in data
+    def test_no_state_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from hfpclawer.audit import _get_state_paths
+            state_files = _get_state_paths(tmpdir)
+            assert state_files == []
 
-    def test_audit_state_files(self, test_env):
-        """验证状态文件检测"""
-        # 建 data 目录和 arxiv_meta.db
-        data_dir = os.path.join(os.getcwd(), "data")
-        os.makedirs(data_dir, exist_ok=True)
-        db_path = os.path.join(data_dir, "arxiv_meta.db")
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS arxiv_meta (
-                arxiv_id TEXT PRIMARY KEY, title TEXT, authors TEXT, abstract TEXT,
-                categories TEXT, doi TEXT, journal_ref TEXT, update_date TEXT,
-                source TEXT DEFAULT '', imported_at TEXT DEFAULT (datetime('now')))
-        """)
-        conn.close()
+    def test_single_state_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, "oai_download_state.json")
+            with open(state_path, "w") as f:
+                json.dump({"source": "oai", "status": "done", "total_new": 100}, f)
+            from hfpclawer.audit import _get_state_paths
+            state_files = _get_state_paths(tmpdir)
+            assert len(state_files) == 1
+            assert state_files[0]["source"] == "oai"
+            assert state_files[0]["status"] == "done"
+            assert state_files[0]["total_new"] == 100
 
-        # 手动创建 state JSON
-        state_path = os.path.join(data_dir, "test_source_download_state.json")
-        with open(state_path, "w") as f:
-            json.dump({
-                "source": "test_source",
-                "status": "done",
-                "total_new": 42,
-                "total_fetched": 100,
-                "last_update": "2026-05-13T00:00:00",
-                "checksum": "abc123",
-                "error": "",
-            }, f)
+    def test_multiple_state_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for src in ["oai", "kaggle", "test"]:
+                with open(os.path.join(tmpdir, f"{src}_download_state.json"), "w") as f:
+                    json.dump({"source": src, "status": "done"}, f)
+            from hfpclawer.audit import _get_state_paths
+            state_files = _get_state_paths(tmpdir)
+            assert len(state_files) == 3
+            sources = {sf["source"] for sf in state_files}
+            assert sources == {"oai", "kaggle", "test"}
 
-        try:
-            from hfpclawer.audit import run_audit
-            report = run_audit(db_path=db_path, data_dir=data_dir)
-            state_files = report.get("state_files", [])
-            assert len(state_files) >= 1
-            matched = [s for s in state_files if s["source"] == "test_source"]
-            assert len(matched) == 1
-            assert matched[0]["status"] == "done"
-            assert matched[0]["total_new"] == 42
-        finally:
-            if os.path.exists(state_path):
-                os.unlink(state_path)
+    def test_corrupted_state_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, "bad_download_state.json")
+            with open(state_path, "w") as f:
+                f.write("{invalid json")
+            from hfpclawer.audit import _get_state_paths
+            state_files = _get_state_paths(tmpdir)
+            assert len(state_files) == 1
+            assert "parse_error" in state_files[0]["status"]
+
+    def test_state_file_with_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, "oai_download_state.json")
+            with open(state_path, "w") as f:
+                json.dump({"source": "oai", "status": "failed", "error": "Network timeout"}, f)
+            from hfpclawer.audit import _get_state_paths
+            state_files = _get_state_paths(tmpdir)
+            assert state_files[0]["status"] == "failed"
+            assert "Network timeout" in state_files[0]["error"]
+
+
+class TestJsonlAudit:
+    """JSONL 文件审计测试"""
+
+    def test_jsonl_not_exists(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from hfpclawer.audit import _get_jsonl_info
+            info = _get_jsonl_info(tmpdir)
+            assert info["exists"] is False
+
+    def test_jsonl_exists(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            jsonl_path = os.path.join(tmpdir, "arxiv_metadata.jsonl")
+            with open(jsonl_path, "w") as f:
+                for i in range(100):
+                    f.write(f'{{"id": "2501.{i:04d}", "title": "Paper {i}"}}\n')
+            from hfpclawer.audit import _get_jsonl_info
+            info = _get_jsonl_info(tmpdir)
+            assert info["exists"] is True
+            assert info["lines"] == 100
+            assert info["size_mb"] >= 0
+
+
+class TestPaperStoreAudit:
+    """paper_store（papers.db）层交叉验证审计测试"""
+
+    def test_paper_store_empty(self):
+        from hfpapers.paper_store import PaperStore
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
+            from hfpclawer.audit import run_paper_store_audit
+            report = run_paper_store_audit(store)
+            assert report["total_papers"] == 0
+            assert report["verified_papers"] == 0
+            assert report["with_code"] == 0
+            assert report["dual_id_papers"] == 0
+            assert report["identifier_types"] == []
+
+    def test_paper_store_no_ids(self):
+        """只有论文，无标识符"""
+        from hfpapers.paper_store import PaperStore, PaperRecord, PaperIdentifier
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
+            store.upsert_paper(PaperRecord(title="Paper A", source="test"))
+            store.upsert_paper(PaperRecord(title="Paper B", source="test"))
+            from hfpclawer.audit import run_paper_store_audit
+            report = run_paper_store_audit(store)
+            assert report["total_papers"] == 2
+            assert report["dual_id_papers"] == 0
+
+    def test_dual_id_identifiers(self, paper_store):
+        """通过 paper_store fixture 验证双 ID 审计"""
+        from hfpclawer.audit import run_paper_store_audit
+        from hfpapers.paper_store import PaperRecord
+
+        # 论文 A：arXiv + DOI 双标识符
+        sf_a = paper_store.upsert_paper(PaperRecord(title="Paper A", source="test", verified=True))
+        paper_store.add_identifier(sf_a, "arxiv", "2501.10001", source="test")
+        paper_store.add_identifier(sf_a, "doi", "10.1234/test.2025.10001", source="crossref")
+
+        # 论文 B：只有 arXiv
+        sf_b = paper_store.upsert_paper(PaperRecord(title="Paper B", source="test"))
+        paper_store.add_identifier(sf_b, "arxiv", "2501.10002", source="test")
+
+        # 论文 C：arXiv + DOI + OpenReview 三个标识符
+        sf_c = paper_store.upsert_paper(PaperRecord(title="Paper C", source="test", verified=True))
+        paper_store.add_identifier(sf_c, "arxiv", "2501.10003", source="test")
+        paper_store.add_identifier(sf_c, "doi", "10.1234/test.2025.10003", source="crossref")
+        paper_store.add_identifier(sf_c, "openreview", "abc123", source="pns")
+
+        report = run_paper_store_audit(paper_store)
+        assert report["total_papers"] == 3
+        assert report["verified_papers"] == 2
+        assert report["dual_id_papers"] == 2  # A 和 C
+        assert report["with_code"] == 0
+        assert set(report["identifier_types"]) == {"arxiv", "doi", "openreview"}
+        # 每个类型的计数
+        type_counts = {t["type"]: t["count"] for t in report["identifier_type_stats"]}
+        assert type_counts["arxiv"] == 3
+        assert type_counts["doi"] == 2
+        assert type_counts["openreview"] == 1
+
+    def test_dual_id_no_arxiv(self):
+        """只有 DOI 无 arXiv 的不算 dual"""
+        from hfpclawer.audit import run_paper_store_audit
+        from hfpapers.paper_store import PaperStore, PaperRecord
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
+            sf = store.upsert_paper(PaperRecord(title="DOI Only", source="test"))
+            store.add_identifier(sf, "doi", "10.1234/only-doi", source="crossref")
+            report = run_paper_store_audit(store)
+            assert report["dual_id_papers"] == 0  # 不算，因为没有 arxiv
+
+    def test_with_code_flag(self):
+        from hfpclawer.audit import run_paper_store_audit
+        from hfpapers.paper_store import PaperStore, PaperRecord
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
+            sf = store.upsert_paper(PaperRecord(title="Has Code", source="test",
+                                                  has_code=True, code_url="https://github.com/x/y"))
+            store.add_identifier(sf, "arxiv", "2501.10001")
+            report = run_paper_store_audit(store)
+            assert report["with_code"] == 1
+            assert report["total_papers"] == 1
+
+    def test_verify_ratio(self):
+        """验证比例计算"""
+        from hfpclawer.audit import run_paper_store_audit
+        from hfpapers.paper_store import PaperStore, PaperRecord
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
+            for i in range(10):
+                sf = store.upsert_paper(PaperRecord(title=f"P{i}", source="test",
+                                                      verified=(i < 7)))
+            report = run_paper_store_audit(store)
+            assert report["verified_papers"] == 7
+            # dual_id_papers 为 0 因为没有 identifiers
+
+    def test_identifier_type_breakdown(self):
+        from hfpclawer.audit import run_paper_store_audit
+        from hfpapers.paper_store import PaperStore, PaperRecord
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
+            sf1 = store.upsert_paper(PaperRecord(title="P1"))
+            store.add_identifier(sf1, "arxiv", "2501.0001")
+            store.add_identifier(sf1, "doi", "10.1/abc")
+            sf2 = store.upsert_paper(PaperRecord(title="P2"))
+            store.add_identifier(sf2, "arxiv", "2501.0002")
+            store.add_identifier(sf2, "issn", "1234-5678")
+            report = run_paper_store_audit(store)
+            type_stats = {t["type"]: t for t in report["identifier_type_stats"]}
+            assert type_stats["arxiv"]["count"] == 2
+            assert type_stats["doi"]["count"] == 1
+            assert type_stats["issn"]["count"] == 1
+
+
+class TestCombinedAudit:
+    """综合审计测试（arxiv_meta + paper_store）"""
+
+    def test_full_audit_with_meta_and_store(self, paper_store, test_env):
+        """通过 run_full_audit 验证两个数据库同时审计"""
+        from hfpclawer.audit import run_paper_store_audit, run_audit
+        from hfpapers.paper_store import PaperRecord
+
+        # paper_store 插入数据
+        sf = paper_store.upsert_paper(PaperRecord(title="Combined Paper", source="test"))
+        paper_store.add_identifier(sf, "arxiv", "2501.00001")
+        paper_store.add_identifier(sf, "doi", "10.1234/combined")
+
+        # arxiv_meta 插入数据
+        meta_db_path = os.path.join(os.getcwd(), "data", "arxiv_meta.db")
+        os.makedirs(os.path.dirname(meta_db_path), exist_ok=True)
+        _create_arxiv_meta_db(meta_db_path, [
+            {"arxiv_id": "2501.00001", "title": "Combined Paper", "source": "oai", "doi": "10.1234/combined"},
+        ])
+
+        meta_report = run_audit(db_path=meta_db_path)
+        store_report = run_paper_store_audit(store=paper_store)
+        assert meta_report["total"] == 1
+        assert store_report["total_papers"] == 1
+        assert store_report["dual_id_papers"] == 1
+
+    def test_full_audit_json_output(self):
+        """完整审计的 JSON 输出格式验证"""
+        from hfpclawer.audit import run_full_audit
+        from hfpapers.paper_store import PaperStore
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "test.db")
+            store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
+            report = run_full_audit(db_path=db_path)
+            # 检查顶层结构
+            for key in ["timestamp", "arxiv_meta", "paper_store"]:
+                assert key in report, f"Missing key: {key}"

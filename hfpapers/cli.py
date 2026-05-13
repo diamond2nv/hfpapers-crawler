@@ -15,7 +15,7 @@
   hfpclawer analyze          LLM 分析已下载 PDF
   hfpclawer wiki             生成 Wiki 页面
   hfpclawer store            论文存储层管理
-  hfpclawer audit            数据源审计报告
+  hfpclawer audit            数据审计（arxiv_meta + Paper Store）
   hfpclawer check            检查最新 paper
   hfpclawer config           查看当前配置
   hfpclawer mcp              启动 MCP Server
@@ -628,17 +628,35 @@ def download(
 
 @app.command()
 def audit(
+    arxiv_meta: bool = typer.Option(False, "--meta", "-m",
+                                    help="仅元数据源审计 (arxiv_meta.db)"),
+    paper_store: bool = typer.Option(False, "--paper-store", "-p",
+                                     help="仅 Paper Store 质量审计"),
     json_output: bool = typer.Option(False, "--json", "-j", help="JSON 格式输出"),
 ):
-    """数据源审计报告 — 查看各来源论文数、状态文件、JSONL 状态"""
-    from hfpclawer.audit import run_audit, format_audit_report
+    """数据源审计报告 — 查看各来源论文数、状态文件、Paper Store 交叉验证"""
+    from hfpclawer.audit import (
+        run_audit, run_paper_store_audit, run_full_audit,
+        format_audit_report, format_paper_store_report, format_full_audit_report,
+    )
 
-    report = run_audit()
+    if arxiv_meta:
+        report = run_audit()
+    elif paper_store:
+        report = run_paper_store_audit()
+    else:
+        report = run_full_audit()
+
     if json_output:
         import json as json_mod
         console.print(json_mod.dumps(report, indent=2, ensure_ascii=False))
     else:
-        console.print(format_audit_report(report))
+        if full:
+            console.print(format_full_audit_report(report))
+        elif paper_store:
+            console.print(format_paper_store_report(report))
+        else:
+            console.print(format_audit_report(report))
 
 
 def _import_dummy():

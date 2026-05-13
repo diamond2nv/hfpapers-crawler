@@ -77,6 +77,138 @@ def _get_jsonl_info(data_dir: str) -> Optional[dict]:
     return {"exists": False, "path": str(jsonl_path)}
 
 
+def run_paper_store_audit(store=None) -> dict:
+    """审计 paper_store 论文质量（交叉验证、标识符分布）
+
+    Args:
+        store: PaperStore 实例，None 则用 get_store()
+
+    Returns:
+        dict with keys:
+        - total_papers: 论文总数
+        - verified_papers: 已验证论文数
+        - with_code: 有代码的论文数
+        - dual_id_papers: 有 arXiv + DOI 双标识符的论文数
+        - identifier_types: 所有标识符类型列表
+        - identifier_type_stats: [{type, count}, ...]
+    """
+    if store is None:
+        from hfpapers.paper_store import get_store
+        store = get_store()
+
+    stats = store.stats()
+    report = {
+        "total_papers": stats["papers_total"],
+        "verified_papers": stats["papers_verified"],
+        "with_code": stats["papers_with_code"],
+        "dual_id_papers": 0,
+        "identifier_types": list(stats.get("identifiers_by_type", {}).keys()),
+        "identifier_type_stats": [
+            {"type": t, "count": c}
+            for t, c in stats.get("identifiers_by_type", {}).items()
+        ],
+    }
+
+    # 计算 dual_id_papers：既有 arxiv 又有 doi 标识符的论文数
+    if report["total_papers"] > 0:
+        with store._conn() as conn:
+            row = conn.execute("""
+                SELECT COUNT(*) FROM (
+                    SELECT p.sf_id FROM papers p
+                    JOIN identifiers i1 ON p.sf_id = i1.sf_id AND i1.id_type = 'arxiv'
+                    JOIN identifiers i2 ON p.sf_id = i2.sf_id AND i2.id_type = 'doi'
+                    GROUP BY p.sf_id
+                )
+            """).fetchone()
+            report["dual_id_papers"] = row[0] if row else 0
+
+    # 补充：已验证率
+    if report["total_papers"] > 0:
+        report["verified_ratio"] = round(report["verified_papers"] / report["total_papers"], 4)
+        report["dual_id_ratio"] = round(report["dual_id_papers"] / report["total_papers"], 4)
+    else:
+        report["verified_ratio"] = 0.0
+        report["dual_id_ratio"] = 0.0
+
+    return report
+
+
+def run_full_audit(db_path: str = None, data_dir: str = None) -> dict:
+    """完整审计：arxiv_meta 数据源审计 + paper_store 论文质量审计"""
+    meta_report = run_audit(db_path=db_path, data_dir=data_dir)
+    store_report = run_paper_store_audit()
+    return {
+        "timestamp": meta_report["timestamp"],
+        "arxiv_meta": meta_report,
+        "paper_store": store_report,
+    }
+
+
+def format_paper_store_report(report: dict) -> str:
+    """格式化为可读文本"""
+    lines = []
+    lines.append(f"\n📚 Paper Store 论文质量:")
+    lines.append(f"  论文总数: {report['total_papers']:,}")
+    lines.append(f"  已验证:   {report['verified_papers']:,} ({report.get('verified_ratio', 0)*100:.1f}%)")
+    lines.append(f"  有代码:   {report['with_code']:,}")
+    lines.append(f"  双 ID:    {report['dual_id_papers']:,} ({report.get('dual_id_ratio', 0)*100:.1f}%)")
+
+    lines.append(f"\n  标识符分布:")
+    for ts in report.get("identifier_type_stats", []):
+        lines.append(f"    {ts['type']}: {ts['count']:,}")
+
+    return "\n".join(lines)
+
+
+def format_full_audit_report(report: dict) -> str:
+    """完整审计报告"""
+    lines = []
+    lines.append("=" * 50)
+    lines.append("📊 完整数据审计报告")
+    lines.append(f"时间: {report['timestamp']}")
+    lines.append("=" * 50)
+    lines.append("")
+
+    # arxiv_meta 部分
+    meta = report.get("arxiv_meta", {})
+    lines.append(f"📁 元数据源 (arxiv_meta.db)")
+    lines.append(f"  DB: {meta.get('db_path', 'N/A')}")
+    lines.append(f"  存在: {'✅' if meta.get('db_exists') else '❌'}")
+    if meta.get("db_exists"):
+        size = os.path.getsize(meta["db_path"]) / (1024 * 1024)
+        lines.append(f"  大小: {size:.0f} MB")
+        lines.append(f"  总计: {meta.get('total', 0):,} 篇")
+        lines.append(f"  source 列: {'✅' if meta.get('has_source_column') else '❌'}")
+
+        lines.append(f"\n  数据来源:")
+        for src, info in meta.get("sources", {}).items():
+            label = "legacy" if src == "unknown" else src
+            lines.append(f"    [{label}] {info['count']:,} 篇")
+            if info.get("first_import"):
+                lines.append(f"      首次: {info['first_import']}")
+            if info.get("last_import"):
+                lines.append(f"      最近: {info['last_import']}")
+
+    # state files
+    state_files = meta.get("state_files", [])
+    if state_files:
+        lines.append(f"\n  状态文件:")
+        for sf in state_files:
+            lines.append(f"    {Path(sf['file']).name} → {sf['status']} ({sf['total_new']:,} 篇)")
+
+    # JSONL
+    jl = meta.get("jsonl", {})
+    if jl:
+        lines.append(f"\n  Kaggle JSONL: {'✅ ' + jl.get('path','') if jl.get('exists') else '❌ 不存在'}")
+
+    # paper_store 部分
+    lines.append("")
+    ps = report.get("paper_store", {})
+    lines.append(format_paper_store_report(ps))
+
+    return "\n".join(lines)
+
+
 def run_audit(db_path: str = None, data_dir: str = None) -> dict:
     """运行审计，返回完整报告 dict"""
     db_path = db_path or _get_db_path()
