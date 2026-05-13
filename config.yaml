@@ -65,6 +65,43 @@ search:
     - query: "neural PDE solver"
       category: neural-operator
       weight: 2
+    # v0.4.3: Expanded coverage — 12 new queries across all categories
+    - query: "autoregressive neural operator"
+      category: neural-operator
+      weight: 1
+    - query: "attention neural operator"
+      category: neural-operator
+      weight: 1
+    - query: "graph neural operator"
+      category: neural-operator
+      weight: 1
+    - query: "Fourier operator learning"
+      category: neural-operator
+      weight: 1
+    - query: "geometric operator learning"
+      category: neural-operator
+      weight: 1
+    - query: "multi-scale neural operator"
+      category: neural-operator
+      weight: 1
+    - query: "memory efficiency neural operator"
+      category: neural-operator
+      weight: 1
+    - query: "foundation model physics simulation"
+      category: foundation-model
+      weight: 1
+    - query: "benchmark PDE solver"
+      category: benchmark
+      weight: 1
+    - query: "deep learning surrogate PDE"
+      category: surrogate
+      weight: 1
+    - query: "conservation law neural"
+      category: pinn
+      weight: 1
+    - query: "operator transformer"
+      category: neural-operator
+      weight: 1
 
 # ===== 2. Keyword Whitelist / Blacklist =====
 keywords:
