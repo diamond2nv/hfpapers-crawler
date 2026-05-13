@@ -86,7 +86,7 @@ class ArxivLocalSearch:
         with self._conn() as conn:
             conn.executescript(FTS_SCHEMA)
             conn.executescript(META_SCHEMA)
-        logger.info(f"ArxivLocalSearch ready: {self.db_path}")
+        logger.debug(f"ArxivLocalSearch ready: {self.db_path}")
 
     def search(
         self,
