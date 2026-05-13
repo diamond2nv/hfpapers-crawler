@@ -165,7 +165,9 @@ def download(
 
 
 @app.command()
-def convert():
+def convert(
+    to_wiki: bool = typer.Option(False, "--to-wiki", "-w", help="Sync converted MD to wiki/raw/papers"),
+):
     """pymupdf4llm convert PDF → Markdown"""
     hw = _get_probe()
     if not hw.use_pdf_converter:
@@ -174,8 +176,10 @@ def convert():
 
     from hfpapers.evolved import convert_pdfs
 
-    count = convert_pdfs()
+    count = convert_pdfs(to_wiki=to_wiki)
     console.print(f"[green]✅ Converted {count} papers[/green]")
+    if to_wiki:
+        console.print("[green]  📋 Synced to wiki/raw/papers[/green]")
 
 
 @app.command()
@@ -184,6 +188,7 @@ def full(
     threshold: int = typer.Option(30, "--threshold", "-t", help="Relevance threshold"),
     limit: int = typer.Option(20, "--limit", "-l", help="Download limit"),
     skip_convert: bool = typer.Option(False, "--skip-convert", help="Skip PDF→MD conversion"),
+    to_wiki: bool = typer.Option(True, "--to-wiki/--no-wiki", help="Sync converted MD to wiki/raw/papers"),
 ):
     """Full pipeline: search → download → convert
 

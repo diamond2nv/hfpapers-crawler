@@ -360,21 +360,44 @@ def load_candidates() -> list:
     return papers
 
 
-def convert_pdfs() -> int:
+def convert_pdfs(to_wiki: bool = False) -> int:
     count = 0
+    wiki_dir = Path.home() / "wiki" / "raw" / "papers"
+    if to_wiki:
+        wiki_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"  Wiki sync enabled: {wiki_dir}")
+
     for pdf_path in sorted(PDF_DIR.glob("*.pdf")):
         md_path = MD_DIR / pdf_path.with_suffix(".md").name
+        aid = pdf_path.stem
+
         if md_path.exists():
             count += 1
+            if to_wiki:
+                wiki_path = wiki_dir / f"{aid}.md"
+                if not wiki_path.exists():
+                    import shutil
+                    shutil.copy2(md_path, wiki_path)
+                    logger.info(f"  📋 Wiki sync: {aid}")
             continue
+
         try:
             import pymupdf4llm
             md_text = pymupdf4llm.to_markdown(str(pdf_path))
-            aid = pdf_path.stem
             with open(md_path, "w") as fh:
                 fh.write(f"# {aid}\n\n> arXiv PDF\n\n{md_text}")
             count += 1
             logger.info(f"  MD: {aid}")
+
+            if to_wiki:
+                import shutil
+                wiki_path = wiki_dir / f"{aid}.md"
+                shutil.copy2(md_path, wiki_path)
+                logger.info(f"  📋 Wiki sync: {aid}")
+
         except Exception as e:
             logger.warning(f"  Conversion failed {pdf_path.name}: {e}")
+
+    if to_wiki:
+        logger.info(f"  Wiki raw/papers now has {len(list(wiki_dir.glob('*.md')))} files")
     return count
