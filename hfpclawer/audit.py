@@ -113,7 +113,7 @@ def run_audit(db_path: str = None, data_dir: str = None) -> dict:
                 "MAX(imported_at) as last_import FROM arxiv_meta GROUP BY source"
             ).fetchall()
             for r in rows:
-                report["sources"][r["source"] or "unknown"] = {
+                report["sources"][r["source"] if r["source"] else "unknown"] = {
                     "count": r["cnt"],
                     "first_import": r["first_import"],
                     "last_import": r["last_import"],
