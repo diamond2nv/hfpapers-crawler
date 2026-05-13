@@ -442,6 +442,82 @@ class PaperStore:
                 return self._row_to_record(row)
             return None
 
+    def get_all_papers(self) -> list[PaperRecord]:
+        """获取全部论文，按创建时间降序"""
+        with self._conn() as conn:
+            rows = conn.execute("""
+                SELECT * FROM papers
+                ORDER BY created_at DESC
+            """).fetchall()
+            return [self._row_to_record(r) for r in rows]
+
+    def export_papers(self, format: str = "json", filepath: str = None) -> str:
+        """导出全部论文到文件。
+
+        Args:
+            format: "json" 或 "csv"
+            filepath: 输出路径，None 则自动命名
+
+        Returns:
+            输出文件的绝对路径
+        """
+        papers = self.get_all_papers()
+        if not papers:
+            raise ValueError("PaperStore 中没有论文可导出")
+
+        if filepath is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filepath = os.path.join(os.path.dirname(self.db_path), f"papers_export_{timestamp}.{format}")
+
+        if format == "json":
+            data = []
+            for p in papers:
+                ids = self.get_identifiers(p.sf_id)
+                data.append({
+                    "sf_id": p.sf_id,
+                    "title": p.title,
+                    "abstract": p.abstract[:500] if p.abstract else "",
+                    "year": p.year,
+                    "source": p.source,
+                    "venue": p.venue,
+                    "relevance": p.relevance,
+                    "has_code": p.has_code,
+                    "code_url": p.code_url,
+                    "verified": p.verified,
+                    "created_at": p.created_at,
+                    "updated_at": p.updated_at,
+                    "identifiers": [
+                        {"type": i.id_type, "value": i.id_value, "confidence": i.confidence}
+                        for i in ids
+                    ],
+                })
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+        elif format == "csv":
+            import csv
+            with open(filepath, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "sf_id", "title", "abstract_preview", "year", "source", "venue",
+                    "relevance", "has_code", "code_url", "verified",
+                    "created_at", "updated_at", "identifiers",
+                ])
+                for p in papers:
+                    ids = self.get_identifiers(p.sf_id)
+                    id_str = "; ".join(f"{i.id_type}:{i.id_value}" for i in ids)
+                    writer.writerow([
+                        p.sf_id, p.title, (p.abstract or "")[:500], p.year,
+                        p.source, p.venue, p.relevance, int(p.has_code),
+                        p.code_url, int(p.verified),
+                        p.created_at, p.updated_at, id_str,
+                    ])
+        else:
+            raise ValueError(f"不支持的格式: {format}，仅支持 json/csv")
+
+        logger.info(f"导出 {len(papers)} 篇论文到 {filepath}")
+        return os.path.abspath(filepath)
+
     def search_papers(self, keyword: str = "", limit: int = 50) -> list[PaperRecord]:
         with self._conn() as conn:
             if keyword:

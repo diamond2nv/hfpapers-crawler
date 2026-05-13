@@ -311,7 +311,8 @@ def config():
 
 @app.command()
 def store(
-    action: str = typer.Argument("stats", help="stats | ensure | search | verify | ids"),
+    action: str = typer.Argument("stats", help="stats | ensure | search | export | verify | ids"),
+    arg: str = typer.Argument("", help="参数: keyword(for search) / format(for export)"),
     arxiv_id: str = typer.Option("", "--aid", "-a", help="arXiv ID"),
     title: str = typer.Option("", "--title", "-t", help="论文标题"),
     keyword: str = typer.Option("", "--keyword", "-k", help="搜索关键词"),
@@ -349,7 +350,7 @@ def store(
             console.print(f"  {i.id_type}: {i.id_value} (conf={i.confidence})")
 
     elif action == "search":
-        papers = store_obj.search_papers(keyword, limit=limit)
+        papers = store_obj.search_papers(keyword or arg, limit=limit)
         table = Table(title=f"📚 找到 {len(papers)} 篇论文")
         table.add_column("Verified", style="green")
         table.add_column("Rel", style="cyan", justify="right")
@@ -387,6 +388,19 @@ def store(
                 console.print(f"  {i.id_type}: {i.id_value}")
         else:
             console.print(f"[red]❌ {arxiv_id} 未找到[/red]")
+
+    elif action == "export":
+        fmt = arg or "json"
+        if fmt not in ("json", "csv"):
+            console.print(f"[red]❌ 不支持格式: {fmt} (仅 json/csv)[/red]")
+            raise typer.Exit(1)
+        try:
+            out_path = store_obj.export_papers(format=fmt)
+            console.print(f"[green]✅ 已导出 {store_obj.stats()['papers_total']} 篇论文[/green]")
+            console.print(f"[dim]   {out_path}[/dim]")
+        except ValueError as e:
+            console.print(f"[yellow]{e}[/yellow]")
+            raise typer.Exit(0)
 
     else:
         console.print(f"[red]❌ 未知操作: {action}[/red]")
