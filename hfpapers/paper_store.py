@@ -307,9 +307,9 @@ class PaperIdentifier:
 def _db_path() -> str:
     """数据库文件路径"""
     base = cfg_get("paths.data_dir", "data")
-    # 如果 base 是相对路径，则相对于项目根
+    # 如果 base 是相对路径，则相对于当前工作目录
     if not os.path.isabs(base):
-        base = os.path.join(os.path.dirname(os.path.dirname(__file__)), base)
+        base = os.path.join(os.getcwd(), base)
     os.makedirs(base, exist_ok=True)
     return os.path.join(base, "papers.db")
 

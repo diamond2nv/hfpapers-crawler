@@ -42,11 +42,19 @@ paths:
         # 环境变量指向测试配置（config.py 的 load_config() 会优先用这个）
         os.environ["_TEST_HFPAPERS_CONFIG"] = cfg_path
         # 强制重新加载配置，确保 fixture 的 config 生效
-        from hfpapers.config import _config_cache, load_config
-        _config_cache = None
-        load_config(reload=True)
+        import hfpapers.config as _cfg
+        _cfg._config_cache = None
+        _cfg.load_config(reload=True)
+        # 重置全局单例，避免跨测试污染
+        import hfpapers.paper_store as _ps
+        _ps._store_instance = None
+        _ps._crossref_instance = None
         yield tmpdir
         os.chdir(old_cwd)
+        # 清理全局单例（方便后续测试）
+        import hfpapers.paper_store as _ps
+        _ps._store_instance = None
+        _ps._crossref_instance = None
 
 
 @pytest.fixture
