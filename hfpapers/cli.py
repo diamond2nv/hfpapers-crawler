@@ -73,8 +73,12 @@ def _get_probe() -> HardwareProbe:
 def search(
     max_pages: int = typer.Option(3, "--max-pages", "-p", help="Pages per dimension"),
     threshold: int = typer.Option(30, "--threshold", "-t", help="Relevance threshold"),
-    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Search + display only, don't save"),
-    show_all: bool = typer.Option(False, "--all", "-a", help="Show all results (including low relevance)"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", "-n", help="Search + display only, don't save"
+    ),
+    show_all: bool = typer.Option(
+        False, "--all", "-a", help="Show all results (including low relevance)"
+    ),
 ):
     """Search HF Papers → arXiv verify → classify
 
@@ -124,6 +128,7 @@ def search(
 
     if not dry_run and papers:
         from hfpapers.evolved import save_candidates
+
         path = save_candidates(papers)
         console.print(f"[green]💾 Candidate list: {path}[/green]")
 
@@ -168,6 +173,7 @@ def convert():
         raise typer.Exit(0)
 
     from hfpapers.evolved import convert_pdfs
+
     count = convert_pdfs()
     console.print(f"[green]✅ Converted {count} papers[/green]")
 
@@ -184,6 +190,7 @@ def full(
     Uses SearchDispatcher async search + AsyncPdfDownloader concurrent download.
     """
     from hfpapers.evolved import HFPapersCrawler
+
     HFPapersCrawler  # Trigger import
 
     start_t = time.time()
@@ -219,6 +226,7 @@ def full(
 def dedup():
     """View dedup statistics"""
     from hfpapers.evolved import DedupEngine
+
     d = DedupEngine()
     pdf_dir = Path(get("paths.pdf_dir", "pdfs")).expanduser()
     md_dir = Path(get("paths.md_dir", "mds")).expanduser()
@@ -285,11 +293,13 @@ def info(arxiv_id: str):
 def stats():
     """Search statistics — SearchQueue task completion"""
     from hfpapers.evolved import DedupEngine
+
     d = DedupEngine()
     hw = _get_probe()
     store_stats = {}
     try:
         from hfpapers.paper_store import store_stats as ss
+
         store_stats = ss()
     except Exception:
         pass
@@ -448,10 +458,12 @@ def sniff(
         if not summary:
             # Try to fetch from arXiv
             import requests
+
             try:
                 import warnings
 
                 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+
                 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
                 resp = requests.get(
                     f"http://export.arxiv.org/api/query?id_list={p.arxiv_id}&max_results=1",
@@ -465,12 +477,14 @@ def sniff(
             except Exception:
                 pass
 
-        summaries.append({
-            "arxiv_id": p.arxiv_id,
-            "title": p.title,
-            "relevance": p.relevance,
-            "abstract": summary[:1000] if summary else "(no abstract)",
-        })
+        summaries.append(
+            {
+                "arxiv_id": p.arxiv_id,
+                "title": p.title,
+                "relevance": p.relevance,
+                "abstract": summary[:1000] if summary else "(no abstract)",
+            }
+        )
 
     # Build LLM prompt
     prompt_sections = []
@@ -486,13 +500,13 @@ def sniff(
         "  2. **Technical approach** (keywords)\n"
         "  3. **Worth reading?** ⭐1-5 stars\n"
         "  4. **Rationale** (one sentence)\n\n"
-        f"Total {len(prompt_sections)} papers:\n\n"
-        + "\n---\n".join(prompt_sections)
+        f"Total {len(prompt_sections)} papers:\n\n" + "\n---\n".join(prompt_sections)
     )
 
     # Call LLM
     try:
         from litellm import completion
+
         model = cfg_get("llm.sniff_model", "deepseek/deepseek-chat")
         max_tokens = cfg_get("llm.sniff_max_tokens", 2000)
 
@@ -514,6 +528,7 @@ def sniff(
 
         # Save to file
         from datetime import datetime
+
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
         data_dir = Path(cfg_get("paths.data_dir", "data")).expanduser()
         out_path = data_dir / f"sniff_{now}.md"
@@ -538,6 +553,7 @@ def sniff(
 def _extract_keywords(text: str, max_kw: int = 15) -> list[str]:
     """Simple keyword extraction (fallback, when LLM unavailable)"""
     import re
+
     # Extract technical terms (capitalized first-letter words, hyphenated technical nouns)
     patterns = [
         r"[A-Z][a-z]+(?:[-/][A-Z][a-z]+)*",  # Neural Operator, Physics-Informed
@@ -566,6 +582,7 @@ def mcp(
     http mode: For OpenCode subagent or debugging.
     """
     from hfpapers.mcp_server import run_mcp_server
+
     if mode == "http":
         console.print(f"🚀 MCP Server → http://{host}:{port}")
     run_mcp_server(host=host, port=port, mode=mode)
@@ -578,18 +595,23 @@ def mcp(
 
 @app.command()
 def download(  # noqa: F811 — intentional typer overload for OAI/Kaggle pipeline
-    source: str = typer.Option("oai", "--source", "-s",
-                               help="Data source: oai (OAI-PMH incremental) | kaggle (Kaggle full)"),
-    incremental: bool = typer.Option(False, "--incremental", "-i",
-                                     help="OAI incremental mode (last 1 day only)"),
-    all_papers: bool = typer.Option(False, "--all", "-a",
-                                    help="OAI full pull (download all by priority)"),
-    tier1: bool = typer.Option(False, "--tier1", "-t1",
-                               help="OAI download Tier 1 core categories only"),
-    force: bool = typer.Option(False, "--force", "-f",
-                               help="Kaggle force re-download"),
-    status: bool = typer.Option(False, "--status",
-                                help="View download progress"),
+    source: str = typer.Option(
+        "oai",
+        "--source",
+        "-s",
+        help="Data source: oai (OAI-PMH incremental) | kaggle (Kaggle full)",
+    ),
+    incremental: bool = typer.Option(
+        False, "--incremental", "-i", help="OAI incremental mode (last 1 day only)"
+    ),
+    all_papers: bool = typer.Option(
+        False, "--all", "-a", help="OAI full pull (download all by priority)"
+    ),
+    tier1: bool = typer.Option(
+        False, "--tier1", "-t1", help="OAI download Tier 1 core categories only"
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Kaggle force re-download"),
+    status: bool = typer.Option(False, "--status", help="View download progress"),
 ):
     """Download arXiv metadata (OAI-PMH incremental|full / Kaggle full)"""
     from hfpapers.config import get as cfg_get
@@ -597,18 +619,50 @@ def download(  # noqa: F811 — intentional typer overload for OAI/Kaggle pipeli
 
     if status:
         # View status
-        db_path = str(Path(__file__).resolve().parent.parent / cfg_get("db.path", "data/arxiv_meta.db"))
+        db_path = str(
+            Path(__file__).resolve().parent.parent / cfg_get("db.path", "data/arxiv_meta.db")
+        )
         state = ResumeState(db_path, source).get()
         console.print(f"\n📊 [{source}] Download Status")
         console.print(f"  Status:        {state.get('status', 'unknown')}")
+
+        # Transient progress from .progress.json in temp dir (not SQLite)
+        tmp_dir = state.get("extra")
+        if tmp_dir:
+            try:
+                extra = json.loads(tmp_dir) if isinstance(tmp_dir, str) else tmp_dir
+            except (json.JSONDecodeError, TypeError):
+                extra = None
+            if extra and extra.get("tmp_dir"):
+                pfile = Path(extra["tmp_dir"]) / ".progress.json"
+                if pfile.exists():
+                    try:
+                        prog = json.loads(pfile.read_text())
+                        p = prog.get("progress", "")
+                        dm = prog.get("downloaded_mb")
+                        tm = prog.get("total_mb")
+                        if tm:
+                            console.print(f"  Progress:      {p} ({dm:,} MB / {tm:,} MB)")
+                        elif dm:
+                            console.print(f"  Progress:      {dm:,} MB")
+                        else:
+                            console.print(f"  Progress:      {p}")
+                        console.print(f"  Temp dir:      {prog.get('tmp_dir', '')}")
+                    except (OSError, json.JSONDecodeError):
+                        pass
         console.print(f"  Fetched:       {state.get('total_fetched', 0):,}")
         console.print(f"  New:           {state.get('total_new', 0):,}")
         console.print(f"  Last updated:  {state.get('last_update', 'never')}")
-        console.print(f"  checksum:    {state.get('checksum', 'N/A')}")
+        checksum = state.get("checksum", "")
+        console.print(f"  Checksum:      {checksum if checksum else 'N/A'}")
+        error = state.get("error", "")
+        if error:
+            console.print(f"  Error:         {error[:200]}")
         return
 
     if source == "oai":
         from hfpclawer.download.oai import OaiPmhDownloader
+
         dl = OaiPmhDownloader()
         with console.status("[bold cyan]📥 Downloading arXiv OAI-PMH metadata..."):
             total = dl.run(
@@ -620,6 +674,7 @@ def download(  # noqa: F811 — intentional typer overload for OAI/Kaggle pipeli
 
     elif source == "kaggle":
         from hfpclawer.download.kaggle import KaggleDownloader
+
         dl = KaggleDownloader()
         with console.status("[bold cyan]📥 Downloading arXiv dataset from Kaggle..."):
             total = dl.run(force=force)
@@ -634,10 +689,12 @@ def download(  # noqa: F811 — intentional typer overload for OAI/Kaggle pipeli
 
 @app.command()
 def audit(
-    arxiv_meta: bool = typer.Option(False, "--meta", "-m",
-                                    help="Meta-source audit only (arxiv_meta.db)"),
-    paper_store: bool = typer.Option(False, "--paper-store", "-p",
-                                     help="Paper Store quality audit only"),
+    arxiv_meta: bool = typer.Option(
+        False, "--meta", "-m", help="Meta-source audit only (arxiv_meta.db)"
+    ),
+    paper_store: bool = typer.Option(
+        False, "--paper-store", "-p", help="Paper Store quality audit only"
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="JSON format output"),
 ):
     """Data source audit report — view per-source paper counts, state files, Paper Store cross-validation"""
@@ -659,6 +716,7 @@ def audit(
 
     if json_output:
         import json as json_mod
+
         console.print(json_mod.dumps(report, indent=2, ensure_ascii=False))
     else:
         if not arxiv_meta and not paper_store:
@@ -676,10 +734,12 @@ def _import_dummy():
 
 @app.command()
 def init(
-    quick: bool = typer.Option(False, "--quick", "-q",
-                               help="Quick mode (use defaults, no interaction)"),
-    data_dir: str = typer.Option("data", "--data-dir", "-d",
-                                 help="Data directory for downloads and DB"),
+    quick: bool = typer.Option(
+        False, "--quick", "-q", help="Quick mode (use defaults, no interaction)"
+    ),
+    data_dir: str = typer.Option(
+        "data", "--data-dir", "-d", help="Data directory for downloads and DB"
+    ),
 ):
     """Initialize config — generate config.yaml + .env.template
 
@@ -710,10 +770,21 @@ def init(
                 ],
             },
             "keywords": {
-                "include_high": ["neural operator", "fourier neural operator", "deep operator network",
-                                 "physics informed", "pde", "partial differential equation",
-                                 "operator learning"],
-                "include_medium": ["scientific machine learning", "sciml", "numerical solver", "meshfree"],
+                "include_high": [
+                    "neural operator",
+                    "fourier neural operator",
+                    "deep operator network",
+                    "physics informed",
+                    "pde",
+                    "partial differential equation",
+                    "operator learning",
+                ],
+                "include_medium": [
+                    "scientific machine learning",
+                    "sciml",
+                    "numerical solver",
+                    "meshfree",
+                ],
                 "exclude": ["quantum", "large language model", "llm", "reinforcement learning"],
             },
             "classification": {
@@ -741,10 +812,14 @@ def init(
         try:
             _ = input(f"  Project name [{cwd.name}]: ")  # consumed, reserved for future
             data = input(f"  Data directory [{data_dir}]: ") or data_dir
-            queries_raw = input("  Search keywords [neural operator, physics informed, pde solver]: ") or \
-                "neural operator, physics informed, pde solver"
-            queries = [{"query": q.strip(), "category": "custom", "priority": i + 1}
-                       for i, q in enumerate(queries_raw.split(","))]
+            queries_raw = (
+                input("  Search keywords [neural operator, physics informed, pde solver]: ")
+                or "neural operator, physics informed, pde solver"
+            )
+            queries = [
+                {"query": q.strip(), "category": "custom", "priority": i + 1}
+                for i, q in enumerate(queries_raw.split(","))
+            ]
             threshold = int(input("  Relevance threshold (0-100) [30]: ") or "30")
 
             default = {
@@ -753,10 +828,21 @@ def init(
                     "queries": queries,
                 },
                 "keywords": {
-                    "include_high": ["neural operator", "fourier neural operator", "deep operator network",
-                                     "physics informed", "pde", "partial differential equation",
-                                     "operator learning"],
-                    "include_medium": ["scientific machine learning", "sciml", "numerical solver", "meshfree"],
+                    "include_high": [
+                        "neural operator",
+                        "fourier neural operator",
+                        "deep operator network",
+                        "physics informed",
+                        "pde",
+                        "partial differential equation",
+                        "operator learning",
+                    ],
+                    "include_medium": [
+                        "scientific machine learning",
+                        "sciml",
+                        "numerical solver",
+                        "meshfree",
+                    ],
                     "exclude": ["quantum", "large language model", "llm", "reinforcement learning"],
                 },
                 "classification": {
@@ -816,10 +902,10 @@ HTTPS_PROXY=
 
 @app.command()
 def monitor(
-    action: str = typer.Argument("status",
-                                 help="start | stop | status"),
-    interval: int = typer.Option(900, "--interval", "-i",
-                                 help="Poll interval (seconds, default 900=15min)"),
+    action: str = typer.Argument("status", help="start | stop | status"),
+    interval: int = typer.Option(
+        900, "--interval", "-i", help="Poll interval (seconds, default 900=15min)"
+    ),
 ):
     """Background monitor daemon — periodic OAI-PMH incremental download"""
     from hfpapers.config import load_config

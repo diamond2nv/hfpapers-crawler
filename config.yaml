@@ -112,17 +112,8 @@ keywords:
     - "qubit"
     - "string theory"
     - "photonic"
-    - "image generation"
-    - "image synthesis"
     - "super resolution image"
-    - "llm fine-tuning"
-    - "reinforcement learning"
     - "recommender system"
-    - "nlp"
-    - "machine translation"
-    - "object detection"
-    - "segmentation"
-    - "pose estimation"
 
 # ===== 3. Anti-Crawl Strategy =====
 anti_crawl:
@@ -150,7 +141,7 @@ classification:
 # ===== 5. Hardware Capacity Budget =====
 hardware:
   max_pdf_size_mb: 50
-  max_pdf_count: 50
+  max_pdf_count: 500
   max_md_chars: 500000
   skip_if_no_gpu:
     - "pymupdf4llm"    # Don't install pymupdf4llm without GPU
@@ -159,8 +150,8 @@ hardware:
 
 # ===== 6. Budget Configuration (litellm Proxy routing) =====
 budget:
-  max_tokens: 50000              # Unified token limit for all providers (prevents overruns)
-  max_cost_usd: 0.50             # Only applies to paid providers (max $0.50/run)
+  max_tokens: 50000000              # Unified token limit for all providers (prevents overruns)
+  max_cost_usd: 1.50             # Only applies to paid providers (max $0.50/run)
   # - Ollama etc. local models: in/out=$0, cost check auto-skipped
   # - DeepSeek: input=$0.28/M, output=$0.42/M
   # - Cost limit ≈ DeepSeek one full paper analysis (30K+10K tokens)

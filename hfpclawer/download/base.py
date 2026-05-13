@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS download_state (
     total_new INTEGER DEFAULT 0,
     last_update TEXT,
     checksum TEXT DEFAULT '',
-    error TEXT DEFAULT ''
+    error TEXT DEFAULT '',
+    extra TEXT DEFAULT ''
 );
 """
 
@@ -67,6 +68,14 @@ class ResumeState:
     def _init_table(self):
         with self._conn() as conn:
             conn.execute(STATE_SCHEMA)
+            # Schema migration: add missing columns
+            existing = {r[1] for r in conn.execute("PRAGMA table_info(download_state)").fetchall()}
+            expected_cols = {
+                "extra": "TEXT DEFAULT ''",
+            }
+            for col, col_def in expected_cols.items():
+                if col not in existing:
+                    conn.execute(f"ALTER TABLE download_state ADD COLUMN {col} {col_def}")
             conn.commit()
 
     def get(self) -> dict:
@@ -83,19 +92,25 @@ class ResumeState:
             return fb
         return {"source": self.source, "status": "pending"}
 
-    def set_status(self, status: str, checksum: str = "", error: str = ""):
-        """Update status"""
+    def set_status(self, status: str, checksum: str = "", error: str = "",
+                    extra: dict = None):
+        """Update status
+
+        Args:
+            extra: Optional dict with additional metadata (e.g. progress, tmp_dir)
+        """
         now = datetime.now().isoformat()
+        extra_json = json.dumps(extra) if extra else ""
         with self._lock, self._conn() as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO download_state
-                   (source, status, total_fetched, total_new, last_update, checksum, error)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (self.source, status, 0, 0, now, checksum, error),
+                   (source, status, total_fetched, total_new, last_update, checksum, error, extra)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (self.source, status, 0, 0, now, checksum, error, extra_json),
             )
             conn.commit()
         # JSON fallback
-        self._write_json_fallback({
+        fb = {
             "source": self.source,
             "status": status,
             "total_new": 0,
@@ -103,7 +118,10 @@ class ResumeState:
             "last_update": now,
             "checksum": checksum,
             "error": error,
-        })
+        }
+        if extra:
+            fb["extra"] = extra
+        self._write_json_fallback(fb)
 
     def update_progress(self, total_fetched: int = 0, total_new: int = 0,
                         checksum: str = "", error: str = ""):
