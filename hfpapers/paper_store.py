@@ -846,6 +846,7 @@ def ensure_paper(arxiv_id: str, title: str = "", source: str = "",
             changed = True
         if code_url and not existing.code_url:
             existing.code_url = code_url
+            existing.has_code = True
             changed = True
         if relevance > existing.relevance:
             existing.relevance = relevance
@@ -862,6 +863,7 @@ def ensure_paper(arxiv_id: str, title: str = "", source: str = "",
         venue=venue,
         relevance=relevance,
         code_url=code_url,
+        has_code=bool(code_url),
     )
     sf_id = store.upsert_paper(record)
     store.add_identifier(sf_id, "arxiv", arxiv_id, source=source)

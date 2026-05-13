@@ -50,21 +50,57 @@ class PaperInfo:
 
 
 class DedupEngine:
-    """Dedup Engine — based on paper_store (SQLite)
+    """Dedup Engine — multi-tier deduplication
+
+    Tier 1: arxiv_meta FTS5 (3M papers, 0ms, 0 network) — same arXiv ID
+    Tier 2: paper_store SQLite (persistent crawl state) — same arXiv ID
+    Tier 3: arxiv_meta title similarity (same paper, different ID) — optional
 
     Compatible with legacy interface: is_duplicate(), add(), count
-    Actually uses ensure_paper() for dedup and cross-validation
+    Also acts as pre-filter: knows which arXiv IDs already exist in local index.
     """
 
     def __init__(self):
         self._store = get_store()
+        self._local_ids: set[str] = set()
+        self._init_local_cache()
         self.count = self._store.stats()["papers_total"]
 
+    def _init_local_cache(self):
+        """Build fast set of all arXiv IDs in local FTS5 index (0 network)"""
+        try:
+            from hfpapers.arxiv_search import ArxivLocalSearch
+
+            engine = ArxivLocalSearch()
+            import sqlite3
+
+            conn = sqlite3.connect(engine.db_path)
+            rows = conn.execute("SELECT arxiv_id FROM arxiv_meta").fetchall()
+            conn.close()
+            self._local_ids = {r[0] for r in rows}
+        except Exception:
+            self._local_ids = set()
+
     def is_duplicate(self, paper: PaperInfo) -> Optional[str]:
+        """Multi-tier dedup check
+
+        1. arxiv_meta (3M local index) — same ID
+        2. paper_store (crawl state) — same ID
+        """
+        # Tier 1: local FTS5 (already indexed)
+        if paper.arxiv_id in self._local_ids:
+            return f"arxiv_meta={paper.arxiv_id}"
+
+        # Tier 2: paper_store (already crawled/downloaded)
         existing = self._store.get_paper_by_identifier("arxiv", paper.arxiv_id)
         if existing:
-            return f"arxiv_id={paper.arxiv_id}"
+            return f"paper_store={paper.arxiv_id}"
+
         return None
+
+    def is_in_local_index(self, arxiv_id: str) -> bool:
+        """Fast check: is this arXiv ID already in our 3M-paper local index?"""
+        return arxiv_id in self._local_ids
 
     def add(self, papers: list[PaperInfo]):
         """Batch write to paper_store"""

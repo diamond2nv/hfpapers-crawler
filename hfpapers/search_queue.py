@@ -12,6 +12,15 @@ from typing import Optional
 
 import requests
 
+from hfpapers.code_matcher import (
+    CODE_LEVEL_FULL,
+    CODE_LEVEL_INFERRED,
+    CODE_LEVEL_NONE,
+    CODE_LEVEL_PARTIAL,
+    CODE_LEVEL_STARRED,
+    CODE_LEVEL_VERIFIED,
+    CodeMatcher,
+)
 from hfpapers.searcher_registry import (
     BaseSearcher,
     SearchResult,
@@ -45,14 +54,43 @@ class SearchTask:
 
 _ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(?:v\d+)?$")
 
+
+def _local_verify_title(aid: str) -> str:
+    """Verify arXiv ID via local FTS5 database (0ms, 0 network)"""
+    try:
+        import sqlite3
+        from pathlib import Path
+
+        from hfpapers.config import get as cfg_get
+
+        base = Path(__file__).parent.parent
+        db_path = str(base / cfg_get("paths.data_dir", "data") / "arxiv_meta.db")
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT title FROM arxiv_meta WHERE arxiv_id = ?", (aid,)).fetchone()
+        conn.close()
+        if row:
+            return row[0]
+    except Exception:
+        pass
+    return ""
+
+
 def verify_arxiv_title(aid: str, session: requests.Session = None) -> str:
     """Verify arXiv ID and fetch real title
 
-    Uses arXiv export API (export.arxiv.org) instead of full page fetch — faster and more reliable.
+    Two-tier verification:
+    1. Local FTS5 database (0ms, 0 network) — preferred
+    2. arXiv export API fallback (for papers not yet in local index)
 
     Returns:
         Real title, or empty string (on failure)
     """
+    # Tier 1: local FTS5 (instant, zero network)
+    local = _local_verify_title(aid)
+    if local:
+        return local[:200]
+
+    # Tier 2: remote arXiv API fallback
     close_session = False
     if session is None:
         session = requests.Session()
@@ -68,13 +106,22 @@ def verify_arxiv_title(aid: str, session: requests.Session = None) -> str:
         import warnings
 
         from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+
         warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
         soup = BeautifulSoup(resp.text, "lxml")
-        tag = soup.find("title")
+        # Always search the <entry> title, not <title> (which may be "arXiv Query:...")
+        entry = soup.find("entry")
+        if entry:
+            tag = entry.find("title")
+        else:
+            tag = soup.find("title")
         if tag:
             title = tag.get_text(strip=True)
             # arXiv API returns: "title: FNO for Parametric PDEs"
             title = re.sub(r"^title:\s*", "", title, flags=re.IGNORECASE).strip()
+            # Reject "arXiv Query:..." placeholder titles (empty result case)
+            if title.startswith("arXiv Query"):
+                return ""
             return title[:200]
         return ""
     except Exception:
@@ -87,6 +134,16 @@ def verify_arxiv_title(aid: str, session: requests.Session = None) -> str:
 # ════════════════════════════════════════════
 # Async search dispatcher
 # ════════════════════════════════════════════
+
+
+SEARCH_RESULT_CODE_LEVELS = {
+    CODE_LEVEL_STARRED: 5,
+    CODE_LEVEL_VERIFIED: 4,
+    CODE_LEVEL_FULL: 3,
+    CODE_LEVEL_PARTIAL: 2,
+    CODE_LEVEL_INFERRED: 1,
+    CODE_LEVEL_NONE: 0,
+}
 
 
 class SearchDispatcher:
@@ -107,6 +164,8 @@ class SearchDispatcher:
         self.sem = asyncio.Semaphore(max_workers)
         self._session: Optional[requests.Session] = None
         self._verify_enabled = True
+        self._code_matcher: Optional[CodeMatcher] = None
+        self._code_match_enabled = True
 
         # Ensure searchers are registered
         init_registry()
@@ -178,7 +237,32 @@ class SearchDispatcher:
                 self.queue.put_nowait(task)
 
     def _dedup_and_verify(self, results: list[SearchResult]) -> list[SearchResult]:
-        """Dedup + arXiv title verification"""
+        """Dedup + arXiv title verification
+
+        Multi-tier filtering:
+        1. Format check (arXiv ID regex)
+        2. In-session seen set dedup
+        3. Local FTS5 pre-filter (skip if already in 3M-paper index)
+        4. arXiv ID → title verification (local FTS5 first, remote API fallback)
+        5. Title similarity check (trigram Jaccard)
+        """
+        # Build local index pre-filter (one-time)
+        local_ids = set()
+        try:
+            import sqlite3
+            from pathlib import Path
+
+            from hfpapers.config import get as cfg_get
+
+            base = Path(__file__).parent.parent
+            db_path = str(base / cfg_get("paths.data_dir", "data") / "arxiv_meta.db")
+            conn = sqlite3.connect(db_path)
+            for row in conn.execute("SELECT arxiv_id FROM arxiv_meta"):
+                local_ids.add(row[0])
+            conn.close()
+        except Exception:
+            pass
+
         verified = []
 
         for r in results:
@@ -188,6 +272,11 @@ class SearchDispatcher:
             if aid in self._seen_ids:
                 continue
 
+            # Skip if already in local 3M-paper index (prevents re-download)
+            if aid in local_ids:
+                self._seen_ids.add(aid)
+                continue
+
             # arXiv verification
             if self._verify_enabled:
                 real_title = verify_arxiv_title(aid, self.session)
@@ -195,16 +284,40 @@ class SearchDispatcher:
                     # Check title similarity
                     sim = _title_similarity(r.title, real_title)
                     from hfpapers.config import get as cfg_get
+
                     min_sim = cfg_get("classification.title_similarity_min", 0.40)
                     if sim < min_sim:
-                        logger.warning(f"  ⚠️ {aid} ID mismatch: sim={sim:.2f} (hf='{r.title[:40]}' vs arxiv='{real_title[:40]}')")
+                        logger.warning(
+                            f"  ⚠️ {aid} ID mismatch: sim={sim:.2f} "
+                            f"(hf='{r.title[:40]}' vs arxiv='{real_title[:40]}')"
+                        )
                         continue
                     r.title = real_title
 
             self._seen_ids.add(aid)
+
+            # Code matching (multi-tier: PwC API → arXiv page → GitHub search)
+            if self._code_match_enabled and not r.code_url:
+                try:
+                    matcher = self._get_code_matcher()
+                    match = matcher.match(aid, title=r.title, doi=r.doi)
+                    if match.level >= CODE_LEVEL_FULL:
+                        r.code_url = match.code_url
+                        logger.info(
+                            f"  📦 {aid} code found: {match.source} "
+                            f"(level={match.level}, stars={match.stars})"
+                        )
+                except Exception:
+                    pass
+
             verified.append(r)
 
         return verified
+
+    def _get_code_matcher(self) -> CodeMatcher:
+        if self._code_matcher is None:
+            self._code_matcher = CodeMatcher()
+        return self._code_matcher
 
     async def run(self) -> list[SearchResult]:
         """Run dispatcher until queue is empty"""

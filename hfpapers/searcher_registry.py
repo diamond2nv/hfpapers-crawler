@@ -143,6 +143,8 @@ class HfCliSearcher(BaseSearcher):
                     source="hf_cli",
                     source_url=f"https://huggingface.co/papers?q={query}",
                     source_category=category,
+                    # NOTE: HF CLI does NOT provide has_code/code_url fields
+                    # code_url=pd.get("code_url", ""),  # Unreliable from HF CLI
                 )
             )
         logger.info(f"  [hf_cli] {query}: {len(results)} papers")
