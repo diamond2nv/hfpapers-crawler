@@ -66,10 +66,13 @@ FTS_SCHEMA = """CREATE VIRTUAL TABLE IF NOT EXISTS arxiv_fts USING fts5(
 META_SCHEMA = """CREATE TABLE IF NOT EXISTS arxiv_meta (
     arxiv_id TEXT PRIMARY KEY, title TEXT, authors TEXT, abstract TEXT,
     categories TEXT, doi TEXT, journal_ref TEXT, update_date TEXT,
-    imported_at TEXT DEFAULT (datetime('now')));
+    source TEXT DEFAULT '', imported_at TEXT DEFAULT (datetime('now')));
 CREATE INDEX IF NOT EXISTS idx_arxiv_meta_date ON arxiv_meta(update_date);
 CREATE INDEX IF NOT EXISTS idx_arxiv_meta_cat ON arxiv_meta(categories);
-CREATE INDEX IF NOT EXISTS idx_arxiv_meta_doi ON arxiv_meta(doi);"""
+CREATE INDEX IF NOT EXISTS idx_arxiv_meta_doi ON arxiv_meta(doi);
+CREATE INDEX IF NOT EXISTS idx_arxiv_meta_source ON arxiv_meta(source);"""
+
+MIGRATE_ADD_SOURCE = """ALTER TABLE arxiv_meta ADD COLUMN source TEXT DEFAULT '';"""
 
 
 class ArxivMetaDB:
@@ -92,14 +95,20 @@ class ArxivMetaDB:
         with self._conn() as conn:
             conn.executescript(FTS_SCHEMA)
             conn.executescript(META_SCHEMA)
+            # 迁移: 为旧库加 source 列
+            try:
+                conn.execute(MIGRATE_ADD_SOURCE)
+            except sqlite3.OperationalError:
+                pass  # 列已存在
 
-    def insert_batch(self, papers: list[tuple]):
+    def insert_batch(self, papers: list[tuple], source: str = ""):
         with self._lock, self._conn() as conn:
             conn.executemany(
                 """INSERT OR IGNORE INTO arxiv_meta
                    (arxiv_id, title, authors, abstract, categories,
-                    doi, journal_ref, update_date)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", papers)
+                    doi, journal_ref, update_date, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [p + (source,) for p in papers])
             conn.executemany(
                 """INSERT OR IGNORE INTO arxiv_fts
                    (arxiv_id, title, authors, abstract, categories,
@@ -269,7 +278,7 @@ class OaiPmhDownloader(BaseDownloader):
                         self._stats["skipped"] += 1
 
                     if len(batch) >= BATCH_WRITE:
-                        self.db.insert_batch(batch)
+                        self.db.insert_batch(batch, source="oai")
                         new_count += len(batch)
                         self._stats["total_new"] += len(batch)
                         batch = []
@@ -277,7 +286,7 @@ class OaiPmhDownloader(BaseDownloader):
                     self._stats["total_fetched"] += 1
 
             if batch:
-                self.db.insert_batch(batch)
+                self.db.insert_batch(batch, source="oai")
                 new_count += len(batch)
                 self._stats["total_new"] += len(batch)
 

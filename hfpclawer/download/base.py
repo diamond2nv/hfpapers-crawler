@@ -29,13 +29,34 @@ CREATE TABLE IF NOT EXISTS download_state (
 
 
 class ResumeState:
-    """断点续传状态 — 读写 download_state 表"""
+    """断点续传状态 — 读写 download_state 表 + JSON fallback"""
 
     def __init__(self, db_path: str, source: str):
         self.db_path = db_path
         self.source = source
         self._lock = threading.Lock()
+        self._state_dir = os.path.dirname(db_path)
+        self._json_path = os.path.join(self._state_dir, f"{source}_download_state.json")
         self._init_table()
+
+    def _write_json_fallback(self, state: dict):
+        """将状态写入 JSON 文件作为 fallback 持久化"""
+        try:
+            os.makedirs(self._state_dir, exist_ok=True)
+            with open(self._json_path, "w") as f:
+                json.dump(state, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.warning(f"[{self.source}] JSON fallback 写入失败: {e}")
+
+    def _read_json_fallback(self) -> dict:
+        """尝试从 JSON fallback 读取状态"""
+        try:
+            if os.path.exists(self._json_path):
+                with open(self._json_path) as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.warning(f"[{self.source}] JSON fallback 读取失败: {e}")
+        return {}
 
     def _conn(self):
         conn = sqlite3.connect(self.db_path)
@@ -49,30 +70,45 @@ class ResumeState:
             conn.commit()
 
     def get(self) -> dict:
-        """读取当前状态"""
+        """读取当前状态（优先 SQLite，fallback JSON）"""
         with self._lock, self._conn() as conn:
             r = conn.execute(
                 "SELECT * FROM download_state WHERE source = ?", (self.source,)
             ).fetchone()
         if r:
             return dict(r)
+        # fallback: JSON 文件
+        fb = self._read_json_fallback()
+        if fb:
+            return fb
         return {"source": self.source, "status": "pending"}
 
     def set_status(self, status: str, checksum: str = "", error: str = ""):
         """更新状态"""
+        now = datetime.now().isoformat()
         with self._lock, self._conn() as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO download_state
                    (source, status, total_fetched, total_new, last_update, checksum, error)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (self.source, status, 0, 0, datetime.now().isoformat(),
-                 checksum, error),
+                (self.source, status, 0, 0, now, checksum, error),
             )
             conn.commit()
+        # JSON fallback
+        self._write_json_fallback({
+            "source": self.source,
+            "status": status,
+            "total_new": 0,
+            "total_fetched": 0,
+            "last_update": now,
+            "checksum": checksum,
+            "error": error,
+        })
 
     def update_progress(self, total_fetched: int = 0, total_new: int = 0,
                         checksum: str = "", error: str = ""):
         """更新进度（增量累加）"""
+        now = datetime.now().isoformat()
         with self._lock, self._conn() as conn:
             conn.execute(
                 """INSERT INTO download_state (source, status, total_fetched, total_new,
@@ -86,11 +122,21 @@ class ResumeState:
                        checksum = COALESCE(NULLIF(?, ''), checksum),
                        error = COALESCE(NULLIF(?, ''), error)""",
                 (self.source, total_fetched, total_new,
-                 datetime.now().isoformat(), checksum, error,
+                 now, checksum, error,
                  total_fetched, total_new,
-                 datetime.now().isoformat(), checksum, error),
+                 now, checksum, error),
             )
             conn.commit()
+        # JSON fallback
+        self._write_json_fallback({
+            "source": self.source,
+            "status": "running",
+            "total_new": total_new,
+            "total_fetched": total_fetched,
+            "last_update": now,
+            "checksum": checksum,
+            "error": error,
+        })
 
     def mark_done(self):
         """标记完成"""

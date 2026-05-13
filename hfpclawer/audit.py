@@ -1,0 +1,203 @@
+"""audit.py — 数据源审计模块
+
+提供：
+  - run_audit(): 生成完整审计报告
+  - cli_audit(): CLI 入口
+"""
+
+import json
+import logging
+import os
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from hfpapers.config import get as cfg_get
+
+logger = logging.getLogger("hfpclawer.audit")
+
+
+def _get_db_path() -> str:
+    """获取 arxiv_meta.db 路径"""
+    base = cfg_get("db.path", "data/arxiv_meta.db")
+    if not os.path.isabs(base):
+        base = os.path.join(os.getcwd(), base)
+    return base
+
+
+def _get_data_dir() -> str:
+    """获取数据目录路径"""
+    data_dir = cfg_get("paths.data_dir", "data")
+    if not os.path.isabs(data_dir):
+        data_dir = os.path.join(os.getcwd(), data_dir)
+    return data_dir
+
+
+def _get_state_paths(db_dir: str) -> list[dict]:
+    """扫描 download_state JSON fallback 文件"""
+    results = []
+    for f in sorted(Path(db_dir).glob("*_download_state.json")):
+        try:
+            with open(f) as fp:
+                state = json.load(fp)
+            results.append({
+                "file": str(f),
+                "source": state.get("source", f.stem.replace("_download_state", "")),
+                "status": state.get("status", "unknown"),
+                "total_new": state.get("total_new", 0),
+                "total_fetched": state.get("total_fetched", 0),
+                "last_update": state.get("last_update", ""),
+                "checksum": state.get("checksum", ""),
+                "error": state.get("error", ""),
+            })
+        except (json.JSONDecodeError, OSError) as e:
+            results.append({
+                "file": str(f),
+                "source": "unknown",
+                "status": f"parse_error: {e}",
+            })
+    return results
+
+
+def _get_jsonl_info(data_dir: str) -> Optional[dict]:
+    """检查 arxiv_metadata.jsonl 文件状态"""
+    jsonl_path = Path(data_dir) / "arxiv_metadata.jsonl"
+    if jsonl_path.exists():
+        size_mb = jsonl_path.stat().st_size / (1024 * 1024)
+        line_count = 0
+        for _ in open(jsonl_path, "rb"):
+            line_count += 1
+        return {
+            "exists": True,
+            "path": str(jsonl_path),
+            "size_mb": round(size_mb, 1),
+            "lines": line_count,
+        }
+    return {"exists": False, "path": str(jsonl_path)}
+
+
+def run_audit(db_path: str = None, data_dir: str = None) -> dict:
+    """运行审计，返回完整报告 dict"""
+    db_path = db_path or _get_db_path()
+    data_dir = data_dir or _get_data_dir()
+
+    report = {
+        "timestamp": datetime.now().isoformat(),
+        "db_path": db_path,
+        "data_dir": data_dir,
+        "db_exists": os.path.exists(db_path),
+        "sources": {},
+        "state_files": [],
+        "jsonl": None,
+        "total": 0,
+    }
+
+    if not report["db_exists"]:
+        return report
+
+    # 连接 DB
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    try:
+        # 检查 source 列是否存在
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(arxiv_meta)").fetchall()]
+        has_source = "source" in cols
+        report["has_source_column"] = has_source
+
+        if has_source:
+            # 各源统计
+            rows = conn.execute(
+                "SELECT source, COUNT(*) as cnt, MIN(imported_at) as first_import, "
+                "MAX(imported_at) as last_import FROM arxiv_meta GROUP BY source"
+            ).fetchall()
+            for r in rows:
+                report["sources"][r["source"] or "unknown"] = {
+                    "count": r["cnt"],
+                    "first_import": r["first_import"],
+                    "last_import": r["last_import"],
+                }
+
+        # 总计
+        report["total"] = conn.execute("SELECT COUNT(*) FROM arxiv_meta").fetchone()[0]
+
+        # 无 source 列时的 fallback
+        if not has_source:
+            report["sources"]["legacy"] = {"count": report["total"], "note": "无 source 列，所有数据标记为 legacy"}
+    finally:
+        conn.close()
+
+    # state files
+    db_dir = os.path.dirname(db_path)
+    report["state_files"] = _get_state_paths(db_dir)
+
+    # JSONL 检查
+    report["jsonl"] = _get_jsonl_info(data_dir)
+
+    return report
+
+
+def format_audit_report(report: dict) -> str:
+    """格式化为可读文本"""
+    lines = []
+    lines.append("=" * 50)
+    lines.append("📊 数据源审计报告")
+    lines.append(f"时间: {report['timestamp']}")
+    lines.append("=" * 50)
+    lines.append("")
+
+    # DB
+    lines.append(f"📁 数据库: {report['db_path']}")
+    lines.append(f"   存在: {'✅' if report['db_exists'] else '❌'}")
+    if report["db_exists"]:
+        size = os.path.getsize(report["db_path"]) / (1024 * 1024)
+        lines.append(f"   大小: {size:.0f} MB")
+        lines.append(f"   总计: {report['total']:,} 篇")
+
+    if not report["db_exists"]:
+        return "\n".join(lines)
+
+    # 各源
+    lines.append(f"\n   source 列: {'✅' if report.get('has_source_column') else '❌'}")
+    lines.append(f"\n📂 数据来源:")
+    for src, info in report.get("sources", {}).items():
+        label = "legacy" if src == "unknown" else src
+        lines.append(f"  [{label}]")
+        lines.append(f"    论文数: {info['count']:,}")
+        if info.get("first_import"):
+            lines.append(f"    首次导入: {info['first_import']}")
+        if info.get("last_import"):
+            lines.append(f"    最近导入: {info['last_import']}")
+        if info.get("note"):
+            lines.append(f"    备注: {info['note']}")
+
+    # state files
+    lines.append(f"\n📄 状态文件 (download_state 备份):")
+    for sf in report.get("state_files", []):
+        lines.append(f"  📍 {Path(sf['file']).name}")
+        lines.append(f"     来源: {sf['source']}")
+        lines.append(f"     状态: {sf['status']}")
+        if sf.get("total_new"):
+            lines.append(f"     论文数: {sf['total_new']:,}")
+        if sf.get("last_update"):
+            lines.append(f"     最后更新: {sf['last_update']}")
+        if sf.get("checksum"):
+            lines.append(f"     checksum: {sf['checksum'][:20]}...")
+        if sf.get("error"):
+            lines.append(f"     ⚠️ 错误: {sf['error']}")
+
+    if not report.get("state_files"):
+        lines.append(f"  暂无状态文件")
+
+    # JSONL
+    jl = report.get("jsonl", {})
+    lines.append(f"\n📦 Kaggle JSONL 文件:")
+    if jl.get("exists"):
+        lines.append(f"  ✅ 存在: {jl['path']}")
+        lines.append(f"     大小: {jl['size_mb']} MB")
+        lines.append(f"     行数: {jl['lines']:,}")
+    else:
+        lines.append(f"  ❌ 不存在")
+
+    return "\n".join(lines)

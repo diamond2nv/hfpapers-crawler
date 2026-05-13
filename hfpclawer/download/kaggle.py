@@ -7,8 +7,10 @@
 """
 
 import gzip
+import json as json_mod
 import logging
 import os
+import sqlite3
 import subprocess
 import tempfile
 import zipfile
@@ -55,6 +57,57 @@ class KaggleDownloader(BaseDownloader):
         """JSONL 输出文件路径"""
         return Path(self.data_dir) / JSONL_FILENAME
 
+    def _init_arxiv_meta_db(self):
+        """确保 arxiv_meta 表存在（复用 OAI 的 schema）"""
+        from hfpclawer.download.oai import ArxivMetaDB, MIGRATE_ADD_SOURCE
+        meta_db = ArxivMetaDB(self.db_path)
+        return meta_db
+
+    def _import_jsonl_to_sqlite(self, jsonl_path: Path) -> int:
+        """将 JSONL 文件导入 arxiv_meta 表，返回导入行数
+
+        JSONL 格式: {"id": "0704.0001", "title": "...", ...}
+        """
+        meta_db = self._init_arxiv_meta_db()
+        batch = []
+        total = 0
+        with open(jsonl_path, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    paper = json_mod.loads(line)
+                    arxiv_id = paper.get("id", "")
+                    if not arxiv_id:
+                        continue
+                    # 标准 arxiv_id 格式（去掉版本号）
+                    arxiv_id = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
+                    title = paper.get("title", "") or ""
+                    authors = paper.get("authors", "") or ""
+                    if isinstance(authors, list):
+                        authors = ", ".join(authors)
+                    abstract = paper.get("abstract", "") or ""
+                    categories = paper.get("categories", "") or ""
+                    if isinstance(categories, list):
+                        categories = " ".join(categories)
+                    doi = paper.get("doi", "") or ""
+                    journal_ref = paper.get("journal-ref", "") or ""
+                    update_date = paper.get("update_date", "") or ""
+
+                    batch.append((arxiv_id, title, authors, abstract,
+                                  categories, doi, journal_ref, update_date))
+                    total += 1
+
+                    if len(batch) >= 500:
+                        meta_db.insert_batch(batch, source="kaggle")
+                        batch = []
+                except json_mod.JSONDecodeError:
+                    continue
+
+        if batch:
+            meta_db.insert_batch(batch, source="kaggle")
+
+        logger.info(f"Kaggle JSONL 导入完成: {total:,} 篇")
+        return total
+
     def run(self, force: bool = False, **kwargs) -> int:
         """执行 Kaggle 数据集下载
 
@@ -92,11 +145,13 @@ class KaggleDownloader(BaseDownloader):
             md5 = self.state.checksum_file(str(jsonl_path))
             # 统计行数
             line_count = self._count_lines(str(jsonl_path))
+            # 导入到 SQLite
+            imported = self._import_jsonl_to_sqlite(jsonl_path)
             # 更新状态
             self.state.mark_done()
-            self._update_progress(fetched=line_count, new_count=line_count, checksum=md5)
-            logger.info(f"Kaggle 下载完成: {line_count:,} 篇, MD5: {md5[:12]}...")
-            return line_count
+            self._update_progress(fetched=imported, new_count=imported, checksum=md5)
+            logger.info(f"Kaggle 下载完成: {line_count:,} 行, 导入 {imported:,} 篇, MD5: {md5[:12]}...")
+            return imported
 
         except Exception as e:
             self.state.mark_failed(str(e))
