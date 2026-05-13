@@ -12,11 +12,6 @@ authors = [
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.10"
-
-[project.urls]
-Homepage = "https://gitlab.zhejianglab.com/token-arena/office/hfpapers-crawler"
-Repository = "https://gitlab.zhejianglab.com/token-arena/office/hfpapers-crawler"
-Documentation = "https://gitlab.zhejianglab.com/token-arena/office/hfpapers-crawler"
 keywords = ["pdf", "clawler", "snowflake", "crossref", "scrapy", "pytorch", "arxiv", "neural-operator", "paper-store"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -29,7 +24,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
 ]
-
 dependencies = [
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
@@ -38,6 +32,11 @@ dependencies = [
     "lxml>=4.9",
     "typer>=0.9",
 ]
+
+[project.urls]
+Homepage = "https://gitlab.zhejianglab.com/token-arena/office/hfpapers-crawler"
+Repository = "https://gitlab.zhejianglab.com/token-arena/office/hfpapers-crawler"
+Documentation = "https://gitlab.zhejianglab.com/token-arena/office/hfpapers-crawler"
 
 [project.optional-dependencies]
 llm = [
@@ -64,6 +63,12 @@ arxiv = [
     "arxiv-metadata-service @ git+https://gitlab.zhejianglab.com/token-arena/office/arxiv-metadata-service.git"
 ]
 
+[project.scripts]
+hfpclawer = "hfpapers.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["hfpapers*", "hfpclawer*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -81,12 +86,6 @@ exclude_also = [
     "if TYPE_CHECKING:",
     "def main().*:",
 ]
-
-[project.scripts]
-hfpclawer = "hfpapers.cli:app"
-
-[tool.setuptools.packages.find]
-include = ["hfpapers*", "hfpclawer*"]
 
 [tool.ruff]
 line-length = 100

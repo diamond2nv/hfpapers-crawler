@@ -786,11 +786,11 @@ def init(
 # Copy to .env and fill in values:
 #   cp .env.template .env
 
-# HuggingFace Token (required for HF Papers search)
-HF_TOKEN=
+# HuggingFace Token (required for HF Papers search, set your HF token here)
+HF_TOKEN=***
 
-# DeepSeek API Key (for LLM analysis, optional)
-DEEPSEEK_API_KEY=
+# DeepSeek API Key (for LLM analysis, optional, set your DeepSeek API key here)
+DEEPSEEK_API_KEY=***
 
 # Ollama endpoint (local LLM, optional)
 OLLAMA_API_BASE=http://localhost:11434
