@@ -59,10 +59,6 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
 ]
-arxiv = [
-    "arxiv-metadata-service @ git+https://gitlab.zhejianglab.com/token-arena/office/arxiv-metadata-service.git"
-]
-
 [project.scripts]
 hfpclawer = "hfpapers.cli:app"
 
