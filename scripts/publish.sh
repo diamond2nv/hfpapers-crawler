@@ -39,7 +39,7 @@ MODE="${1:-test}"
 if [ "$MODE" = "test" ]; then
   echo ""
   echo "🚀 Uploading to TestPyPI..."
-  twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+  twine upload --repository testpypi dist/*
   echo ""
   echo "✅ Done! Install from TestPyPI:"
   echo "   pip install --index-url https://test.pypi.org/simple/ hfpclawer"
