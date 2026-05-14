@@ -166,7 +166,9 @@ def download(
 
 @app.command()
 def convert(
-    to_wiki: bool = typer.Option(False, "--to-wiki", "-w", help="Sync converted MD to wiki/raw/papers"),
+    to_wiki: bool = typer.Option(
+        False, "--to-wiki", "-w", help="Sync converted MD to wiki/raw/papers"
+    ),
 ):
     """pymupdf4llm convert PDF → Markdown"""
     hw = _get_probe()
@@ -188,7 +190,9 @@ def full(
     threshold: int = typer.Option(30, "--threshold", "-t", help="Relevance threshold"),
     limit: int = typer.Option(20, "--limit", "-l", help="Download limit"),
     skip_convert: bool = typer.Option(False, "--skip-convert", help="Skip PDF→MD conversion"),
-    to_wiki: bool = typer.Option(True, "--to-wiki/--no-wiki", help="Sync converted MD to wiki/raw/papers"),
+    to_wiki: bool = typer.Option(
+        True, "--to-wiki/--no-wiki", help="Sync converted MD to wiki/raw/papers"
+    ),
 ):
     """Full pipeline: search → download → convert
 
@@ -230,8 +234,9 @@ def full(
 @app.command()
 def batch(
     limit: int = typer.Option(50, "--limit", "-l", help="Max papers to process"),
-    priority: str = typer.Option("P0", "--priority", "-p",
-                                 help="Priority tier: P0(relevance≥60) P1(≥30) P2(all pending)"),
+    priority: str = typer.Option(
+        "P0", "--priority", "-p", help="Priority tier: P0(relevance≥60) P1(≥30) P2(all pending)"
+    ),
     skip_convert: bool = typer.Option(False, "--skip-convert", help="Skip PDF→MD conversion"),
     no_wiki: bool = typer.Option(False, "--no-wiki", help="Skip wiki sync"),
 ):
@@ -264,6 +269,7 @@ def batch(
         console.print("[yellow]📭 No pending papers in paper_store[/yellow]")
         # Show queue status
         from hfpapers.download_queue import DownloadQueue
+
         q = DownloadQueue()
         counts = q.count_pending()
         for status, count in counts.items():
@@ -329,8 +335,7 @@ def audit(
             table.add_column("Value", style="white")
             table.add_row("Total events", str(stats["total_events"]))
             table.add_row("Total failures", str(stats["total_failures"]))
-            for event, cnt in sorted(stats["by_event"].items(),
-                                     key=lambda x: -x[1]):
+            for event, cnt in sorted(stats["by_event"].items(), key=lambda x: -x[1]):
                 table.add_row(f"  {event}", str(cnt))
             console.print(table)
 
@@ -406,11 +411,14 @@ def audit(
             console.print(table)
 
         else:
-            console.print(f"[red]❌ Unknown ops sub-action: {sub}. Use stats|events|batch|paper[/red]")
+            console.print(
+                f"[red]❌ Unknown ops sub-action: {sub}. Use stats|events|batch|paper[/red]"
+            )
 
     elif action in ("stats", "events", "batch", "paper"):
         # Shorthand: allow without "ops" prefix for legacy compat
         from hfpapers.logger import get_audit as get_op_audit
+
         a = get_op_audit()
 
         if action == "stats":
@@ -477,7 +485,9 @@ def audit(
                     status = f"[red]{status}[/red]"
                 elif status == "done":
                     status = f"[green]{status}[/green]"
-                table.add_row(e["event_time"][:19], e["event"], e["arxiv_id"], e["batch_id"], status)
+                table.add_row(
+                    e["event_time"][:19], e["event"], e["arxiv_id"], e["batch_id"], status
+                )
             console.print(table)
 
     else:

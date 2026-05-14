@@ -52,8 +52,16 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
         # Extra structured fields from logging.extra dict
-        for key in ("arxiv_id", "batch_id", "paper_id",
-                     "duration_s", "phase", "status", "event", "version"):
+        for key in (
+            "arxiv_id",
+            "batch_id",
+            "paper_id",
+            "duration_s",
+            "phase",
+            "status",
+            "event",
+            "version",
+        ):
             val = getattr(record, key, None)
             if val is not None:
                 obj[key] = val
@@ -99,10 +107,12 @@ def init_logging(level: int = logging.INFO):
         # Console handler — plain text
         ch = logging.StreamHandler()
         ch.setLevel(level)
-        ch.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(message)s",
-            datefmt="%H:%M:%S",
-        ))
+        ch.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
         root.addHandler(ch)
 
         _LOG_INITIALIZED = True
@@ -164,25 +174,41 @@ class AuditTrail:
         with self._lock, self._conn() as conn:
             conn.executescript(_AUDIT_SCHEMA)
 
-    def record(self, arxiv_id: str = "", event: str = "",
-               batch_id: str = "", phase: str = "", status: str = "",
-               duration_s: float = 0, version: str = "",
-               meta: dict = None):
+    def record(
+        self,
+        arxiv_id: str = "",
+        event: str = "",
+        batch_id: str = "",
+        phase: str = "",
+        status: str = "",
+        duration_s: float = 0,
+        version: str = "",
+        meta: dict = None,
+    ):
         """Record a single audit event"""
         with self._lock, self._conn() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO audit_events
                     (arxiv_id, event, batch_id, phase, status, duration_s,
                      version, meta)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                arxiv_id, event, batch_id, phase, status, duration_s,
-                version or "hfpapers-dq-1.0",
-                json.dumps(meta or {}, ensure_ascii=False),
-            ))
+            """,
+                (
+                    arxiv_id,
+                    event,
+                    batch_id,
+                    phase,
+                    status,
+                    duration_s,
+                    version or "hfpapers-dq-1.0",
+                    json.dumps(meta or {}, ensure_ascii=False),
+                ),
+            )
 
-    def query(self, arxiv_id: str = "", event: str = "",
-              batch_id: str = "", limit: int = 50) -> list[dict]:
+    def query(
+        self, arxiv_id: str = "", event: str = "", batch_id: str = "", limit: int = 50
+    ) -> list[dict]:
         """Query audit events with filters"""
         where = []
         params = []
@@ -215,13 +241,12 @@ class AuditTrail:
             params.append(since)
 
         with self._conn() as conn:
-            total = conn.execute(
-                f"SELECT COUNT(*) FROM audit_events{where}", params
-            ).fetchone()[0]
+            total = conn.execute(f"SELECT COUNT(*) FROM audit_events{where}", params).fetchone()[0]
 
             by_event = conn.execute(
                 f"SELECT event, COUNT(*) as cnt FROM audit_events{where} "
-                "GROUP BY event ORDER BY cnt DESC", params
+                "GROUP BY event ORDER BY cnt DESC",
+                params,
             ).fetchall()
 
             if since and params:
@@ -254,8 +279,7 @@ class AuditTrail:
         """Get the most recent batch_id"""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT batch_id FROM audit_events "
-                "WHERE batch_id != '' ORDER BY id DESC LIMIT 1"
+                "SELECT batch_id FROM audit_events WHERE batch_id != '' ORDER BY id DESC LIMIT 1"
             ).fetchone()
             return row["batch_id"] if row else None
 
@@ -273,11 +297,22 @@ def get_audit() -> AuditTrail:
     return _audit_instance
 
 
-def record_event(arxiv_id: str = "", event: str = "",
-                 batch_id: str = "", phase: str = "", status: str = "",
-                 duration_s: float = 0, meta: dict = None):
+def record_event(
+    arxiv_id: str = "",
+    event: str = "",
+    batch_id: str = "",
+    phase: str = "",
+    status: str = "",
+    duration_s: float = 0,
+    meta: dict = None,
+):
     """Convenience: record audit event without creating instance"""
     get_audit().record(
-        arxiv_id=arxiv_id, event=event, batch_id=batch_id,
-        phase=phase, status=status, duration_s=duration_s, meta=meta,
+        arxiv_id=arxiv_id,
+        event=event,
+        batch_id=batch_id,
+        phase=phase,
+        status=status,
+        duration_s=duration_s,
+        meta=meta,
     )

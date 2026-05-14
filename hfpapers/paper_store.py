@@ -75,14 +75,14 @@ class _IdGeneratorOptions:
     """Snowflake drift algorithm configuration options"""
 
     def __init__(self, worker_id: int = 0):
-        self.method: int = 1                   # 1=Drift algorithm
+        self.method: int = 1  # 1=Drift algorithm
         self.base_time: int = _SNOWFLAKE_BASE_TIME
         self.worker_id: int = worker_id
-        self.worker_id_bit_length: int = 6     # [1,15] WorkerId range 0-63
-        self.seq_bit_length: int = 6           # [3,21] 64 base IDs per millisecond
-        self.max_seq_number: int = 0           # 0=auto (2^seq_bit_length-1)
-        self.min_seq_number: int = 5           # First 5 reserved bits (rollback reserve)
-        self.top_over_cost_count: int = 2000   # Max drift count
+        self.worker_id_bit_length: int = 6  # [1,15] WorkerId range 0-63
+        self.seq_bit_length: int = 6  # [3,21] 64 base IDs per millisecond
+        self.max_seq_number: int = 0  # 0=auto (2^seq_bit_length-1)
+        self.min_seq_number: int = 5  # First 5 reserved bits (rollback reserve)
+        self.top_over_cost_count: int = 2000  # Max drift count
 
 
 class _SnowflakeM1:
@@ -276,16 +276,17 @@ def snowflake_timestamp(sf_id: int) -> datetime:
 @dataclass
 class PaperRecord:
     """Paper main record"""
-    sf_id: int = 0               # Snowflake ID
+
+    sf_id: int = 0  # Snowflake ID
     title: str = ""
     abstract: str = ""
     year: int = 0
-    source: str = ""             # First discovered source
-    venue: str = ""              # Venue full name
-    relevance: int = 0           # Relevance 0-100
+    source: str = ""  # First discovered source
+    venue: str = ""  # Venue full name
+    relevance: int = 0  # Relevance 0-100
     has_code: bool = False
     code_url: str = ""
-    verified: bool = False       # Cross-verified
+    verified: bool = False  # Cross-verified
     created_at: str = ""
     updated_at: str = ""
 
@@ -293,12 +294,13 @@ class PaperRecord:
 @dataclass
 class PaperIdentifier:
     """Paper identifier mapping (N:1 → PaperRecord)"""
-    sf_id: int                   # Associated paper snowflake ID
-    id_type: str                 # "arxiv" / "doi" / "openreview" / "issn" / "pns" / "isbn"
-    id_value: str                # Identifier value
-    source: str = ""             # Source of this ID
-    confidence: float = 1.0      # Confidence 0-1
-    verified_at: str = ""        # Verification time
+
+    sf_id: int  # Associated paper snowflake ID
+    id_type: str  # "arxiv" / "doi" / "openreview" / "issn" / "pns" / "isbn"
+    id_value: str  # Identifier value
+    source: str = ""  # Source of this ID
+    confidence: float = 1.0  # Confidence 0-1
+    verified_at: str = ""  # Verification time
 
 
 # ─── SQLite Storage Layer ──────────────────────────
@@ -389,55 +391,76 @@ class PaperStore:
         with self._lock, self._conn() as conn:
             if record.sf_id:
                 # Update
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE papers SET
                         title=?, abstract=?, year=?, source=?,
                         venue=?, relevance=?, has_code=?, code_url=?,
                         verified=?, updated_at=datetime('now')
                     WHERE sf_id=?
-                """, (
-                    record.title, record.abstract, record.year,
-                    record.source, record.venue, record.relevance,
-                    int(record.has_code), record.code_url,
-                    int(record.verified), record.sf_id,
-                ))
+                """,
+                    (
+                        record.title,
+                        record.abstract,
+                        record.year,
+                        record.source,
+                        record.venue,
+                        record.relevance,
+                        int(record.has_code),
+                        record.code_url,
+                        int(record.verified),
+                        record.sf_id,
+                    ),
+                )
             else:
                 # Insert
                 sf_id = snowflake_id()
                 record.sf_id = sf_id
                 now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO papers
                         (sf_id, title, abstract, year, source, venue,
                          relevance, has_code, code_url, verified,
                          created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    sf_id, record.title, record.abstract, record.year,
-                    record.source, record.venue, record.relevance,
-                    int(record.has_code), record.code_url,
-                    int(record.verified), now, now,
-                ))
+                """,
+                    (
+                        sf_id,
+                        record.title,
+                        record.abstract,
+                        record.year,
+                        record.source,
+                        record.venue,
+                        record.relevance,
+                        int(record.has_code),
+                        record.code_url,
+                        int(record.verified),
+                        now,
+                        now,
+                    ),
+                )
                 record.created_at = now
                 record.updated_at = now
             return record.sf_id
 
     def get_paper_by_id(self, sf_id: int) -> Optional[PaperRecord]:
         with self._conn() as conn:
-            row = conn.execute(
-                "SELECT * FROM papers WHERE sf_id=?", (sf_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM papers WHERE sf_id=?", (sf_id,)).fetchone()
             if row:
                 return self._row_to_record(row)
             return None
 
     def get_paper_by_identifier(self, id_type: str, id_value: str) -> Optional[PaperRecord]:
         with self._conn() as conn:
-            row = conn.execute("""
+            row = conn.execute(
+                """
                 SELECT p.* FROM papers p
                 JOIN identifiers i ON p.sf_id = i.sf_id
                 WHERE i.id_type=? AND i.id_value=?
-            """, (id_type, id_value)).fetchone()
+            """,
+                (id_type, id_value),
+            ).fetchone()
             if row:
                 return self._row_to_record(row)
             return None
@@ -467,51 +490,79 @@ class PaperStore:
 
         if filepath is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filepath = os.path.join(os.path.dirname(self.db_path), f"papers_export_{timestamp}.{format}")
+            filepath = os.path.join(
+                os.path.dirname(self.db_path), f"papers_export_{timestamp}.{format}"
+            )
 
         if format == "json":
             data = []
             for p in papers:
                 ids = self.get_identifiers(p.sf_id)
-                data.append({
-                    "sf_id": p.sf_id,
-                    "title": p.title,
-                    "abstract": p.abstract[:500] if p.abstract else "",
-                    "year": p.year,
-                    "source": p.source,
-                    "venue": p.venue,
-                    "relevance": p.relevance,
-                    "has_code": p.has_code,
-                    "code_url": p.code_url,
-                    "verified": p.verified,
-                    "created_at": p.created_at,
-                    "updated_at": p.updated_at,
-                    "identifiers": [
-                        {"type": i.id_type, "value": i.id_value, "confidence": i.confidence}
-                        for i in ids
-                    ],
-                })
+                data.append(
+                    {
+                        "sf_id": p.sf_id,
+                        "title": p.title,
+                        "abstract": p.abstract[:500] if p.abstract else "",
+                        "year": p.year,
+                        "source": p.source,
+                        "venue": p.venue,
+                        "relevance": p.relevance,
+                        "has_code": p.has_code,
+                        "code_url": p.code_url,
+                        "verified": p.verified,
+                        "created_at": p.created_at,
+                        "updated_at": p.updated_at,
+                        "identifiers": [
+                            {"type": i.id_type, "value": i.id_value, "confidence": i.confidence}
+                            for i in ids
+                        ],
+                    }
+                )
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
         elif format == "csv":
             import csv
+
             with open(filepath, "w", encoding="utf-8", newline="") as f:
                 writer = csv.writer(f)
-                writer.writerow([
-                    "sf_id", "title", "abstract_preview", "year", "source", "venue",
-                    "relevance", "has_code", "code_url", "verified",
-                    "created_at", "updated_at", "identifiers",
-                ])
+                writer.writerow(
+                    [
+                        "sf_id",
+                        "title",
+                        "abstract_preview",
+                        "year",
+                        "source",
+                        "venue",
+                        "relevance",
+                        "has_code",
+                        "code_url",
+                        "verified",
+                        "created_at",
+                        "updated_at",
+                        "identifiers",
+                    ]
+                )
                 for p in papers:
                     ids = self.get_identifiers(p.sf_id)
                     id_str = "; ".join(f"{i.id_type}:{i.id_value}" for i in ids)
-                    writer.writerow([
-                        p.sf_id, p.title, (p.abstract or "")[:500], p.year,
-                        p.source, p.venue, p.relevance, int(p.has_code),
-                        p.code_url, int(p.verified),
-                        p.created_at, p.updated_at, id_str,
-                    ])
+                    writer.writerow(
+                        [
+                            p.sf_id,
+                            p.title,
+                            (p.abstract or "")[:500],
+                            p.year,
+                            p.source,
+                            p.venue,
+                            p.relevance,
+                            int(p.has_code),
+                            p.code_url,
+                            int(p.verified),
+                            p.created_at,
+                            p.updated_at,
+                            id_str,
+                        ]
+                    )
         else:
             raise ValueError(f"Unsupported format: {format}, only json/csv supported")
 
@@ -521,18 +572,24 @@ class PaperStore:
     def search_papers(self, keyword: str = "", limit: int = 50) -> list[PaperRecord]:
         with self._conn() as conn:
             if keyword:
-                rows = conn.execute("""
+                rows = conn.execute(
+                    """
                     SELECT * FROM papers
                     WHERE title LIKE ? OR abstract LIKE ?
                     ORDER BY relevance DESC, created_at DESC
                     LIMIT ?
-                """, (f"%{keyword}%", f"%{keyword}%", limit)).fetchall()
+                """,
+                    (f"%{keyword}%", f"%{keyword}%", limit),
+                ).fetchall()
             else:
-                rows = conn.execute("""
+                rows = conn.execute(
+                    """
                     SELECT * FROM papers
                     ORDER BY relevance DESC, created_at DESC
                     LIMIT ?
-                """, (limit,)).fetchall()
+                """,
+                    (limit,),
+                ).fetchall()
             return [self._row_to_record(r) for r in rows]
 
     def update_paper(self, sf_id: int, **kwargs) -> bool:
@@ -592,16 +649,20 @@ class PaperStore:
 
     # ─── Identifier Management ──────────────────────────
 
-    def add_identifier(self, sf_id: int, id_type: str, id_value: str,
-                       source: str = "", confidence: float = 1.0) -> bool:
+    def add_identifier(
+        self, sf_id: int, id_type: str, id_value: str, source: str = "", confidence: float = 1.0
+    ) -> bool:
         """Add an identifier mapping to a paper. Skip if exists."""
         try:
             with self._lock, self._conn() as conn:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT OR IGNORE INTO identifiers
                         (sf_id, id_type, id_value, source, confidence)
                     VALUES (?, ?, ?, ?, ?)
-                """, (sf_id, id_type, id_value, source, confidence))
+                """,
+                    (sf_id, id_type, id_value, source, confidence),
+                )
                 return True
         except Exception as e:
             logger.warning(f"add_identifier failed: {e}")
@@ -609,9 +670,7 @@ class PaperStore:
 
     def get_identifiers(self, sf_id: int) -> list[PaperIdentifier]:
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM identifiers WHERE sf_id=?", (sf_id,)
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM identifiers WHERE sf_id=?", (sf_id,)).fetchall()
             return [
                 PaperIdentifier(
                     sf_id=r["sf_id"],
@@ -658,7 +717,7 @@ class PaperStore:
             with self._lock, self._conn() as conn:
                 conn.execute(
                     "UPDATE papers SET verified=1, updated_at=datetime('now') WHERE sf_id=?",
-                    (sf_id,)
+                    (sf_id,),
                 )
             return True
         return False
@@ -675,10 +734,12 @@ class CrossrefClient:
     def __init__(self, mailto: str = ""):
         self.mailto = mailto or "agent@example.com"
         self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": f"HFPCrawler/1.0 (mailto:{self.mailto})",
-            "Accept": "application/json",
-        })
+        self.session.headers.update(
+            {
+                "User-Agent": f"HFPCrawler/1.0 (mailto:{self.mailto})",
+                "Accept": "application/json",
+            }
+        )
         self._cache: dict = {}
 
     def title_to_doi(self, title: str) -> list[dict]:
@@ -700,14 +761,16 @@ class CrossrefClient:
                 if doi:
                     # Try extracting arXiv info from BibTeX
                     arxiv = self._extract_arxiv_from_item(item)
-                    results.append({
-                        "doi": doi,
-                        "title": item_title,
-                        "arxiv_id": arxiv or "",
-                        "venue": (item.get("container-title") or [""])[0],
-                        "year": self._extract_year(item),
-                        "score": item.get("score", 0),
-                    })
+                    results.append(
+                        {
+                            "doi": doi,
+                            "title": item_title,
+                            "arxiv_id": arxiv or "",
+                            "venue": (item.get("container-title") or [""])[0],
+                            "year": self._extract_year(item),
+                            "score": item.get("score", 0),
+                        }
+                    )
             return results
         except Exception as e:
             logger.warning(f"[Crossref] title_to_doi failed: {e}")
@@ -731,10 +794,10 @@ class CrossrefClient:
                 "arxiv_id": arxiv or "",
                 "venue": (item.get("container-title") or [""])[0],
                 "year": self._extract_year(item),
-                "authors": json.dumps([
-                    f"{a.get('given','')} {a.get('family','')}"
-                    for a in item.get("author", [])
-                ], ensure_ascii=False),
+                "authors": json.dumps(
+                    [f"{a.get('given', '')} {a.get('family', '')}" for a in item.get("author", [])],
+                    ensure_ascii=False,
+                ),
             }
         except Exception as e:
             logger.warning(f"[Crossref] doi_to_details failed: {e}")
@@ -821,9 +884,15 @@ def get_crossref() -> CrossrefClient:
     return _crossref_instance
 
 
-def ensure_paper(arxiv_id: str, title: str = "", source: str = "",
-                 abstract: str = "", venue: str = "",
-                 code_url: str = "", relevance: int = 0) -> tuple[int, bool]:
+def ensure_paper(
+    arxiv_id: str,
+    title: str = "",
+    source: str = "",
+    abstract: str = "",
+    venue: str = "",
+    code_url: str = "",
+    relevance: int = 0,
+) -> tuple[int, bool]:
     """Ensure paper exists, returns (sf_id, is_new).
 
     Looks up existing record by arxiv_id, creates if not exists.
@@ -876,7 +945,10 @@ def ensure_paper(arxiv_id: str, title: str = "", source: str = "",
             if result and result.get("doi"):
                 doi = result["doi"]
                 store.add_identifier(
-                    sf_id, "doi", doi, source="crossref",
+                    sf_id,
+                    "doi",
+                    doi,
+                    source="crossref",
                     confidence=result["confidence"],
                 )
                 if result.get("venue"):
@@ -955,12 +1027,14 @@ if __name__ == "__main__":
     print(f"DB: {store.db_path}")
 
     # Create
-    sf_id, is_new = ensure_paper("9999.99999",
-                                  title="Test Paper for SQLite Store",
-                                  source="paper_store_test",
-                                  abstract="This is a test abstract for the paper store module.",
-                                  venue="TestConf 2025",
-                                  relevance=50)
+    sf_id, is_new = ensure_paper(
+        "9999.99999",
+        title="Test Paper for SQLite Store",
+        source="paper_store_test",
+        abstract="This is a test abstract for the paper store module.",
+        venue="TestConf 2025",
+        relevance=50,
+    )
     print(f"Paper: sf_id={sf_id} new={is_new}")
 
     # Search

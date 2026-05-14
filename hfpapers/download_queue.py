@@ -222,13 +222,15 @@ class DownloadQueue:
 
             papers = []
             for r in rows:
-                papers.append({
-                    "arxiv_id": r["arxiv_id"],
-                    "sf_id": r["sf_id"],
-                    "title": r["title"],
-                    "abstract": r["abstract"],
-                    "relevance": r["relevance"],
-                })
+                papers.append(
+                    {
+                        "arxiv_id": r["arxiv_id"],
+                        "sf_id": r["sf_id"],
+                        "title": r["title"],
+                        "abstract": r["abstract"],
+                        "relevance": r["relevance"],
+                    }
+                )
                 self._arxiv_ids[r["arxiv_id"]] = r["sf_id"]
 
         return papers
@@ -300,15 +302,23 @@ class DownloadQueue:
 
         self.summary.total = len(papers)
         logger.info(f"📥 Batch {batch_id}: {len(papers)} papers from priority={priority}")
-        audit.record(event="batch_start", batch_id=batch_id,
-                     phase="batch", meta={"priority": priority, "count": len(papers)})
+        audit.record(
+            event="batch_start",
+            batch_id=batch_id,
+            phase="batch",
+            meta={"priority": priority, "count": len(papers)},
+        )
 
         # Step 1: Mark all as downloading
         for p in papers:
             self._mark_status(p["arxiv_id"], "download_status", "downloading")
-            audit.record(arxiv_id=p["arxiv_id"], event="download_start",
-                         batch_id=batch_id, phase="download",
-                         meta={"title": p["title"][:80], "priority": priority})
+            audit.record(
+                arxiv_id=p["arxiv_id"],
+                event="download_start",
+                batch_id=batch_id,
+                phase="download",
+                meta={"title": p["title"][:80], "priority": priority},
+            )
 
         # Step 2: Download PDFs via AsyncPdfDownloader
         dl_start = time.time()
@@ -321,15 +331,18 @@ class DownloadQueue:
             if r["success"]:
                 dl_elapsed = time.time() - dl_start
                 self._mark_status(aid, "download_status", "done")
-                audit.record(arxiv_id=aid, event="download_done",
-                             batch_id=batch_id, phase="download",
-                             status="done", duration_s=dl_elapsed)
+                audit.record(
+                    arxiv_id=aid,
+                    event="download_done",
+                    batch_id=batch_id,
+                    phase="download",
+                    status="done",
+                    duration_s=dl_elapsed,
+                )
                 self.summary.downloaded += 1
 
                 if not skip_convert and r.get("pdf_path"):
-                    title = next(
-                        (p["title"] for p in papers if p["arxiv_id"] == aid), ""
-                    )
+                    title = next((p["title"] for p in papers if p["arxiv_id"] == aid), "")
                     convert_tasks.append((aid, r["pdf_path"], title))
                 else:
                     # Progress callback for skip
@@ -341,10 +354,14 @@ class DownloadQueue:
                 self._mark_failed(aid, r.get("error", "unknown"))
                 self.summary.failed += 1
                 self.summary.errors.append(f"{aid}: {r.get('error', 'unknown')}")
-                audit.record(arxiv_id=aid, event="download_failed",
-                             batch_id=batch_id, phase="download",
-                             status="failed",
-                             meta={"error": r.get("error", "unknown")[:200]})
+                audit.record(
+                    arxiv_id=aid,
+                    event="download_failed",
+                    batch_id=batch_id,
+                    phase="download",
+                    status="failed",
+                    meta={"error": r.get("error", "unknown")[:200]},
+                )
                 try:
                     self.progress_cb({"arxiv_id": aid, "summary": self.summary})
                 except Exception:
@@ -357,8 +374,12 @@ class DownloadQueue:
                 future_map = {}
                 for aid, pdf_path, title in convert_tasks:
                     fut = pool.submit(
-                        self._convert_one, aid, pdf_path, title=title,
-                        to_wiki=to_wiki, batch_id=batch_id,
+                        self._convert_one,
+                        aid,
+                        pdf_path,
+                        title=title,
+                        to_wiki=to_wiki,
+                        batch_id=batch_id,
                     )
                     future_map[fut] = aid
 
@@ -369,21 +390,36 @@ class DownloadQueue:
                         ok = fut.result()
                         if ok:
                             self.summary.converted += 1
-                            audit.record(arxiv_id=aid, event="convert_done",
-                                         batch_id=batch_id, phase="convert",
-                                         status="done", duration_s=conv_elapsed)
+                            audit.record(
+                                arxiv_id=aid,
+                                event="convert_done",
+                                batch_id=batch_id,
+                                phase="convert",
+                                status="done",
+                                duration_s=conv_elapsed,
+                            )
                         else:
                             self.summary.failed += 1
-                            audit.record(arxiv_id=aid, event="convert_failed",
-                                         batch_id=batch_id, phase="convert",
-                                         status="failed", duration_s=conv_elapsed)
+                            audit.record(
+                                arxiv_id=aid,
+                                event="convert_failed",
+                                batch_id=batch_id,
+                                phase="convert",
+                                status="failed",
+                                duration_s=conv_elapsed,
+                            )
                     except Exception as e:
                         self.summary.failed += 1
                         self.summary.errors.append(f"{aid} convert: {e}")
-                        audit.record(arxiv_id=aid, event="convert_failed",
-                                     batch_id=batch_id, phase="convert",
-                                     status="failed", duration_s=conv_elapsed,
-                                     meta={"error": str(e)[:200]})
+                        audit.record(
+                            arxiv_id=aid,
+                            event="convert_failed",
+                            batch_id=batch_id,
+                            phase="convert",
+                            status="failed",
+                            duration_s=conv_elapsed,
+                            meta={"error": str(e)[:200]},
+                        )
 
                     # Progress callback
                     try:
@@ -392,9 +428,14 @@ class DownloadQueue:
                         pass
 
         total_elapsed = time.time() - dl_start
-        audit.record(event="batch_done", batch_id=batch_id, phase="batch",
-                     status="done", duration_s=total_elapsed,
-                     meta={"summary": self.summary.summary_line})
+        audit.record(
+            event="batch_done",
+            batch_id=batch_id,
+            phase="batch",
+            status="done",
+            duration_s=total_elapsed,
+            meta={"summary": self.summary.summary_line},
+        )
 
         logger.info(f"✅ Batch {batch_id} complete: {self.summary.summary_line}")
         return self.summary
@@ -407,12 +448,15 @@ class DownloadQueue:
             max_concurrent=min(self.max_concurrent, len(papers)),
             pdf_dir=str(PDF_DIR),
             md_dir=str(MD_DIR),
-            progress_cb=lambda r: logger.info(f"  {'✅' if r['success'] else '❌'} {r['arxiv_id']}"),
+            progress_cb=lambda r: logger.info(
+                f"  {'✅' if r['success'] else '❌'} {r['arxiv_id']}"
+            ),
         )
 
         # Disable internal MD conversion — we do it externally with version metadata
         async def _noop_md(*a, **kw):
             return None
+
         async_dl._convert_to_md = _noop_md
 
         papers_dict = [
@@ -446,11 +490,7 @@ class DownloadQueue:
             "conversion_version": self.CONVERSION_VERSION,
             "conversion_tool": "pymupdf4llm",
         }
-        return (
-            "---\n"
-            + json.dumps(header, ensure_ascii=False, indent=2)
-            + "\n---\n\n"
-        )
+        return "---\n" + json.dumps(header, ensure_ascii=False, indent=2) + "\n---\n\n"
 
     def _mark_converted(self, arxiv_id: str):
         """Mark conversion complete with timestamp"""
@@ -464,8 +504,14 @@ class DownloadQueue:
                     (now, self.CONVERSION_VERSION, sf_id),
                 )
 
-    def _convert_one(self, arxiv_id: str, pdf_path: str, title: str = "",
-                     to_wiki: bool = True, batch_id: str = "") -> bool:
+    def _convert_one(
+        self,
+        arxiv_id: str,
+        pdf_path: str,
+        title: str = "",
+        to_wiki: bool = True,
+        batch_id: str = "",
+    ) -> bool:
         """Convert a single PDF to MD, optionally sync to wiki"""
         try:
             import pymupdf4llm
@@ -491,10 +537,14 @@ class DownloadQueue:
                 self.summary.wiki_synced += 1
                 self._mark_status(arxiv_id, "wiki_synced", "1")
                 if batch_id:
-                    record_event(arxiv_id=arxiv_id, event="wiki_sync",
-                                 batch_id=batch_id, phase="wiki_sync",
-                                 status="done",
-                                 meta={"file": str(wiki_path)})
+                    record_event(
+                        arxiv_id=arxiv_id,
+                        event="wiki_sync",
+                        batch_id=batch_id,
+                        phase="wiki_sync",
+                        status="done",
+                        meta={"file": str(wiki_path)},
+                    )
                 logger.info(f"  📋 Wiki: {arxiv_id}")
 
             return True
@@ -503,9 +553,14 @@ class DownloadQueue:
             self._mark_status(arxiv_id, "convert_status", "failed")
             self._mark_status(arxiv_id, "failed_reason", str(e)[:500])
             if batch_id:
-                record_event(arxiv_id=arxiv_id, event="convert_failed",
-                             batch_id=batch_id, phase="convert",
-                             status="failed", meta={"error": str(e)[:200]})
+                record_event(
+                    arxiv_id=arxiv_id,
+                    event="convert_failed",
+                    batch_id=batch_id,
+                    phase="convert",
+                    status="failed",
+                    meta={"error": str(e)[:200]},
+                )
             return False
 
 
@@ -521,6 +576,7 @@ def batch_download_cli(
 ) -> BatchSummary:
     """CLI entry point for batch download"""
     from hfpapers.hardware import HardwareProbe
+
     hw = HardwareProbe()
     max_conc = min(8, limit)
     logger.info(f"🔧 {hw.summary()}, max_concurrent={max_conc}")

@@ -20,7 +20,7 @@ CONCURRENT_REQUESTS_PER_DOMAIN = 2  # Per-domain limit
 
 # Download delay (RandomDelayMiddleware applies ±50% jitter on top)
 DOWNLOAD_DELAY = 2.0
-RANDOMIZE_DOWNLOAD_DELAY = False    # Our own middleware handles randomization
+RANDOMIZE_DOWNLOAD_DELAY = False  # Our own middleware handles randomization
 
 # Download timeout (prevent hanging)
 DOWNLOAD_TIMEOUT = 30
@@ -47,10 +47,10 @@ DUPEFILTER_DEBUG = True
 
 # ─── Pipeline ───────────────────────────────
 ITEM_PIPELINES = {
-    "hfpapers.pipelines.StorePipeline": 100,    # Write to SQLite + cross-validate
-    "hfpapers.pipelines.ClassifyPipeline": 200, # Relevance classification
-    "hfpapers.pipelines.ExportPipeline": 300,   # Export candidate list
-    "hfpapers.pipelines.DownloadPipeline": 400, # PDF download + MD conversion
+    "hfpapers.pipelines.StorePipeline": 100,  # Write to SQLite + cross-validate
+    "hfpapers.pipelines.ClassifyPipeline": 200,  # Relevance classification
+    "hfpapers.pipelines.ExportPipeline": 300,  # Export candidate list
+    "hfpapers.pipelines.DownloadPipeline": 400,  # PDF download + MD conversion
 }
 
 # ─── Crawl Extensions ───────────────────────────────

@@ -51,13 +51,16 @@ class ArxivSearchSpider(scrapy.Spider):
     Search parameters: search_query, start, max_results
     Returns Atom XML, each <entry> contains id/title/summary/authors/categories
     """
+
     name = "arxiv_search"
     allowed_domains = ["export.arxiv.org"]
     base_url = "http://export.arxiv.org/api/query"
 
     def __init__(self, query: str = "", category: str = "", max_results: int = 50, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.search_query = query or cfg_get("search.queries", [{}])[0].get("query", "neural operator")
+        self.search_query = query or cfg_get("search.queries", [{}])[0].get(
+            "query", "neural operator"
+        )
         self.search_category = category or "arxiv-default"
         self.max_results = max_results
         self.custom_settings = {
@@ -67,12 +70,14 @@ class ArxivSearchSpider(scrapy.Spider):
         }
 
     def start_requests(self):
-        params = urlencode({
-            "search_query": f"all:{self.search_query}",
-            "max_results": self.max_results,
-            "sortBy": "relevance",
-            "sortOrder": "descending",
-        })
+        params = urlencode(
+            {
+                "search_query": f"all:{self.search_query}",
+                "max_results": self.max_results,
+                "sortBy": "relevance",
+                "sortOrder": "descending",
+            }
+        )
         yield Request(
             url=f"{self.base_url}?{params}",
             callback=self.parse_feed,
@@ -82,6 +87,7 @@ class ArxivSearchSpider(scrapy.Spider):
     def parse_feed(self, response: TextResponse):
         """Parse arXiv Atom XML feed"""
         from bs4 import BeautifulSoup
+
         soup = BeautifulSoup(response.text, "lxml")
         category = response.meta.get("category", "")
 
@@ -127,13 +133,16 @@ class OpenReviewSpider(scrapy.Spider):
       - venue = extracted from invitation (e.g. "NeurIPS 2024/Conference")
       - Reviews = GET /notes?forum=<forum_id> filtering notes where invitation contains "Review"
     """
+
     name = "openreview"
     allowed_domains = ["api.openreview.net"]
     base_url = "https://api.openreview.net"
 
     def __init__(self, query: str = "", category: str = "", max_results: int = 50, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.search_query = query or cfg_get("search.queries", [{}])[0].get("query", "neural operator")
+        self.search_query = query or cfg_get("search.queries", [{}])[0].get(
+            "query", "neural operator"
+        )
         self.search_category = category or "openreview-default"
         self.max_results = max_results
         self.custom_settings = {
@@ -143,7 +152,9 @@ class OpenReviewSpider(scrapy.Spider):
         }
 
     def start_requests(self):
-        params = urlencode({"term": self.search_query, "source": "forum", "limit": self.max_results})
+        params = urlencode(
+            {"term": self.search_query, "source": "forum", "limit": self.max_results}
+        )
         yield Request(
             url=f"{self.base_url}/notes/search?{params}",
             callback=self.parse_search,
@@ -270,6 +281,7 @@ class HfPapersSpider(scrapy.Spider):
     Crawl HF Papers pages or Trending pages to extract paper metadata
     Supports pagination (?p=N)
     """
+
     name = "hf_papers"
     allowed_domains = ["huggingface.co"]
     base_url = "https://huggingface.co/papers"
@@ -338,7 +350,9 @@ class HfPapersSpider(scrapy.Spider):
             yield paper
 
         # Pagination
-        next_link = response.css("a:contains('Next'), a[rel='next']::attr(href), a.pagination__next::attr(href)").get()
+        next_link = response.css(
+            "a:contains('Next'), a[rel='next']::attr(href), a.pagination__next::attr(href)"
+        ).get()
         if next_link and page < self.max_pages:
             yield Request(
                 url=response.urljoin(next_link),
@@ -362,6 +376,7 @@ class MultiSourceSpider(scrapy.Spider):
       scrapy crawl multi_source -a source=hf_papers   # Crawl HF only
       scrapy crawl multi_source                       # Crawl all enabled sources
     """
+
     name = "multi_source"
 
     def __init__(self, source: str = "", *args, **kwargs):

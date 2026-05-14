@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hfpclawer"
-version = "0.3.0"
+version = "0.4.7"
 description = "Multi-source academic paper clawler for PDE/neural operator/physics-informed ML — OAI-PMH download + PDF download + SQLite paper_store + Cross-Ref + MCP server"
 authors = [
     {name = "Li Shen"},
@@ -34,9 +34,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://gitlab.zhejianglab.com/token-arena/office/hfpapers-crawler"
-Repository = "https://gitlab.zhejianglab.com/token-arena/office/hfpapers-crawler"
-Documentation = "https://gitlab.zhejianglab.com/token-arena/office/hfpapers-crawler"
+Homepage = "https://github.com/diamond2nv/hfpapers-crawler"
+Repository = "https://github.com/diamond2nv/hfpapers-crawler"
+Documentation = "https://github.com/diamond2nv/hfpapers-crawler"
 
 [project.optional-dependencies]
 llm = [

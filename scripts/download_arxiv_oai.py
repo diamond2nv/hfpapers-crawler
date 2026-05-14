@@ -62,55 +62,53 @@ RATE_LIMIT = 2.0  # request interval (seconds) — arXiv recommends 4/s peak + 1
 # Sorted by relevance to our domain, higher priority first
 DOWNLOAD_PRIORITIES = [
     # Tier 1: AI/ML/PDE Core
-    "cs:cs:AI",      # Artificial Intelligence
-    "cs:cs:LG",      # Machine Learning
-    "cs:cs:NA",      # Numerical Analysis
-    "cs:cs:NE",      # Neural and Evolutionary Computing
-    "cs:cs:CV",      # Computer Vision
-    "cs:cs:CL",      # Computation and Language
+    "cs:cs:AI",  # Artificial Intelligence
+    "cs:cs:LG",  # Machine Learning
+    "cs:cs:NA",  # Numerical Analysis
+    "cs:cs:NE",  # Neural and Evolutionary Computing
+    "cs:cs:CV",  # Computer Vision
+    "cs:cs:CL",  # Computation and Language
     "math:math:AP",  # Analysis of PDEs
     "math:math:NA",  # Numerical Analysis (Math)
     "math:math:OC",  # Optimization and Control
     "stat:stat:ML",  # Machine Learning (Stats)
     "stat:stat:CO",  # Computation (Stats)
-
     # Tier 2: Related fields
-    "cs:cs:CE",      # Computational Engineering, Finance, and Science
-    "cs:cs:IR",      # Information Retrieval
-    "cs:cs:IT",      # Information Theory
-    "cs:cs:DS",      # Data Structures and Algorithms
-    "cs:cs:DB",      # Databases
-    "cs:cs:DC",      # Distributed, Parallel, and Cluster Computing
-    "cs:cs:GT",      # Computer Science and Game Theory
-    "cs:cs:MA",      # Multiagent Systems
-    "cs:cs:RO",      # Robotics
-    "cs:cs:SC",      # Symbolic Computation
-    "cs:cs:SY",      # Systems and Control
-    "cs:cs:AR",      # Hardware Architecture
-    "cs:cs:CC",      # Computational Complexity
-    "cs:cs:CG",      # Computational Geometry
-    "cs:cs:CR",      # Cryptography and Security
-    "cs:cs:CY",      # Computers and Society
-    "cs:cs:DL",      # Digital Libraries
-    "cs:cs:DM",      # Discrete Mathematics
-    "cs:cs:ET",      # Emerging Technologies
-    "cs:cs:FL",      # Formal Languages and Automata Theory
-    "cs:cs:GL",      # General Literature
-    "cs:cs:GR",      # Graphics
-    "cs:cs:HC",      # Human-Computer Interaction
-    "cs:cs:LO",      # Logic in Computer Science
-    "cs:cs:MM",      # Multimedia
-    "cs:cs:MS",      # Mathematical Software
-    "cs:cs:NI",      # Networking and Internet Architecture
-    "cs:cs:OH",      # Other Computer Science
-    "cs:cs:OS",      # Operating Systems
-    "cs:cs:PF",      # Performance
-    "cs:cs:PL",      # Programming Languages
-    "cs:cs:SD",      # Sound
-    "cs:cs:SE",      # Software Engineering
-    "cs:cs:SI",      # Social and Information Networks
-    "cs:cs:OH",      # Other (catch-all)
-
+    "cs:cs:CE",  # Computational Engineering, Finance, and Science
+    "cs:cs:IR",  # Information Retrieval
+    "cs:cs:IT",  # Information Theory
+    "cs:cs:DS",  # Data Structures and Algorithms
+    "cs:cs:DB",  # Databases
+    "cs:cs:DC",  # Distributed, Parallel, and Cluster Computing
+    "cs:cs:GT",  # Computer Science and Game Theory
+    "cs:cs:MA",  # Multiagent Systems
+    "cs:cs:RO",  # Robotics
+    "cs:cs:SC",  # Symbolic Computation
+    "cs:cs:SY",  # Systems and Control
+    "cs:cs:AR",  # Hardware Architecture
+    "cs:cs:CC",  # Computational Complexity
+    "cs:cs:CG",  # Computational Geometry
+    "cs:cs:CR",  # Cryptography and Security
+    "cs:cs:CY",  # Computers and Society
+    "cs:cs:DL",  # Digital Libraries
+    "cs:cs:DM",  # Discrete Mathematics
+    "cs:cs:ET",  # Emerging Technologies
+    "cs:cs:FL",  # Formal Languages and Automata Theory
+    "cs:cs:GL",  # General Literature
+    "cs:cs:GR",  # Graphics
+    "cs:cs:HC",  # Human-Computer Interaction
+    "cs:cs:LO",  # Logic in Computer Science
+    "cs:cs:MM",  # Multimedia
+    "cs:cs:MS",  # Mathematical Software
+    "cs:cs:NI",  # Networking and Internet Architecture
+    "cs:cs:OH",  # Other Computer Science
+    "cs:cs:OS",  # Operating Systems
+    "cs:cs:PF",  # Performance
+    "cs:cs:PL",  # Programming Languages
+    "cs:cs:SD",  # Sound
+    "cs:cs:SE",  # Software Engineering
+    "cs:cs:SI",  # Social and Information Networks
+    "cs:cs:OH",  # Other (catch-all)
     # Tier 3: Mathematics
     "math:math:CO",  # Combinatorics
     "math:math:DS",  # Dynamical Systems
@@ -140,7 +138,6 @@ DOWNLOAD_PRIORITIES = [
     "math:math:HO",  # History and Overview
     "math:math:MG",  # Metric Geometry
     "math:math:QA",  # Quantum Algebra
-
     # Tier 4: Statistics
     "stat:stat:AP",  # Applications
     "stat:stat:ME",  # Methodology
@@ -233,9 +230,7 @@ class ArxivMetaDB:
 
     def exists(self, arxiv_id: str) -> bool:
         with self._conn() as conn:
-            r = conn.execute(
-                "SELECT 1 FROM arxiv_meta WHERE arxiv_id=?", (arxiv_id,)
-            ).fetchone()
+            r = conn.execute("SELECT 1 FROM arxiv_meta WHERE arxiv_id=?", (arxiv_id,)).fetchone()
             return r is not None
 
 
@@ -275,7 +270,7 @@ class OAIDownloader:
                     continue
 
                 if resp.status_code != 200:
-                    logger.warning(f"  HTTP {resp.status_code}, retry {attempt+1}/{MAX_RETRIES}")
+                    logger.warning(f"  HTTP {resp.status_code}, retry {attempt + 1}/{MAX_RETRIES}")
                     if attempt < MAX_RETRIES - 1:
                         time.sleep(RETRY_BACKOFF[attempt])
                     continue
@@ -375,10 +370,20 @@ class OAIDownloader:
         if not title:
             return None
 
-        return (arxiv_id, title[:500], authors[:500], abstract[:2000],
-                categories, doi, journal_ref, update_date)
+        return (
+            arxiv_id,
+            title[:500],
+            authors[:500],
+            abstract[:2000],
+            categories,
+            doi,
+            journal_ref,
+            update_date,
+        )
 
-    def download_category(self, set_spec: str, from_date: str = "", to_date: str = "", max_pages: int = 0) -> int:
+    def download_category(
+        self, set_spec: str, from_date: str = "", to_date: str = "", max_pages: int = 0
+    ) -> int:
         """Download all/incremental records for one category
 
         Args:
@@ -452,8 +457,7 @@ class OAIDownloader:
                 cursor = int(token_el.get("cursor", 0))
                 total = int(token_el.get("completeListSize", 0))
                 logger.info(
-                    f"  [{set_spec}] page {page}: +{new_count} "
-                    f"(cursor: {cursor:,}/{total:,})"
+                    f"  [{set_spec}] page {page}: +{new_count} (cursor: {cursor:,}/{total:,})"
                 )
             else:
                 logger.info(f"  [{set_spec}] Complete: +{new_count} new papers")
@@ -483,7 +487,7 @@ class OAIDownloader:
         start_all = time.time()
 
         for idx, set_spec in enumerate(DOWNLOAD_PRIORITIES):
-            logger.info(f"\n[{idx+1}/{len(DOWNLOAD_PRIORITIES)}] 📥 {set_spec}")
+            logger.info(f"\n[{idx + 1}/{len(DOWNLOAD_PRIORITIES)}] 📥 {set_spec}")
 
             set_start = time.time()
             new_count = self.download_category(set_spec, from_date=from_date)
@@ -498,14 +502,16 @@ class OAIDownloader:
                 logger.info(f"  → {new_count} papers in {elapsed:.1f}s ({rate:.0f}/s)")
 
             # Save progress (resume)
-            self._save_state({
-                "last_set": set_spec,
-                "completed_sets": idx + 1,
-                "total_sets": len(DOWNLOAD_PRIORITIES),
-                "total_new": total_new,
-                "last_completed_date": from_date or datetime.now().strftime("%Y-%m-%d"),
-                "updated_at": datetime.now().isoformat(),
-            })
+            self._save_state(
+                {
+                    "last_set": set_spec,
+                    "completed_sets": idx + 1,
+                    "total_sets": len(DOWNLOAD_PRIORITIES),
+                    "total_new": total_new,
+                    "last_completed_date": from_date or datetime.now().strftime("%Y-%m-%d"),
+                    "updated_at": datetime.now().isoformat(),
+                }
+            )
 
             if self._interrupted:
                 logger.warning("⚠️ Interrupted, stopping download")
@@ -514,7 +520,7 @@ class OAIDownloader:
         all_elapsed = time.time() - start_all
         total_in_db = self.db.count()
 
-        logger.info(f"\n{'='*50}")
+        logger.info(f"\n{'=' * 50}")
         logger.info("✅ Download complete")
         logger.info(f"  New: {total_new} papers")
         logger.info(f"  Total: {total_in_db:,} papers")
@@ -540,7 +546,9 @@ class OAIDownloader:
         print("\n📊 arXiv OAI-PMH Download Status")
         print(f"  DB total papers: {total:,}")
         print(f"  Last updated:    {state.get('updated_at', 'never')}")
-        print(f"  Progress:        {state.get('completed_sets', 0)}/{state.get('total_sets', 0)} categories")
+        print(
+            f"  Progress:        {state.get('completed_sets', 0)}/{state.get('total_sets', 0)} categories"
+        )
         print(f"  New this run:    {state.get('total_new', 0)} papers")
         print(f"  Last category:   {state.get('last_set', 'N/A')}")
         print(f"  Last date:       {state.get('last_completed_date', 'N/A')}")
@@ -561,12 +569,16 @@ def main():
 
     parser = argparse.ArgumentParser(description="arXiv OAI-PMH metadata downloader")
     parser.add_argument("--all", action="store_true", help="Full download of all categories")
-    parser.add_argument("--incremental", action="store_true", help="Incremental update (last 1 day)")
+    parser.add_argument(
+        "--incremental", action="store_true", help="Incremental update (last 1 day)"
+    )
     parser.add_argument("--set", "-s", type=str, default="", help="Download specific category")
     parser.add_argument("--from-date", "-f", type=str, default="", help="Start date YYYY-MM-DD")
     parser.add_argument("--status", action="store_true", help="View download status")
     parser.add_argument("--background", action="store_true", help="Background mode (catch SIGINT)")
-    parser.add_argument("--tier1-only", action="store_true", help="Download Tier 1 only (AI/ML/PDE core)")
+    parser.add_argument(
+        "--tier1-only", action="store_true", help="Download Tier 1 only (AI/ML/PDE core)"
+    )
 
     args = parser.parse_args()
 
@@ -579,9 +591,11 @@ def main():
 
     # Register SIGINT handler
     import signal
+
     def _on_sigint(sig, frame):
         logger.warning("\n⚠️ Received Ctrl+C, saving progress and exiting...")
         downloader.interrupt()
+
     signal.signal(signal.SIGINT, _on_sigint)
 
     if args.set:

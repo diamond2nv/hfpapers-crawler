@@ -4,7 +4,7 @@ run_batch_full.py — Iterate batch downloads until all papers are done
 
 Usage:
     python3 scripts/run_batch_full.py [--batch-size 50] [--max-batches 0]
-    
+
 Run from project root. Interrupt with Ctrl+C, resuming is safe (resumes from DB state).
 """
 
@@ -14,6 +14,7 @@ import logging
 
 # Ensure project root is on sys.path
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from hfpapers.download_queue import DownloadQueue
@@ -24,6 +25,7 @@ MAX_BATCHES = 0  # 0 = unlimited
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--max-batches", type=int, default=0, help="0=unlimited")
@@ -48,7 +50,7 @@ def main():
         counts = queue.count_pending()
         pending = counts.get("pending", 0)
         if pending == 0:
-            print(f"\n✅ All done! Total time: {time.time()-start_time:.0f}s")
+            print(f"\n✅ All done! Total time: {time.time() - start_time:.0f}s")
             break
 
         if max_batches and batch_num >= max_batches:
@@ -56,9 +58,9 @@ def main():
             break
 
         batch_num += 1
-        print(f"\n{'='*50}")
+        print(f"\n{'=' * 50}")
         print(f"📦 Batch {batch_num} (pending: {pending}, batch_size: {batch_size})")
-        print(f"{'='*50}")
+        print(f"{'=' * 50}")
 
         batch_start = time.time()
         summary = queue.batch_download(
@@ -88,15 +90,15 @@ def main():
 
         # 短暂 pause 避免疯狂请求
         if remaining > 0:
-            print(f"  📊 Remaining: ~{remaining} papers (~{remaining/50:.0f} batches)")
+            print(f"  📊 Remaining: ~{remaining} papers (~{remaining / 50:.0f} batches)")
             time.sleep(1)
 
     total_elapsed = time.time() - start_time
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"🏁 FULL COMPLETE")
-    print(f"  ⏱ {total_elapsed:.0f}s ({total_elapsed/60:.0f}min)")
+    print(f"  ⏱ {total_elapsed:.0f}s ({total_elapsed / 60:.0f}min)")
     print(f"  ⬇️ {total_dl} DL | 📝 {total_conv} MD | 📋 {total_wiki} wiki | ❌ {total_fail} fail")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
 
 
 if __name__ == "__main__":

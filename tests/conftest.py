@@ -46,16 +46,19 @@ paths:
         os.environ["_TEST_HFPAPERS_CONFIG"] = cfg_path
         # Force reload config so fixture config takes effect
         import hfpapers.config as _cfg
+
         _cfg._config_cache = None
         _cfg.load_config(reload=True)
         # Reset global singletons to avoid cross-test contamination
         import hfpapers.paper_store as _ps
+
         _ps._store_instance = None
         _ps._crossref_instance = None
         yield tmpdir
         os.chdir(old_cwd)
         # Cleanup global singletons (for subsequent tests)
         import hfpapers.paper_store as _ps
+
         _ps._store_instance = None
         _ps._crossref_instance = None
 
@@ -66,6 +69,7 @@ def paper_store():
     import tempfile
 
     from hfpapers.paper_store import PaperStore
+
     db_fd, db_path = tempfile.mkstemp(suffix=".db")
     os.close(db_fd)
     store = PaperStore(db_path=db_path)

@@ -29,34 +29,65 @@ logger = logging.getLogger("enrich_entities")
 
 ENTITY_ARXIV_MAP = {
     # ═══ Core neural operator papers (verified correct) ═══
-    "fourier-neural-operator": ("2010.08895", "Fourier Neural Operator for Parametric Partial Differential Equations"),
-    "deeponet": ("1910.03193", "DeepONet: Learning nonlinear operators for identifying differential equations"),
+    "fourier-neural-operator": (
+        "2010.08895",
+        "Fourier Neural Operator for Parametric Partial Differential Equations",
+    ),
+    "deeponet": (
+        "1910.03193",
+        "DeepONet: Learning nonlinear operators for identifying differential equations",
+    ),
     "pdebench": ("2207.05209", "PDEBench: An Extensive Benchmark for Scientific Machine Learning"),
     "poseidon": ("2405.19101", "Poseidon: Efficient Foundation Models for PDEs"),
-    "neural-stagger": ("2302.10255", "NeuralStagger: Accelerating Physics-constrained Neural PDE Solver"),
-    "lord-net": ("2206.09418", "LordNet: An Efficient Neural Network for Learning to Solve Parametric Partial Differential Equations"),
-    "gaot": ("2505.18781", "Geometry Aware Operator Transformer as an Efficient and Accurate Neural Surrogate for Solving PDEs"),
-
+    "neural-stagger": (
+        "2302.10255",
+        "NeuralStagger: Accelerating Physics-constrained Neural PDE Solver",
+    ),
+    "lord-net": (
+        "2206.09418",
+        "LordNet: An Efficient Neural Network for Learning to Solve Parametric Partial Differential Equations",
+    ),
+    "gaot": (
+        "2505.18781",
+        "Geometry Aware Operator Transformer as an Efficient and Accurate Neural Surrogate for Solving PDEs",
+    ),
     # ═══ FTS5 verified — corrected mappings ═══
-    "coda-no": ("2403.12553", "Pretraining Codomain Attention Neural Operators for Solving Multiphysics PDEs"),
+    "coda-no": (
+        "2403.12553",
+        "Pretraining Codomain Attention Neural Operators for Solving Multiphysics PDEs",
+    ),
     "rigno": ("2210.12035", "RIgNO: Rotation-Invariant Graph Neural Operator"),
     "pdearena": ("2306.07931", "PDEArena: A Benchmark for Neural PDE Solvers"),
-    "text2pde": ("2410.01153", "Text2PDE: Latent Diffusion Models for Accessible Physics-Informed PDE Solving"),
+    "text2pde": (
+        "2410.01153",
+        "Text2PDE: Latent Diffusion Models for Accessible Physics-Informed PDE Solving",
+    ),
     "learning-neural-solver": ("2303.00466", "ASP: Learn a Universal Neural Solver!"),
-    "online-training-deep-surrogate": ("2306.16133", "Training Deep Surrogate Models with Large Scale Online Learning"),
+    "online-training-deep-surrogate": (
+        "2306.16133",
+        "Training Deep Surrogate Models with Large Scale Online Learning",
+    ),
     "multiscale-neural-operator": ("2401.09779", "Multiscale Neural Operator"),
-    "neural-spectral-methods": ("2501.09987", "On understanding and overcoming spectral biases of deep learning"),
+    "neural-spectral-methods": (
+        "2501.09987",
+        "On understanding and overcoming spectral biases of deep learning",
+    ),
     "physics-informed-diffusion-models": ("2403.14404", "Physics-Informed Diffusion Models"),
-    "physics-informed-neural-networks": ("2105.09506", "Physics-informed neural networks (PINNs) for fluid mechanics"),
+    "physics-informed-neural-networks": (
+        "2105.09506",
+        "Physics-informed neural networks (PINNs) for fluid mechanics",
+    ),
     "burgers-equation": ("2112.02011", "Burgers Equation and Neural Operators"),
     "physics-based-deep-learning-book": ("2109.05237", "Physics-based Deep Learning"),
     "the-well": ("2410.17450", "The Well: a Large-Scale Benchmark for PDE Foundation Models"),
     "agent-laboratory": ("2501.04227", "Agent Laboratory: Using LLM Agents as Research Assistants"),
-    "ai-scientist-v2": ("2504.08066", "The AI Scientist-v2: Workshop-Level Automated Scientific Discovery via LLM Agent Collaboration"),
+    "ai-scientist-v2": (
+        "2504.08066",
+        "The AI Scientist-v2: Workshop-Level Automated Scientific Discovery via LLM Agent Collaboration",
+    ),
     "airfrans": ("2305.11802", "AirfRANS: High-Fidelity Airfoil Dataset"),
     "lesnets": ("2301.03726", "LESNet: Local-Enhanced Spectral Network"),
     "dymixop": ("2402.08537", "DyMixOP: Dynamic Mixture of Operators"),
-
     # ═══ Needs manual verification (current IDs may be incorrect) ═══
     "geo-fno": ("2204.01697", "Geometry-Aware Fourier Neural Operator"),
     "gnp-geometric-neural-operator": ("2202.11322", "Geometric Neural Operator"),
@@ -67,10 +98,19 @@ ENTITY_ARXIV_MAP = {
     "dmd-neural-operator": ("2402.19227", "DMD Neural Operator: Dynamic Mode Decomposition"),
     "pi-hc-moe": ("2406.15679", "PI-HC-MoE: Physics-Informed Hard Coding Mixture of Experts"),
     "amg-multi-graph-neural-operator": ("2301.11952", "AMG Multi-Graph Neural Operator"),
-    "probconsv": ("2312.12706", "ProbConsv: Probabilistic Conservation Laws for Neural PDE Solvers"),
-    "transferrable-surrogates-nas": ("2402.09382", "Transferrable Surrogate Models via Neural Architecture Search"),
+    "probconsv": (
+        "2312.12706",
+        "ProbConsv: Probabilistic Conservation Laws for Neural PDE Solvers",
+    ),
+    "transferrable-surrogates-nas": (
+        "2402.09382",
+        "Transferrable Surrogate Models via Neural Architecture Search",
+    ),
     "predict-change": ("2311.13191", "Predict the Change: Neural PDE Solvers"),
-    "ai-researcher": ("2503.09716", "The AI Researcher: An Autonomous Research Agent for Large-Scale Scientific Literature Discovery"),
+    "ai-researcher": (
+        "2503.09716",
+        "The AI Researcher: An Autonomous Research Agent for Large-Scale Scientific Literature Discovery",
+    ),
     "autoagent": ("2502.04552", "AutoAgent: An Autonomous Multi-Agent Framework"),
     "cape": ("2404.02232", "CAPE: Context-Aware PDE Emulator"),
     "multi-adam": ("2305.16029", "Multi-Adam: Multi-Scale Adam Optimizer"),
@@ -90,7 +130,9 @@ NON_PAPER_ENTITIES = {
 }
 
 
-def bibtex_from_meta(title: str, authors: str, doi: str, venue: str, year: str, arxiv_id: str) -> str:
+def bibtex_from_meta(
+    title: str, authors: str, doi: str, venue: str, year: str, arxiv_id: str
+) -> str:
     first_author = ""
     if authors:
         first_author = authors.split(",")[0].strip()
@@ -98,31 +140,39 @@ def bibtex_from_meta(title: str, authors: str, doi: str, venue: str, year: str, 
         if parts:
             first_author = parts[-1].lower()
 
-    key = f"{first_author}{year[:4]}" if first_author and year else f"arxiv{arxiv_id.replace('.','')}"
-    key = re.sub(r'[^a-zA-Z0-9]', '', key)
+    key = (
+        f"{first_author}{year[:4]}"
+        if first_author and year
+        else f"arxiv{arxiv_id.replace('.', '')}"
+    )
+    key = re.sub(r"[^a-zA-Z0-9]", "", key)
 
     title_clean = title.replace("{", "").replace("}", "").replace("\n", " ").strip()
 
     lines = [
         f"@article{{{key},",
         f"  title     = {{{title_clean}}},",
-        f'  author    = {{{authors or "Unknown"}}},',
-        f'  year      = {{{year[:4] or "unknown"}}},',
+        f"  author    = {{{authors or 'Unknown'}}},",
+        f"  year      = {{{year[:4] or 'unknown'}}},",
     ]
     if doi:
         lines.append(f"  doi       = {{{doi}}},")
     if venue:
         lines.append(f"  journal   = {{{venue}}},")
-    lines.extend([
-        "  archivePrefix = {arXiv},",
-        f"  eprint    = {{{arxiv_id}}},",
-        "  primaryClass  = {cs.LG},",
-        "}",
-    ])
+    lines.extend(
+        [
+            "  archivePrefix = {arXiv},",
+            f"  eprint    = {{{arxiv_id}}},",
+            "  primaryClass  = {cs.LG},",
+            "}",
+        ]
+    )
     return "\n".join(lines) + "\n"
 
 
-def reference_block(title: str, authors: str, doi: str, venue: str, year: str, arxiv_id: str) -> str:
+def reference_block(
+    title: str, authors: str, doi: str, venue: str, year: str, arxiv_id: str
+) -> str:
     parts = []
     if authors:
         authors_clean = authors.replace("{", "").replace("}", "")
@@ -234,13 +284,16 @@ def main(dry_run: bool = False, entity_filter: str = None):
                 logger.error(f"  ERROR {name}: {e}")
                 errors += 1
 
-    logger.info(f"\n{'='*50}")
-    logger.info(f"Updated: {updated} | No-map: {skipped_no_map} | Doc: {skipped_non_paper} | Already: {skipped_already} | Errors: {errors}")
-    logger.info(f"{'='*50}")
+    logger.info(f"\n{'=' * 50}")
+    logger.info(
+        f"Updated: {updated} | No-map: {skipped_no_map} | Doc: {skipped_non_paper} | Already: {skipped_already} | Errors: {errors}"
+    )
+    logger.info(f"{'=' * 50}")
 
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--entity", type=str)

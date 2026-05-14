@@ -280,9 +280,9 @@ class PaperDownloader:
         )
 
         import asyncio
+
         papers_dict = [
-            {"arxiv_id": p.arxiv_id, "title": p.title, "abstract": p.abstract}
-            for p in papers
+            {"arxiv_id": p.arxiv_id, "title": p.title, "abstract": p.abstract} for p in papers
         ]
 
         loop = asyncio.new_event_loop()
@@ -314,6 +314,7 @@ class PaperDownloader:
 
 def save_candidates(papers) -> None:
     from datetime import datetime
+
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = DATA_DIR / f"candidates_{now}.json"
     latest = DATA_DIR / "candidates_latest.json"
@@ -333,6 +334,7 @@ def save_candidates(papers) -> None:
     with open(path, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     import shutil
+
     shutil.copy2(path, latest)
     logger.info(f"Candidate list saved: {path} ({len(papers)} papers)")
     print(f"💾 Candidate list: {path}")
@@ -345,18 +347,21 @@ def load_candidates() -> list:
     with open(latest) as f:
         data = json.load(f)
     from hfpapers.evolved import PaperInfo
+
     papers = []
     for d in data:
-        papers.append(PaperInfo(
-            arxiv_id=d.get("arxiv_id", ""),
-            title=d.get("title", ""),
-            abstract=d.get("abstract", ""),
-            source_url=d.get("source_url", ""),
-            categories=d.get("categories", []),
-            relevance=d.get("relevance", 0),
-            code_url=d.get("code_url", ""),
-            has_code=d.get("has_code", "unknown"),
-        ))
+        papers.append(
+            PaperInfo(
+                arxiv_id=d.get("arxiv_id", ""),
+                title=d.get("title", ""),
+                abstract=d.get("abstract", ""),
+                source_url=d.get("source_url", ""),
+                categories=d.get("categories", []),
+                relevance=d.get("relevance", 0),
+                code_url=d.get("code_url", ""),
+                has_code=d.get("has_code", "unknown"),
+            )
+        )
     return papers
 
 
@@ -377,12 +382,14 @@ def convert_pdfs(to_wiki: bool = False) -> int:
                 wiki_path = wiki_dir / f"{aid}.md"
                 if not wiki_path.exists():
                     import shutil
+
                     shutil.copy2(md_path, wiki_path)
                     logger.info(f"  📋 Wiki sync: {aid}")
             continue
 
         try:
             import pymupdf4llm
+
             md_text = pymupdf4llm.to_markdown(str(pdf_path))
             with open(md_path, "w") as fh:
                 fh.write(f"# {aid}\n\n> arXiv PDF\n\n{md_text}")
@@ -391,6 +398,7 @@ def convert_pdfs(to_wiki: bool = False) -> int:
 
             if to_wiki:
                 import shutil
+
                 wiki_path = wiki_dir / f"{aid}.md"
                 shutil.copy2(md_path, wiki_path)
                 logger.info(f"  📋 Wiki sync: {aid}")

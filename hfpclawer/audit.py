@@ -43,22 +43,26 @@ def _get_state_paths(db_dir: str) -> list[dict]:
         try:
             with open(f) as fp:
                 state = json.load(fp)
-            results.append({
-                "file": str(f),
-                "source": state.get("source", f.stem.replace("_download_state", "")),
-                "status": state.get("status", "unknown"),
-                "total_new": state.get("total_new", 0),
-                "total_fetched": state.get("total_fetched", 0),
-                "last_update": state.get("last_update", ""),
-                "checksum": state.get("checksum", ""),
-                "error": state.get("error", ""),
-            })
+            results.append(
+                {
+                    "file": str(f),
+                    "source": state.get("source", f.stem.replace("_download_state", "")),
+                    "status": state.get("status", "unknown"),
+                    "total_new": state.get("total_new", 0),
+                    "total_fetched": state.get("total_fetched", 0),
+                    "last_update": state.get("last_update", ""),
+                    "checksum": state.get("checksum", ""),
+                    "error": state.get("error", ""),
+                }
+            )
         except (json.JSONDecodeError, OSError) as e:
-            results.append({
-                "file": str(f),
-                "source": "unknown",
-                "status": f"parse_error: {e}",
-            })
+            results.append(
+                {
+                    "file": str(f),
+                    "source": "unknown",
+                    "status": f"parse_error: {e}",
+                }
+            )
     return results
 
 
@@ -96,6 +100,7 @@ def run_paper_store_audit(store=None) -> dict:
     """
     if store is None:
         from hfpapers.paper_store import get_store
+
         store = get_store()
 
     stats = store.stats()
@@ -106,8 +111,7 @@ def run_paper_store_audit(store=None) -> dict:
         "dual_id_papers": 0,
         "identifier_types": list(stats.get("identifiers_by_type", {}).keys()),
         "identifier_type_stats": [
-            {"type": t, "count": c}
-            for t, c in stats.get("identifiers_by_type", {}).items()
+            {"type": t, "count": c} for t, c in stats.get("identifiers_by_type", {}).items()
         ],
     }
 
@@ -151,9 +155,13 @@ def format_paper_store_report(report: dict) -> str:
     lines = []
     lines.append("\n📚 Paper Store Paper Quality:")
     lines.append(f"  Total papers: {report['total_papers']:,}")
-    lines.append(f"  Verified:     {report['verified_papers']:,} ({report.get('verified_ratio', 0)*100:.1f}%)")
+    lines.append(
+        f"  Verified:     {report['verified_papers']:,} ({report.get('verified_ratio', 0) * 100:.1f}%)"
+    )
     lines.append(f"  With code:    {report['with_code']:,}")
-    lines.append(f"  Dual ID:      {report['dual_id_papers']:,} ({report.get('dual_id_ratio', 0)*100:.1f}%)")
+    lines.append(
+        f"  Dual ID:      {report['dual_id_papers']:,} ({report.get('dual_id_ratio', 0) * 100:.1f}%)"
+    )
 
     lines.append("\n  Identifier distribution:")
     for ts in report.get("identifier_type_stats", []):
@@ -196,12 +204,16 @@ def format_full_audit_report(report: dict) -> str:
     if state_files:
         lines.append("\n  State files:")
         for sf in state_files:
-            lines.append(f"    {Path(sf['file']).name} → {sf['status']} ({sf['total_new']:,} papers)")
+            lines.append(
+                f"    {Path(sf['file']).name} → {sf['status']} ({sf['total_new']:,} papers)"
+            )
 
     # JSONL
     jl = meta.get("jsonl", {})
     if jl:
-        lines.append(f"\n  Kaggle JSONL: {'✅ ' + jl.get('path','') if jl.get('exists') else '❌ Does not exist'}")
+        lines.append(
+            f"\n  Kaggle JSONL: {'✅ ' + jl.get('path', '') if jl.get('exists') else '❌ Does not exist'}"
+        )
 
     # paper_store section
     lines.append("")
@@ -258,7 +270,10 @@ def run_audit(db_path: str = None, data_dir: str = None) -> dict:
 
         # Fallback when no source column
         if not has_source:
-            report["sources"]["legacy"] = {"count": report["total"], "note": "No source column, all data marked as legacy"}
+            report["sources"]["legacy"] = {
+                "count": report["total"],
+                "note": "No source column, all data marked as legacy",
+            }
     finally:
         conn.close()
 

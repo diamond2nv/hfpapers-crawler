@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Test paper_store module — SQLite storage + Snowflake ID + identifiers"""
+
 import time
 from datetime import datetime
 
@@ -43,10 +44,9 @@ class TestSnowflakeID:
 class TestPaperStore:
     def test_init_db_creates_tables(self, paper_store: PaperStore):
         import sqlite3
+
         conn = sqlite3.connect(paper_store.db_path)
-        tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         names = {r[0] for r in tables}
         assert "papers" in names
         assert "identifiers" in names
@@ -54,7 +54,9 @@ class TestPaperStore:
         conn.close()
 
     def test_upsert_and_get_paper(self, paper_store: PaperStore):
-        rec = PaperRecord(title="Test Paper", abstract="test", year=2024, source="pytest", relevance=80)
+        rec = PaperRecord(
+            title="Test Paper", abstract="test", year=2024, source="pytest", relevance=80
+        )
         sf_id = paper_store.upsert_paper(rec)
         assert sf_id > 0
 

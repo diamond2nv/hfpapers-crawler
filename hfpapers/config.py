@@ -30,6 +30,7 @@ def _get_model_cost() -> dict:
         return _MODEL_COST_CACHE
     try:
         from litellm import model_cost as mc
+
         _MODEL_COST_CACHE = mc
         return mc
     except Exception:
@@ -68,8 +69,9 @@ def estimate_cost(model_id: str, input_tokens: int, output_tokens: int) -> float
     return (input_tokens * in_price) + (output_tokens * out_price)
 
 
-def check_token_budget(estimated_input: int, estimated_output: int,
-                       *, model_id: str | None = None) -> bool:
+def check_token_budget(
+    estimated_input: int, estimated_output: int, *, model_id: str | None = None
+) -> bool:
     """Check if token budget is sufficient (general rate limiting, applies to all providers).
 
     Returns True if within budget, False if exceeded.
@@ -82,8 +84,9 @@ def check_token_budget(estimated_input: int, estimated_output: int,
     return True
 
 
-def check_cost_budget(model_id: str, estimated_input: int, estimated_output: int,
-                      *, max_cost_usd: float | None = None) -> bool:
+def check_cost_budget(
+    model_id: str, estimated_input: int, estimated_output: int, *, max_cost_usd: float | None = None
+) -> bool:
     """Check if cost budget is sufficient (only applies to paid providers).
 
     Local models like Ollama return True (free, no limit).
@@ -134,8 +137,13 @@ def load_env():
         load_dotenv(ENV_PATH, override=False)
     # Environment variable override
     for key in [
-        "DEEPSEEK_API_KEY", "HF_TOKEN", "OLLAMA_API_BASE",
-        "LITELLM_PROXY", "LITELLM_API_KEY", "HTTP_PROXY", "HTTPS_PROXY",
+        "DEEPSEEK_API_KEY",
+        "HF_TOKEN",
+        "OLLAMA_API_BASE",
+        "LITELLM_PROXY",
+        "LITELLM_API_KEY",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
     ]:
         val = os.environ.get(key)
         if val:
@@ -191,8 +199,11 @@ def load_config(reload: bool = False) -> dict:
     # Inject API keys from .env
     cfg["env"] = {}
     for key in [
-        "DEEPSEEK_API_KEY", "HF_TOKEN", "OLLAMA_API_BASE",
-        "LITELLM_PROXY", "LITELLM_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "HF_TOKEN",
+        "OLLAMA_API_BASE",
+        "LITELLM_PROXY",
+        "LITELLM_API_KEY",
     ]:
         cfg["env"][key] = os.environ.get(key, "")
 

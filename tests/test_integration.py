@@ -33,15 +33,17 @@ runner = CliRunner()
 def _normalize_output(text: str) -> str:
     """Remove Rich control characters -> plain text"""
     import re
+
     # Rich rendering and Rich markup tags
-    text = re.sub(r'\x1b\[[0-9;]*m', '', text)
-    text = re.sub(r'\[/?[a-z]+\]', '', text)
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    text = re.sub(r"\[/?[a-z]+\]", "", text)
     return text.strip()
 
 
 def _create_arxiv_meta_db(db_path: str, papers: list[dict] = None):
     """Create arxiv_meta.db and insert test data"""
     import sqlite3
+
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.execute("""
@@ -50,7 +52,7 @@ def _create_arxiv_meta_db(db_path: str, papers: list[dict] = None):
             categories TEXT, doi TEXT, journal_ref TEXT, update_date TEXT,
             source TEXT DEFAULT '', imported_at TEXT DEFAULT (datetime('now')))
     """)
-    for p in (papers or []):
+    for p in papers or []:
         conn.execute(
             "INSERT OR IGNORE INTO arxiv_meta (arxiv_id, title, source, doi) VALUES (?, ?, ?, ?)",
             (p["arxiv_id"], p["title"], p.get("source", ""), p.get("doi", "")),
@@ -70,7 +72,7 @@ def _parse_jsonl_output(text: str) -> list[dict]:
         if l.strip().endswith("}"):
             end = i
     if start is not None and end is not None:
-        joined = "\n".join(lines[start:end + 1])
+        joined = "\n".join(lines[start : end + 1])
         return json.loads(joined)
     return None
 
@@ -87,9 +89,19 @@ class TestCLIIntegration:
         """--help lists all core subcommands"""
         result = runner.invoke(app, ["--help"])
         text = _normalize_output(result.output)
-        for cmd in ["search", "download", "convert", "list",
-                     "info", "dedup", "store", "audit", "mcp",
-                     "config", "stats"]:
+        for cmd in [
+            "search",
+            "download",
+            "convert",
+            "list",
+            "info",
+            "dedup",
+            "store",
+            "audit",
+            "mcp",
+            "config",
+            "stats",
+        ]:
             assert cmd in text, f"Subcommand {cmd} not found in --help"
 
     def test_audit_empty_db(self, test_env):
@@ -105,9 +117,12 @@ class TestCLIIntegration:
         # Insert a paper so audit has data to work with
         db_dir = os.path.join(os.getcwd(), "data")
         os.makedirs(db_dir, exist_ok=True)
-        _create_arxiv_meta_db(os.path.join(db_dir, "arxiv_meta.db"), [
-            {"arxiv_id": "2501.00001", "title": "Test", "source": "oai"},
-        ])
+        _create_arxiv_meta_db(
+            os.path.join(db_dir, "arxiv_meta.db"),
+            [
+                {"arxiv_id": "2501.00001", "title": "Test", "source": "oai"},
+            ],
+        )
 
         result = runner.invoke(app, ["audit", "--json"])
         assert result.exit_code == 0
@@ -123,9 +138,12 @@ class TestCLIIntegration:
         """audit --meta --json outputs valid JSON"""
         db_dir = os.path.join(os.getcwd(), "data")
         os.makedirs(db_dir, exist_ok=True)
-        _create_arxiv_meta_db(os.path.join(db_dir, "arxiv_meta.db"), [
-            {"arxiv_id": "2501.00002", "title": "Test2", "source": "oai"},
-        ])
+        _create_arxiv_meta_db(
+            os.path.join(db_dir, "arxiv_meta.db"),
+            [
+                {"arxiv_id": "2501.00002", "title": "Test2", "source": "oai"},
+            ],
+        )
 
         result = runner.invoke(app, ["audit", "--meta", "--json"])
         assert result.exit_code == 0
@@ -187,6 +205,7 @@ class TestCLIIntegration:
     def test_search_dry_run_output_format(self, test_env):
         """search --dry-run output format (mock network)"""
         from unittest.mock import patch
+
         with patch("hfpapers.evolved.HFPapersCrawler.crawl", return_value=[]):
             result = runner.invoke(app, ["search", "--dry-run"])
         assert result.exit_code == 0
@@ -268,11 +287,15 @@ class TestMCPDispatch:
 
     def test_search_with_params(self):
         """search handler accepts parameters (threshold, etc.)"""
-        result = json.loads(HANDLERS["hfpclawer_search"]({
-            "max_pages": 1,
-            "threshold": 50,
-            "dry_run": True,
-        }))
+        result = json.loads(
+            HANDLERS["hfpclawer_search"](
+                {
+                    "max_pages": 1,
+                    "threshold": 50,
+                    "dry_run": True,
+                }
+            )
+        )
         assert "total_new" in result
 
     def test_download_empty(self):
@@ -293,9 +316,9 @@ class TestMCPStdioProtocol:
     """
 
     @staticmethod
-    def _run_stdio_with_input(input_lines: list[str],
-                               timeout: float = 2.0,
-                               test_env: str = None) -> list[str]:  # noqa: ARG004 - used for fixture compatibility
+    def _run_stdio_with_input(
+        input_lines: list[str], timeout: float = 2.0, test_env: str = None
+    ) -> list[str]:  # noqa: ARG004 - used for fixture compatibility
         """Run _run_stdio in separate thread, mock stdin/stdout"""
         from hfpapers.mcp_server import _run_stdio
 
@@ -334,17 +357,18 @@ class TestMCPStdioProtocol:
         from hfpapers.mcp_server import _run_stdio
 
         # Build input/output
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/list",
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+            }
+        )
 
         mock_stdin = StringIO(req + "\n")
         mock_stdout = StringIO()
 
-        with patch.object(sys, 'stdin', mock_stdin), \
-             patch.object(sys, 'stdout', mock_stdout):
+        with patch.object(sys, "stdin", mock_stdin), patch.object(sys, "stdout", mock_stdout):
             try:
                 _run_stdio()
             except SystemExit:
@@ -364,21 +388,22 @@ class TestMCPStdioProtocol:
         """MCP stdio: tools/call search returns search results"""
         from hfpapers.mcp_server import _run_stdio
 
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": "hfpclawer_search",
-                "arguments": {"max_pages": 1, "threshold": 50, "dry_run": True},
-            },
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "hfpclawer_search",
+                    "arguments": {"max_pages": 1, "threshold": 50, "dry_run": True},
+                },
+            }
+        )
 
         mock_stdin = StringIO(req + "\n")
         mock_stdout = StringIO()
 
-        with patch.object(sys, 'stdin', mock_stdin), \
-             patch.object(sys, 'stdout', mock_stdout):
+        with patch.object(sys, "stdin", mock_stdin), patch.object(sys, "stdout", mock_stdout):
             try:
                 _run_stdio()
             except SystemExit:
@@ -402,21 +427,22 @@ class TestMCPStdioProtocol:
         """MCP stdio: tools/call stats returns statistics"""
         from hfpapers.mcp_server import _run_stdio
 
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": "hfpclawer_stats",
-                "arguments": {},
-            },
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "hfpclawer_stats",
+                    "arguments": {},
+                },
+            }
+        )
 
         mock_stdin = StringIO(req + "\n")
         mock_stdout = StringIO()
 
-        with patch.object(sys, 'stdin', mock_stdin), \
-             patch.object(sys, 'stdout', mock_stdout):
+        with patch.object(sys, "stdin", mock_stdin), patch.object(sys, "stdout", mock_stdout):
             try:
                 _run_stdio()
             except SystemExit:
@@ -437,21 +463,22 @@ class TestMCPStdioProtocol:
         """MCP stdio: tools/call unknown tool returns error"""
         from hfpapers.mcp_server import _run_stdio
 
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/call",
-            "params": {
-                "name": "hfpclawer_nonexistent",
-                "arguments": {},
-            },
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "hfpclawer_nonexistent",
+                    "arguments": {},
+                },
+            }
+        )
 
         mock_stdin = StringIO(req + "\n")
         mock_stdout = StringIO()
 
-        with patch.object(sys, 'stdin', mock_stdin), \
-             patch.object(sys, 'stdout', mock_stdout):
+        with patch.object(sys, "stdin", mock_stdin), patch.object(sys, "stdout", mock_stdout):
             try:
                 _run_stdio()
             except SystemExit:
@@ -469,17 +496,18 @@ class TestMCPStdioProtocol:
         """MCP stdio: initialize returns protocol version"""
         from hfpapers.mcp_server import _run_stdio
 
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 5,
-            "method": "initialize",
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "initialize",
+            }
+        )
 
         mock_stdin = StringIO(req + "\n")
         mock_stdout = StringIO()
 
-        with patch.object(sys, 'stdin', mock_stdin), \
-             patch.object(sys, 'stdout', mock_stdout):
+        with patch.object(sys, "stdin", mock_stdin), patch.object(sys, "stdout", mock_stdout):
             try:
                 _run_stdio()
             except SystemExit:
@@ -498,17 +526,18 @@ class TestMCPStdioProtocol:
         """MCP stdio: unknown method returns error"""
         from hfpapers.mcp_server import _run_stdio
 
-        req = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 6,
-            "method": "resources/list",
-        })
+        req = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 6,
+                "method": "resources/list",
+            }
+        )
 
         mock_stdin = StringIO(req + "\n")
         mock_stdout = StringIO()
 
-        with patch.object(sys, 'stdin', mock_stdin), \
-             patch.object(sys, 'stdout', mock_stdout):
+        with patch.object(sys, "stdin", mock_stdin), patch.object(sys, "stdout", mock_stdout):
             try:
                 _run_stdio()
             except SystemExit:
@@ -527,16 +556,17 @@ class TestMCPStdioProtocol:
         from hfpapers.mcp_server import _run_stdio
 
         # Legacy protocol: send {"tool": "...", "params": {...}} directly
-        req = json.dumps({
-            "tool": "hfpclawer_stats",
-            "params": {},
-        })
+        req = json.dumps(
+            {
+                "tool": "hfpclawer_stats",
+                "params": {},
+            }
+        )
 
         mock_stdin = StringIO(req + "\n")
         mock_stdout = StringIO()
 
-        with patch.object(sys, 'stdin', mock_stdin), \
-             patch.object(sys, 'stdout', mock_stdout):
+        with patch.object(sys, "stdin", mock_stdin), patch.object(sys, "stdout", mock_stdout):
             try:
                 _run_stdio()
             except SystemExit:
@@ -559,8 +589,7 @@ class TestMCPStdioProtocol:
         mock_stdin = StringIO("this is not json\n")
         mock_stdout = StringIO()
 
-        with patch.object(sys, 'stdin', mock_stdin), \
-             patch.object(sys, 'stdout', mock_stdout):
+        with patch.object(sys, "stdin", mock_stdin), patch.object(sys, "stdout", mock_stdout):
             try:
                 _run_stdio()
             except (SystemExit, StopIteration):
@@ -599,13 +628,15 @@ class TestMCPHTTP:
     @classmethod
     def _free_port(cls) -> int:
         import socket
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('', 0))
+            s.bind(("", 0))
             return s.getsockname()[1]
 
     def _serve_http(self, port: int, timeout: float = 2.0):
         """Start HTTP server in separate thread, return thread"""
         from hfpapers.mcp_server import _run_http
+
         t = threading.Thread(target=_run_http, args=("127.0.0.1", port), daemon=True)
         t.start()
         return t
@@ -613,6 +644,7 @@ class TestMCPHTTP:
     def _wait_http(self, port: int, retries: int = 5):
         """Wait for HTTP server ready"""
         import socket
+
         for i in range(retries):
             try:
                 with socket.create_connection(("127.0.0.1", port), timeout=1):
@@ -629,6 +661,7 @@ class TestMCPHTTP:
             pytest.skip(f"HTTP server could not start on port {port}")
 
         import urllib.request
+
         try:
             resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/tools", timeout=3)
             data = json.loads(resp.read().decode())
@@ -644,8 +677,11 @@ class TestMCPHTTP:
             pytest.skip(f"HTTP server could not start on port {port}")
 
         import urllib.request
+
         try:
-            resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/call/hfpclawer_stats", timeout=3)
+            resp = urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/call/hfpclawer_stats", timeout=3
+            )
             data = json.loads(resp.read().decode())
             assert "total_papers" in data
             assert "pdf_files" in data
@@ -660,6 +696,7 @@ class TestMCPHTTP:
             pytest.skip(f"HTTP server could not start on port {port}")
 
         import urllib.request
+
         try:
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/call/hfpclawer_search",
@@ -681,6 +718,7 @@ class TestMCPHTTP:
             pytest.skip(f"HTTP server could not start on port {port}")
 
         import urllib.request
+
         try:
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/call/hfpclawer_nonexistent",
@@ -702,6 +740,7 @@ class TestMCPHTTP:
             pytest.skip(f"HTTP server could not start on port {port}")
 
         import urllib.request
+
         try:
             resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=3)
             data = json.loads(resp.read().decode())
@@ -721,6 +760,7 @@ class TestE2EWorkflow:
     def test_search_audit_workflow(self, test_env):
         """search → audit combined invocation"""
         from unittest.mock import patch
+
         with patch("hfpapers.evolved.HFPapersCrawler.crawl", return_value=[]):
             r1 = runner.invoke(app, ["search", "--dry-run"])
         assert r1.exit_code == 0
@@ -732,6 +772,7 @@ class TestE2EWorkflow:
     def test_full_pipeline_dry(self, test_env):
         """full --dry-run equivalent scenario"""
         from unittest.mock import patch
+
         with patch("hfpapers.evolved.HFPapersCrawler.crawl", return_value=[]):
             result = runner.invoke(app, ["search", "--dry-run"])
         assert result.exit_code == 0
@@ -758,6 +799,7 @@ class TestE2EWorkflow:
     def test_cli_chain_no_crash(self, test_env):
         """Call multiple subcommands sequentially, ensure global state is not polluted"""
         from unittest.mock import patch
+
         commands = [
             ["--help"],
             ["config"],
@@ -768,7 +810,9 @@ class TestE2EWorkflow:
         ]
         for cmd in commands:
             result = runner.invoke(app, cmd)
-            assert result.exit_code in (0, 1), f"Command {' '.join(cmd)} unexpected exit code: {result.exit_code}"
+            assert result.exit_code in (0, 1), (
+                f"Command {' '.join(cmd)} unexpected exit code: {result.exit_code}"
+            )
 
         # search needs mock network
         with patch("hfpapers.evolved.HFPapersCrawler.crawl", return_value=[]):

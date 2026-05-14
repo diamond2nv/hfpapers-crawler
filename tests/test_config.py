@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Test config module — YAML loading + env merging + budget checking"""
+
 import os
 import tempfile
+
+import pytest
 
 from hfpapers.config import check_cost_budget, check_token_budget, estimate_cost, get, load_config
 
@@ -29,16 +32,28 @@ class TestConfigLoad:
             with open(cfg_path, "w") as f:
                 f.write("search:\n  max_per_dim: 99\n")
             os.environ["_TEST_HFPAPERS_CONFIG"] = cfg_path
-            cfg = load_config(reload=True)
+            load_config(reload=True)
             assert get("search.max_per_dim") == 99
             del os.environ["_TEST_HFPAPERS_CONFIG"]
             # Clear cache so subsequent tests don't see this mini config
-            from hfpapers.config import _config_cache
-            _config_cache = None
+            import hfpapers.config as _cfg
+
+            _cfg._config_cache = None
+
+
+def _litellm_available():
+    try:
+        from litellm import model_cost  # noqa: F401
+
+        return True
+    except Exception:
+        return False
 
 
 class TestBudget:
     def test_estimate_cost_deepseek(self):
+        if not _litellm_available():
+            pytest.skip("litellm not available")
         cost = estimate_cost("deepseek/deepseek-chat", 10000, 500)
         assert cost > 0
 
@@ -53,4 +68,8 @@ class TestBudget:
         assert check_cost_budget("ollama/llama3", 100000, 50000)
 
     def test_check_cost_budget_exceeded(self):
-        assert check_cost_budget("deepseek/deepseek-chat", 500000, 100000, max_cost_usd=0.01) is False
+        if not _litellm_available():
+            pytest.skip("litellm not available")
+        assert (
+            check_cost_budget("deepseek/deepseek-chat", 500000, 100000, max_cost_usd=0.01) is False
+        )

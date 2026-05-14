@@ -10,6 +10,7 @@ logger = logging.getLogger("hfpapers.hw")
 
 class HardwareProbe:
     """Hardware capability probe — adaptive degradation"""
+
     has_torch: bool = False
     has_cuda: bool = False
     has_sentence_transformers: bool = False
@@ -24,11 +25,13 @@ class HardwareProbe:
 
     def _probe(self):
         import psutil
+
         self.total_ram_gb = round(psutil.virtual_memory().total / (1024**3), 1)
 
         # PyTorch + CUDA
         try:
             import torch
+
             self.has_torch = True
             self.has_cuda = torch.cuda.is_available()
             if self.has_cuda:
@@ -45,6 +48,7 @@ class HardwareProbe:
         # sentence-transformers
         try:
             import sentence_transformers  # noqa
+
             self.has_sentence_transformers = True
         except ImportError:
             self.has_sentence_transformers = False
@@ -52,11 +56,14 @@ class HardwareProbe:
         # pymupdf4llm
         try:
             import pymupdf4llm  # noqa
+
             self.has_pymupdf4llm = True
         except ImportError:
             self.has_pymupdf4llm = False
 
-        logger.info(f"RAM: {self.total_ram_gb}GB | {'CPU Server' if self.is_cpu_server else 'GPU Server'}")
+        logger.info(
+            f"RAM: {self.total_ram_gb}GB | {'CPU Server' if self.is_cpu_server else 'GPU Server'}"
+        )
 
     @property
     def use_bert(self) -> bool:

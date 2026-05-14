@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Tests for sources module — multi-source search + arXiv ID extraction + dedup"""
+
 from hfpapers.sources import (
     ARXIV_ID_RE,
     SourcePaper,
@@ -47,7 +48,9 @@ class TestSafeField:
         assert _safe_field({"title": {"value": "Nested Title"}}, "title") == "Nested Title"
 
     def test_nested_content_dict(self):
-        assert _safe_field({"abstract": {"content": "Abstract text"}}, "abstract") == "Abstract text"
+        assert (
+            _safe_field({"abstract": {"content": "Abstract text"}}, "abstract") == "Abstract text"
+        )
 
     def test_missing_key(self):
         assert _safe_field({"other": "value"}, "nonexistent") == ""

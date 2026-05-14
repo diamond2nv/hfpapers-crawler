@@ -118,7 +118,7 @@ class ProxyMiddleware:
         request.meta["proxy"] = self.providers[idx]
 
         # Random X-Forwarded-For to mimic different client IPs
-        fake_ip = f"10.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(1,254)}"
+        fake_ip = f"10.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
         request.headers["X-Forwarded-For"] = fake_ip
 
 
@@ -212,6 +212,7 @@ class RobustDownloaderMiddleware:
 
     def process_exception(self, request, exception, spider):
         from scrapy.exceptions import IgnoreRequest
+
         err_name = type(exception).__name__
         spider.logger.warning(f"[ANTI-CRAWL] {err_name} on {request.url}")
 

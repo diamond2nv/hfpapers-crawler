@@ -92,8 +92,7 @@ class ResumeState:
             return fb
         return {"source": self.source, "status": "pending"}
 
-    def set_status(self, status: str, checksum: str = "", error: str = "",
-                    extra: dict = None):
+    def set_status(self, status: str, checksum: str = "", error: str = "", extra: dict = None):
         """Update status
 
         Args:
@@ -123,8 +122,9 @@ class ResumeState:
             fb["extra"] = extra
         self._write_json_fallback(fb)
 
-    def update_progress(self, total_fetched: int = 0, total_new: int = 0,
-                        checksum: str = "", error: str = ""):
+    def update_progress(
+        self, total_fetched: int = 0, total_new: int = 0, checksum: str = "", error: str = ""
+    ):
         """Update progress (incremental accumulation)"""
         now = datetime.now().isoformat()
         with self._lock, self._conn() as conn:
@@ -139,22 +139,33 @@ class ResumeState:
                        last_update = ?,
                        checksum = COALESCE(NULLIF(?, ''), checksum),
                        error = COALESCE(NULLIF(?, ''), error)""",
-                (self.source, total_fetched, total_new,
-                 now, checksum, error,
-                 total_fetched, total_new,
-                 now, checksum, error),
+                (
+                    self.source,
+                    total_fetched,
+                    total_new,
+                    now,
+                    checksum,
+                    error,
+                    total_fetched,
+                    total_new,
+                    now,
+                    checksum,
+                    error,
+                ),
             )
             conn.commit()
         # JSON fallback
-        self._write_json_fallback({
-            "source": self.source,
-            "status": "running",
-            "total_new": total_new,
-            "total_fetched": total_fetched,
-            "last_update": now,
-            "checksum": checksum,
-            "error": error,
-        })
+        self._write_json_fallback(
+            {
+                "source": self.source,
+                "status": "running",
+                "total_new": total_new,
+                "total_fetched": total_fetched,
+                "last_update": now,
+                "checksum": checksum,
+                "error": error,
+            }
+        )
 
     def mark_done(self):
         """Mark done"""
@@ -227,11 +238,13 @@ class BaseDownloader(ABC):
             checksum=checksum,
         )
         if self.progress_cb:
-            self.progress_cb({
-                "source": self.source_name,
-                "fetched": fetched,
-                "new": new_count,
-            })
+            self.progress_cb(
+                {
+                    "source": self.source_name,
+                    "fetched": fetched,
+                    "new": new_count,
+                }
+            )
 
     def interrupt(self):
         """Request interruption"""

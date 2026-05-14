@@ -31,9 +31,21 @@ MCP_TOOLS = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "max_pages": {"type": "integer", "default": 2, "description": "Pages per dimension"},
-                "threshold": {"type": "integer", "default": 30, "description": "Relevance threshold 0-100"},
-                "dry_run": {"type": "boolean", "default": False, "description": "Display only, don't save"},
+                "max_pages": {
+                    "type": "integer",
+                    "default": 2,
+                    "description": "Pages per dimension",
+                },
+                "threshold": {
+                    "type": "integer",
+                    "default": 30,
+                    "description": "Relevance threshold 0-100",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Display only, don't save",
+                },
             },
         },
     },
@@ -118,6 +130,7 @@ def _handle_search(args: dict) -> str:
 
     if not args.get("dry_run") and papers:
         from hfpapers.evolved import save_candidates
+
         save_candidates(papers)
 
     return json.dumps(result, indent=2, ensure_ascii=False)
@@ -138,6 +151,7 @@ def _handle_download(args: dict) -> str:
 
 def _handle_convert(args: dict) -> str:
     from hfpapers.evolved import convert_pdfs
+
     count = convert_pdfs()
     return json.dumps({"converted": count})
 
@@ -192,8 +206,12 @@ def _handle_stats(args: dict) -> str:
 
     with open(dedup_path) as f:
         data = j.load(f)
-    pdf_count = len([f for f in os.listdir(pdf_dir) if f.endswith(".pdf")]) if os.path.isdir(pdf_dir) else 0
-    md_count = len([f for f in os.listdir(md_dir) if f.endswith(".md")]) if os.path.isdir(md_dir) else 0
+    pdf_count = (
+        len([f for f in os.listdir(pdf_dir) if f.endswith(".pdf")]) if os.path.isdir(pdf_dir) else 0
+    )
+    md_count = (
+        len([f for f in os.listdir(md_dir) if f.endswith(".md")]) if os.path.isdir(md_dir) else 0
+    )
 
     return j.dumps(
         {
@@ -208,12 +226,19 @@ def _handle_stats(args: dict) -> str:
 
 
 def _handle_full(args: dict) -> str:
-    r1 = _handle_search({"max_pages": args.get("max_pages", 2), "threshold": args.get("threshold", 30), "dry_run": False})
+    r1 = _handle_search(
+        {
+            "max_pages": args.get("max_pages", 2),
+            "threshold": args.get("threshold", 30),
+            "dry_run": False,
+        }
+    )
     r2 = _handle_download({"limit": args.get("limit", 10)})
     r3 = _handle_convert({})
     return json.dumps(
         {"search": json.loads(r1), "download": json.loads(r2), "convert": json.loads(r3)},
-        indent=2, ensure_ascii=False,
+        indent=2,
+        ensure_ascii=False,
     )
 
 
@@ -283,11 +308,14 @@ def _run_stdio():
                     respond(req_id, error=f"unknown tool: {name}")
 
             elif method == "initialize":
-                respond(req_id, {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "hfpapers-mcp", "version": "0.3.0"},
-                })
+                respond(
+                    req_id,
+                    {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {"tools": {}},
+                        "serverInfo": {"name": "hfpapers-mcp", "version": "0.3.0"},
+                    },
+                )
 
             elif method == "notifications/initialized":
                 respond(req_id, {})

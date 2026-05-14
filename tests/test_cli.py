@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Test CLI — Typer subcommand invocation"""
+
 from typer.testing import CliRunner
 
 from hfpapers.cli import app
@@ -27,6 +28,7 @@ class TestCLI:
     def test_search_dry_run(self, test_env):
         """dry-run search (mock network to avoid hang)"""
         from unittest.mock import patch
+
         with patch("hfpapers.evolved.HFPapersCrawler.crawl", return_value=[]):
             result = runner.invoke(app, ["search", "--dry-run"])
         assert result.exit_code == 0
@@ -65,6 +67,7 @@ class TestStoreExport:
     def test_export_json_with_papers(self, test_env):
         """Insert a paper first, then export JSON"""
         from hfpapers.paper_store import ensure_paper
+
         sf_id, is_new = ensure_paper("2501.12345", title="Export Test Paper", source="test")
         result = runner.invoke(app, ["store", "export", "json"])
         assert result.exit_code == 0
@@ -73,6 +76,7 @@ class TestStoreExport:
 
         # Verify file content
         import json
+
         output_line = [l for l in result.output.split("\n") if l.strip().startswith("/")][0]
         out_path = output_line.strip()
         with open(out_path) as f:
@@ -85,6 +89,7 @@ class TestStoreExport:
 
     def test_export_csv_with_papers(self, test_env):
         from hfpapers.paper_store import ensure_paper
+
         ensure_paper("2501.67890", title="CSV Export Paper", source="test")
         result = runner.invoke(app, ["store", "export", "csv"])
         assert result.exit_code == 0
@@ -93,6 +98,7 @@ class TestStoreExport:
 
         # Verify CSV content
         import csv
+
         output_line = [l for l in result.output.split("\n") if l.strip().startswith("/")][0]
         out_path = output_line.strip()
         with open(out_path, newline="") as f:
@@ -106,6 +112,7 @@ class TestStoreExport:
         """Directly test PaperStore.export_papers() method"""
         # Insert a few papers first
         from hfpapers.paper_store import PaperRecord
+
         for i in range(3):
             r = PaperRecord(title=f"Test Paper {i}", source="direct_test")
             paper_store.upsert_paper(r)
@@ -113,6 +120,7 @@ class TestStoreExport:
         # JSON export
         import json
         import tempfile
+
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
             tmp = f.name
         try:
@@ -123,11 +131,13 @@ class TestStoreExport:
             assert data[0]["title"].startswith("Test Paper")
         finally:
             import os
+
             if os.path.exists(tmp):
                 os.unlink(tmp)
 
         # CSV export
         import csv
+
         with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:
             tmp = f.name
         try:

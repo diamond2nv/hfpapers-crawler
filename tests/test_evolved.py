@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Test evolved module — dedup + classification + crawler engine"""
+
 from hfpapers.evolved import (
     DedupEngine,
     PaperDownloader,
@@ -94,6 +95,7 @@ class TestHFPapersCrawler:
         assert sim < 0.5
 
     # crawl needs HF CLI for integration testing, skipped here
+
 
 class TestPaperDownloader:
     def test_init(self, test_env):

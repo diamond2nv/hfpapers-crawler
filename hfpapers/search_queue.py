@@ -38,8 +38,9 @@ logger = logging.getLogger("hfpapers.search_queue")
 @dataclass(order=True)
 class SearchTask:
     """Search task (sorted by priority)"""
-    priority: int = 5               # Lower = higher priority
-    query: str = ""                 # Must have default (due to priority default)
+
+    priority: int = 5  # Lower = higher priority
+    query: str = ""  # Must have default (due to priority default)
     category: str = ""
     limit: int = 30
     max_retries: int = 2
@@ -219,12 +220,18 @@ class SearchDispatcher:
             self._session.headers.update({"User-Agent": "Mozilla/5.0"})
         return self._session
 
-    async def _search_one_source(self, searcher: BaseSearcher, task: SearchTask) -> list[SearchResult]:
+    async def _search_one_source(
+        self, searcher: BaseSearcher, task: SearchTask
+    ) -> list[SearchResult]:
         """Search with a single searcher"""
         try:
             loop = asyncio.get_event_loop()
             results = await loop.run_in_executor(
-                None, searcher.search_sync, task.query, task.limit, task.category,
+                None,
+                searcher.search_sync,
+                task.query,
+                task.limit,
+                task.category,
             )
             return results
         except Exception as e:
@@ -248,13 +255,17 @@ class SearchDispatcher:
                         )
                         return
                 else:
-                    logger.debug(f"  [{task.category}] {searcher.name}: 0 results, trying next source")
+                    logger.debug(
+                        f"  [{task.category}] {searcher.name}: 0 results, trying next source"
+                    )
 
             # Retry when all sources fail
             if task.retry_count < task.max_retries:
                 task.retry_count += 1
-                logger.debug(f"  [{task.category}] All sources failed, retry {task.retry_count}/{task.max_retries}")
-                await asyncio.sleep(2 ** task.retry_count)  # Exponential backoff
+                logger.debug(
+                    f"  [{task.category}] All sources failed, retry {task.retry_count}/{task.max_retries}"
+                )
+                await asyncio.sleep(2**task.retry_count)  # Exponential backoff
                 self.queue.put_nowait(task)
 
     def _dedup_and_verify(self, results: list[SearchResult]) -> list[SearchResult]:
@@ -370,7 +381,7 @@ def _title_similarity(t1: str, t2: str) -> float:
     t2 = re.sub(r"[^a-z0-9\s]", "", t2)
 
     def trigrams(s: str) -> set[str]:
-        return {s[i:i+3] for i in range(len(s)-2)}
+        return {s[i : i + 3] for i in range(len(s) - 2)}
 
     s1, s2 = trigrams(t1), trigrams(t2)
     if not s1 or not s2:

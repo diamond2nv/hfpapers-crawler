@@ -74,7 +74,9 @@ class StorePipeline:
     def open_spider(self, spider):
         store = get_store()
         stats = store.stats()
-        spider.logger.info(f"[STORE] Paper store: {stats['papers_total']} papers, {stats['papers_verified']} verified")
+        spider.logger.info(
+            f"[STORE] Paper store: {stats['papers_total']} papers, {stats['papers_verified']} verified"
+        )
 
     def close_spider(self, spider):
         logger.info(f"[STORE] This run: {self.passed} new, {self.skipped} skipped")
@@ -111,7 +113,9 @@ class ClassifyPipeline:
             spider.logger.info(f"[CLASSIFY] {item['arxiv_id']} rel={score}")
             return item
         else:
-            spider.logger.info(f"[CLASSIFY] {item['arxiv_id']} rel={score} below threshold {self.threshold_pass}")
+            spider.logger.info(
+                f"[CLASSIFY] {item['arxiv_id']} rel={score} below threshold {self.threshold_pass}"
+            )
             return None
 
     def _keyword_score(self, text: str) -> int:
@@ -164,18 +168,20 @@ class ExportPipeline:
             store.update_paper(sf_id, relevance=relevance, code_url=code_url)
 
         # JSON export cache
-        self.candidates.append({
-            "arxiv_id": arxiv_id,
-            "title": title,
-            "abstract": abstract[:300],
-            "relevance": relevance,
-            "category": item.get("search_category", ""),
-            "source": item.get("source", ""),
-            "source_url": item.get("source_url", ""),
-            "code_url": code_url,
-            "venue": venue,
-            "verified": item.get("verified", False),
-        })
+        self.candidates.append(
+            {
+                "arxiv_id": arxiv_id,
+                "title": title,
+                "abstract": abstract[:300],
+                "relevance": relevance,
+                "category": item.get("search_category", ""),
+                "source": item.get("source", ""),
+                "source_url": item.get("source_url", ""),
+                "code_url": code_url,
+                "venue": venue,
+                "verified": item.get("verified", False),
+            }
+        )
         return item
 
     def close_spider(self, spider):
@@ -187,18 +193,21 @@ class ExportPipeline:
         self.candidates.sort(key=lambda x: x["relevance"], reverse=True)
 
         # Write JSON file (backward compatible)
-        data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                                cfg_get("paths.data_dir", "data"))
+        data_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), cfg_get("paths.data_dir", "data")
+        )
         os.makedirs(data_dir, exist_ok=True)
 
         filepath = os.path.join(data_dir, f"candidates_{self.today}.json")
         with open(filepath, "w") as f:
             import json
+
             json.dump(self.candidates, f, indent=2, ensure_ascii=False)
 
         latest = os.path.join(data_dir, "candidates_latest.json")
         with open(latest, "w") as f:
             import json
+
             json.dump(self.candidates, f, indent=2, ensure_ascii=False)
 
         logger.info(f"[EXPORT] {len(self.candidates)} papers → {filepath} + paper_store")
@@ -209,6 +218,7 @@ class DownloadPipeline:
 
     def __init__(self):
         import requests
+
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "Mozilla/5.0"})
 
@@ -231,7 +241,7 @@ class DownloadPipeline:
                 if resp.status_code == 200 and len(resp.content) > 5000:
                     with open(pdf_path, "wb") as f:
                         f.write(resp.content)
-                    spider.logger.info(f"[DOWNLOAD] {arxiv_id} PDF ({len(resp.content)//1024}KB)")
+                    spider.logger.info(f"[DOWNLOAD] {arxiv_id} PDF ({len(resp.content) // 1024}KB)")
                     item["downloaded"] = True
             except Exception as e:
                 spider.logger.warning(f"[DOWNLOAD] {arxiv_id} PDF failed: {e}")
@@ -244,6 +254,7 @@ class DownloadPipeline:
         if os.path.exists(pdf_path) and not os.path.exists(md_path):
             try:
                 import pymupdf4llm
+
                 md_text = pymupdf4llm.to_markdown(pdf_path)
                 title = item.get("title", arxiv_id)
                 with open(md_path, "w") as f:

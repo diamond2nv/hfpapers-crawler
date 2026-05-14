@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Test hardware module — probe detection + hardware degradation"""
+
 from hfpapers.hardware import HardwareProbe
 
 
@@ -28,5 +29,6 @@ class TestHardwareProbe:
     def test_use_pdf_converter(self):
         hw = HardwareProbe()
         from importlib.util import find_spec
+
         expected = find_spec("pymupdf4llm") is not None
         assert hw.use_pdf_converter == expected

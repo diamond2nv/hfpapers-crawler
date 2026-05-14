@@ -32,29 +32,84 @@ RATE_LIMIT = 2.0
 
 # ─── Download priorities ─────────────────────────────
 DOWNLOAD_PRIORITIES = [
-    "cs:cs:AI", "cs:cs:LG", "cs:cs:NA", "cs:cs:NE",
-    "cs:cs:CV", "cs:cs:CL",
-    "math:math:AP", "math:math:NA", "math:math:OC",
-    "stat:stat:ML", "stat:stat:CO",
-    "cs:cs:CE", "cs:cs:IR", "cs:cs:IT", "cs:cs:DS",
-    "cs:cs:DB", "cs:cs:DC", "cs:cs:GT", "cs:cs:MA",
-    "cs:cs:RO", "cs:cs:SC", "cs:cs:SY", "cs:cs:AR",
-    "cs:cs:CC", "cs:cs:CG", "cs:cs:CR", "cs:cs:CY",
-    "cs:cs:DL", "cs:cs:DM", "cs:cs:ET", "cs:cs:FL",
-    "cs:cs:GL", "cs:cs:GR", "cs:cs:HC", "cs:cs:LO",
-    "cs:cs:MM", "cs:cs:MS", "cs:cs:NI", "cs:cs:OH",
-    "cs:cs:OS", "cs:cs:PF", "cs:cs:PL", "cs:cs:SD",
-    "cs:cs:SE", "cs:cs:SI", "cs:cs:OH",
-    "math:math:CO", "math:math:DS", "math:math:FA",
-    "math:math:KT", "math:math:LO", "math:math:MP",
-    "math:math:NT", "math:math:OA", "math:math:PR",
-    "math:math:QA", "math:math:RA", "math:math:RT",
-    "math:math:SG", "math:math:SP", "math:math:ST",
-    "math:math:AC", "math:math:AG", "math:math:AT",
-    "math:math:CA", "math:math:CT", "math:math:CV",
-    "math:math:DG", "math:math:GN", "math:math:GR",
-    "math:math:GT", "math:math:HO", "math:math:MG", "math:math:QA",
-    "stat:stat:AP", "stat:stat:ME", "stat:stat:OT", "stat:stat:TH",
+    "cs:cs:AI",
+    "cs:cs:LG",
+    "cs:cs:NA",
+    "cs:cs:NE",
+    "cs:cs:CV",
+    "cs:cs:CL",
+    "math:math:AP",
+    "math:math:NA",
+    "math:math:OC",
+    "stat:stat:ML",
+    "stat:stat:CO",
+    "cs:cs:CE",
+    "cs:cs:IR",
+    "cs:cs:IT",
+    "cs:cs:DS",
+    "cs:cs:DB",
+    "cs:cs:DC",
+    "cs:cs:GT",
+    "cs:cs:MA",
+    "cs:cs:RO",
+    "cs:cs:SC",
+    "cs:cs:SY",
+    "cs:cs:AR",
+    "cs:cs:CC",
+    "cs:cs:CG",
+    "cs:cs:CR",
+    "cs:cs:CY",
+    "cs:cs:DL",
+    "cs:cs:DM",
+    "cs:cs:ET",
+    "cs:cs:FL",
+    "cs:cs:GL",
+    "cs:cs:GR",
+    "cs:cs:HC",
+    "cs:cs:LO",
+    "cs:cs:MM",
+    "cs:cs:MS",
+    "cs:cs:NI",
+    "cs:cs:OH",
+    "cs:cs:OS",
+    "cs:cs:PF",
+    "cs:cs:PL",
+    "cs:cs:SD",
+    "cs:cs:SE",
+    "cs:cs:SI",
+    "cs:cs:OH",
+    "math:math:CO",
+    "math:math:DS",
+    "math:math:FA",
+    "math:math:KT",
+    "math:math:LO",
+    "math:math:MP",
+    "math:math:NT",
+    "math:math:OA",
+    "math:math:PR",
+    "math:math:QA",
+    "math:math:RA",
+    "math:math:RT",
+    "math:math:SG",
+    "math:math:SP",
+    "math:math:ST",
+    "math:math:AC",
+    "math:math:AG",
+    "math:math:AT",
+    "math:math:CA",
+    "math:math:CT",
+    "math:math:CV",
+    "math:math:DG",
+    "math:math:GN",
+    "math:math:GR",
+    "math:math:GT",
+    "math:math:HO",
+    "math:math:MG",
+    "math:math:QA",
+    "stat:stat:AP",
+    "stat:stat:ME",
+    "stat:stat:OT",
+    "stat:stat:TH",
 ]
 
 # ─── FTS5 Schema ────────────────────────────
@@ -108,12 +163,15 @@ class ArxivMetaDB:
                    (arxiv_id, title, authors, abstract, categories,
                     doi, journal_ref, update_date, source)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                [p + (source,) for p in papers])
+                [p + (source,) for p in papers],
+            )
             conn.executemany(
                 """INSERT OR IGNORE INTO arxiv_fts
                    (arxiv_id, title, authors, abstract, categories,
                     doi, journal_ref, update_date)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", papers)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                papers,
+            )
             conn.commit()
 
     def count(self) -> int:
@@ -141,6 +199,7 @@ class OaiPmhDownloader(BaseDownloader):
 
     def _default_db_path(self) -> str:
         from hfpapers.config import get as cfg_get
+
         base = Path(__file__).resolve().parent.parent.parent
         return str(base / cfg_get("db.path", "data/arxiv_meta.db"))
 
@@ -161,7 +220,7 @@ class OaiPmhDownloader(BaseDownloader):
                     time.sleep(retry_after)
                     continue
                 if resp.status_code != 200:
-                    logger.warning(f"  HTTP {resp.status_code}, retry {attempt+1}/{MAX_RETRIES}")
+                    logger.warning(f"  HTTP {resp.status_code}, retry {attempt + 1}/{MAX_RETRIES}")
                     if attempt < MAX_RETRIES - 1:
                         time.sleep(RETRY_BACKOFF[attempt])
                     continue
@@ -235,11 +294,20 @@ class OaiPmhDownloader(BaseDownloader):
                 update_date = date_el.text[:10]
         if not title:
             return None
-        return (arxiv_id, title[:500], authors[:500], abstract[:2000],
-                categories, doi, journal_ref, update_date)
+        return (
+            arxiv_id,
+            title[:500],
+            authors[:500],
+            abstract[:2000],
+            categories,
+            doi,
+            journal_ref,
+            update_date,
+        )
 
-    def download_set(self, set_spec: str, from_date: str = "",
-                     to_date: str = "", max_pages: int = 0) -> int:
+    def download_set(
+        self, set_spec: str, from_date: str = "", to_date: str = "", max_pages: int = 0
+    ) -> int:
         """Download all/incremental records for one category"""
         new_count = 0
         page = 0
@@ -298,15 +366,18 @@ class OaiPmhDownloader(BaseDownloader):
                 resumption_token = token_el.text
                 cursor = int(token_el.get("cursor", 0))
                 total = int(token_el.get("completeListSize", 0))
-                logger.info(f"  [{set_spec}] page {page}: +{new_count} (cursor: {cursor:,}/{total:,})")
+                logger.info(
+                    f"  [{set_spec}] page {page}: +{new_count} (cursor: {cursor:,}/{total:,})"
+                )
             else:
                 logger.info(f"  [{set_spec}] Complete: +{new_count}")
                 break
 
         return new_count
 
-    def run(self, incremental: bool = True, from_date: str = "",
-            tier1_only: bool = False, **kwargs) -> int:
+    def run(
+        self, incremental: bool = True, from_date: str = "", tier1_only: bool = False, **kwargs
+    ) -> int:
         """Execute download
 
         Args:
@@ -345,7 +416,7 @@ class OaiPmhDownloader(BaseDownloader):
         start_all = time.time()
 
         for idx, set_spec in enumerate(priorities):
-            logger.info(f"[{idx+1}/{len(priorities)}] 📥 {set_spec}")
+            logger.info(f"[{idx + 1}/{len(priorities)}] 📥 {set_spec}")
             set_start = time.time()
             new_count = self.download_set(set_spec, from_date=from_date)
             elapsed = time.time() - set_start
@@ -366,7 +437,7 @@ class OaiPmhDownloader(BaseDownloader):
         all_elapsed = time.time() - start_all
         total_in_db = self.db.count()
 
-        logger.info(f"\n{'='*50}")
+        logger.info(f"\n{'=' * 50}")
         logger.info("✅ Download complete")
         logger.info(f"  New: {total_new} papers")
         logger.info(f"  Total: {total_in_db:,} papers")

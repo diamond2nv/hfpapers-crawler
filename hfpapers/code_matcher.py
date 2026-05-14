@@ -52,9 +52,10 @@ LEVEL_NAMES = {
 @dataclass
 class CodeMatch:
     """Code repository match result"""
+
     code_url: str = ""
     level: int = CODE_LEVEL_NONE  # Quality level 0-5
-    source: str = ""              # "pwc_api" | "arxiv_page" | "github_search"
+    source: str = ""  # "pwc_api" | "arxiv_page" | "github_search"
     stars: int = 0
     description: str = ""
     verified: bool = False
@@ -82,9 +83,11 @@ class CodeMatcher:
 
     def __init__(self):
         self._session = requests.Session()
-        self._session.headers.update({
-            "User-Agent": "HFPapersCodeMatcher/0.1 (mailto:research@example.com)",
-        })
+        self._session.headers.update(
+            {
+                "User-Agent": "HFPapersCodeMatcher/0.1 (mailto:research@example.com)",
+            }
+        )
         self._cache: dict[str, CodeMatch] = {}
 
     def match(self, arxiv_id: str, title: str = "", doi: str = "") -> CodeMatch:
@@ -155,7 +158,13 @@ class CodeMatcher:
             if not code_url:
                 return CodeMatch()
 
-            level = CODE_LEVEL_STARRED if stars >= 100 else CODE_LEVEL_VERIFIED if stars >= 10 else CODE_LEVEL_FULL
+            level = (
+                CODE_LEVEL_STARRED
+                if stars >= 100
+                else CODE_LEVEL_VERIFIED
+                if stars >= 10
+                else CODE_LEVEL_FULL
+            )
 
             return CodeMatch(
                 code_url=code_url,
@@ -292,9 +301,7 @@ class CodeMatcher:
                     continue
 
                 # Filter: paper title keywords in repo name or description
-                title_keywords = {
-                    w.lower() for w in cleaned_title.split() if len(w) > 3
-                }
+                title_keywords = {w.lower() for w in cleaned_title.split() if len(w) > 3}
                 scored = []
                 for item in items:
                     name = item.get("full_name", "").lower()
@@ -325,9 +332,7 @@ class CodeMatcher:
                             ]
                         )
                         boost = 1000 if has_owner_match else 0
-                        scored.append(
-                            (stars + boost, stars, name, item.get("html_url", ""))
-                        )
+                        scored.append((stars + boost, stars, name, item.get("html_url", "")))
 
                 if scored:
                     # Pick highest scored (owner match boosted)
@@ -336,7 +341,8 @@ class CodeMatcher:
                     level = (
                         CODE_LEVEL_STARRED
                         if best_stars >= 100
-                        else CODE_LEVEL_VERIFIED if best_stars >= 10
+                        else CODE_LEVEL_VERIFIED
+                        if best_stars >= 10
                         else CODE_LEVEL_INFERRED
                     )
                     return CodeMatch(

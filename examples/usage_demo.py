@@ -8,6 +8,7 @@ Installation:
 Usage:
     python examples/usage_demo.py
 """
+
 import os
 import tempfile
 
@@ -41,7 +42,7 @@ with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
 try:
     store = PaperStore(db_path=db_path)
 
-# Add a paper
+    # Add a paper
     rec = PaperRecord(
         title="Fourier Neural Operator for PDEs",
         abstract="Learning PDE solution operators with Fourier transforms in the neural network framework",
@@ -59,7 +60,6 @@ try:
     for i in ids:
         print(f"   Identifier: {i.id_type}={i.id_value}")
 
-
     # ─── 3. Search Papers ─────────────────────────────
     # Add more papers for search testing
     sf2 = store.upsert_paper(PaperRecord(title="DeepONet: Learning Operators", relevance=80))
@@ -70,14 +70,12 @@ try:
     for p in papers:
         print(f"   [{p.relevance}] {p.title}")
 
-
     # ─── 4. Stats ─────────────────────────────────
     stats = store.stats()
     print("\n4. Store stats:")
     print(f"   Total papers: {stats['papers_total']}")
     print(f"   Verified: {stats['papers_verified']}")
     print(f"   Identifiers: {stats['identifiers_total']}")
-
 
     # ─── 5. High-level Interface ──────────────────────────
     from hfpapers.paper_store import ensure_paper
@@ -90,7 +88,6 @@ try:
     )
     print(f"\n5. ensure_paper: sf_id={sf_id3} is_new={is_new}")
 
-
     # ─── 6. Hardware Probe ─────────────────────────────
     from hfpapers.hardware import HardwareProbe
 
@@ -98,7 +95,6 @@ try:
     print(f"\n6. Hardware probe: {hw.summary()}")
     print(f"   PDF converter: {'available' if hw.use_pdf_converter else 'unavailable'}")
     print(f"   BERT acceleration: {'available' if hw.use_bert else 'unavailable (needs CUDA)'}")
-
 
     # ─── 7. CLI Commands ─────────────────────────────
     from typer.testing import CliRunner
@@ -109,9 +105,9 @@ try:
     result = runner.invoke(app, ["config"])
     print(f"\n7. CLI 'hfpclawer config': exit_code={result.exit_code}")
 
-
     # ─── 8. MCP Integration ─────────────────────────────
     from hfpapers.mcp_server import MCP_TOOLS
+
     print(f"\n8. MCP tools ({len(MCP_TOOLS)} available):")
     for name, info in sorted(MCP_TOOLS.items()):
         desc = info.get("description", "")[:60]

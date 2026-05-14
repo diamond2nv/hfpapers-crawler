@@ -47,11 +47,15 @@ class MonitorDaemon:
         """Daemon standalone log"""
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         handler = RotatingFileHandler(
-            str(self.log_path), maxBytes=10 * 1024 * 1024, backupCount=5,
+            str(self.log_path),
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
         )
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-        ))
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            )
+        )
         logging.getLogger("hfpclawer").addHandler(handler)
         logging.getLogger("hfpclawer").setLevel(logging.INFO)
 
@@ -171,6 +175,7 @@ class MonitorDaemon:
             try:
                 from hfpapers.config import get as cfg_get
                 from hfpclawer.download.base import ResumeState
+
                 base = Path(__file__).resolve().parent.parent.parent
                 db_path = str(base / cfg_get("db.path", "data/arxiv_meta.db"))
                 state = ResumeState(db_path, "oai").get()

@@ -16,7 +16,11 @@ from hfpapers.items import PaperItem
 # Search dimension config: (url, category, min_relevance)
 SEARCH_DIMS = [
     # Main dimension: PDE + neural operator + physics-informed
-    ("https://huggingface.co/papers/trending?q=PDE+neural+operator+physics-informed", "neural-operator", 3),
+    (
+        "https://huggingface.co/papers/trending?q=PDE+neural+operator+physics-informed",
+        "neural-operator",
+        3,
+    ),
     # Physical constraint residual
     ("https://huggingface.co/papers?q=physical+constraint+residual+loss+PDE", "pinn", 3),
     # AI4Science surrogate models
@@ -92,7 +96,9 @@ class HFPapersSpider(scrapy.Spider):
                 title = lines[0] if lines else ""
 
             # Extract description
-            desc_lines = [t.strip() for t in text if t.strip() and t.strip() != title and len(t.strip()) > 20]
+            desc_lines = [
+                t.strip() for t in text if t.strip() and t.strip() != title and len(t.strip()) > 20
+            ]
             description = desc_lines[0][:200] if desc_lines else ""
 
             # GitHub code check
@@ -119,7 +125,9 @@ class HFPapersSpider(scrapy.Spider):
             yield item
 
         # Recursive pagination
-        next_page = response.css("a:contains('Next'), a:contains('next'), a[rel='next']::attr(href)").get()
+        next_page = response.css(
+            "a:contains('Next'), a:contains('next'), a[rel='next']::attr(href)"
+        ).get()
         if next_page and "?" in next_page:
             yield scrapy.Request(
                 url=response.urljoin(next_page),
@@ -131,14 +139,31 @@ class HFPapersSpider(scrapy.Spider):
         """Score 1-5 based on keywords"""
         score = 1
         keywords_high = [
-            "neural operator", "fourier neural operator", "deeponet", "pino",
-            "physics-informed", "pinn", "pde", "partial differential", "flow matching",
-            "foundation model", "surrogate", "operator learning",
-            "conservation law", "physical constraint", "residual loss",
+            "neural operator",
+            "fourier neural operator",
+            "deeponet",
+            "pino",
+            "physics-informed",
+            "pinn",
+            "pde",
+            "partial differential",
+            "flow matching",
+            "foundation model",
+            "surrogate",
+            "operator learning",
+            "conservation law",
+            "physical constraint",
+            "residual loss",
         ]
         keywords_med = [
-            "simulation", "cfd", "fluid", "navier-stokes", "burgers",
-            "scientific machine learning", "mesh", "turbulence",
+            "simulation",
+            "cfd",
+            "fluid",
+            "navier-stokes",
+            "burgers",
+            "scientific machine learning",
+            "mesh",
+            "turbulence",
         ]
         text_lower = text.lower()
         for kw in keywords_high:

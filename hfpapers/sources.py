@@ -31,15 +31,16 @@ ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?")
 @dataclass
 class SourcePaper:
     """Paper info extracted from any source"""
+
     arxiv_id: str = ""
     title: str = ""
     abstract: str = ""
-    source: str = ""               # "hf_cli" | "openreview" | "pwc_api" | "arxiv_api"
+    source: str = ""  # "hf_cli" | "openreview" | "pwc_api" | "arxiv_api"
     source_url: str = ""
-    source_category: str = ""      # Search dimension label
+    source_category: str = ""  # Search dimension label
     code_url: str = ""
-    venue: str = ""                # Venue (e.g. "NeurIPS 2024")
-    doi: str = ""                  # DOI (official publication identifier)
+    venue: str = ""  # Venue (e.g. "NeurIPS 2024")
+    doi: str = ""  # DOI (official publication identifier)
     reviews: list[dict] = field(default_factory=list)  # OpenReview only: [(rating, comment)]
 
 
@@ -52,13 +53,11 @@ class PaperSource(ABC):
     """Abstract base class for paper sources"""
 
     @abstractmethod
-    def search(self, query: str, category: str = "") -> list[SourcePaper]:
-        ...
+    def search(self, query: str, category: str = "") -> list[SourcePaper]: ...
 
     @property
     @abstractmethod
-    def name(self) -> str:
-        ...
+    def name(self) -> str: ...
 
 
 # ════════════════════════════════════════════
@@ -71,12 +70,15 @@ class HfCliSource(PaperSource):
 
     def search(self, query: str, category: str = "") -> list[SourcePaper]:
         import subprocess
+
         results: list[SourcePaper] = []
         limit = cfg_get("search.max_per_dim", 30)
         try:
             output = subprocess.run(
                 ["hf", "papers", "search", query, "--json", "--limit", str(limit)],
-                capture_output=True, text=True, timeout=60,
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
             if output.returncode != 0:
                 return results
@@ -89,14 +91,16 @@ class HfCliSource(PaperSource):
             aid = pd.get("id", "")
             if not aid or not ARXIV_ID_RE.match(aid):
                 continue
-            results.append(SourcePaper(
-                arxiv_id=aid,
-                title=pd.get("title", ""),
-                abstract=pd.get("summary", ""),
-                source="hf_cli",
-                source_url=f"https://huggingface.co/papers?q={query}",
-                source_category=category,
-            ))
+            results.append(
+                SourcePaper(
+                    arxiv_id=aid,
+                    title=pd.get("title", ""),
+                    abstract=pd.get("summary", ""),
+                    source="hf_cli",
+                    source_url=f"https://huggingface.co/papers?q={query}",
+                    source_category=category,
+                )
+            )
         logger.info(f"  [hf_cli] {query}: {len(results)} papers")
         return results
 
@@ -159,16 +163,18 @@ class OpenReviewSource(PaperSource):
             # Extract venue
             venue = note.get("invitation", "").replace(".*/.*", "")
 
-            results.append(SourcePaper(
-                arxiv_id=arxiv_id,
-                title=title[:200],
-                abstract=abstract[:500],
-                source="openreview",
-                source_url=f"https://openreview.net/forum?id={forum_id}",
-                source_category=category,
-                venue=venue,
-                reviews=reviews,
-            ))
+            results.append(
+                SourcePaper(
+                    arxiv_id=arxiv_id,
+                    title=title[:200],
+                    abstract=abstract[:500],
+                    source="openreview",
+                    source_url=f"https://openreview.net/forum?id={forum_id}",
+                    source_category=category,
+                    venue=venue,
+                    reviews=reviews,
+                )
+            )
 
         logger.info(f"  [openreview] {query}: {len(results)} papers (with reviews)")
         return results
@@ -269,17 +275,21 @@ class PwcApiSource(PaperSource):
                     if repo.get("is_official"):
                         break
 
-            results.append(SourcePaper(
-                arxiv_id=arxiv_id,
-                title=paper.get("title", ""),
-                abstract=paper.get("abstract", ""),
-                source="pwc_api",
-                source_url=paper.get("paper_pwc_url", ""),
-                source_category=category,
-                code_url=code_url,
-            ))
+            results.append(
+                SourcePaper(
+                    arxiv_id=arxiv_id,
+                    title=paper.get("title", ""),
+                    abstract=paper.get("abstract", ""),
+                    source="pwc_api",
+                    source_url=paper.get("paper_pwc_url", ""),
+                    source_category=category,
+                    code_url=code_url,
+                )
+            )
 
-        logger.info(f"  [pwc] {query}: {len(results)} papers ({sum(1 for r in results if r.code_url)} with code)")
+        logger.info(
+            f"  [pwc] {query}: {len(results)} papers ({sum(1 for r in results if r.code_url)} with code)"
+        )
         return results
 
     @staticmethod
@@ -305,6 +315,7 @@ class ArxivApiSource(PaperSource):
         max_results = cfg_get("sources.arxiv.max_results", 30)
         try:
             from bs4 import BeautifulSoup
+
             resp = requests.get(
                 self.BASE,
                 params={
@@ -329,14 +340,16 @@ class ArxivApiSource(PaperSource):
                 arxiv_id = match.group(1)
                 title_tag = entry.find("title")
                 abstract_tag = entry.find("summary")
-                results.append(SourcePaper(
-                    arxiv_id=arxiv_id,
-                    title=title_tag.text.strip()[:200] if title_tag else "",
-                    abstract=abstract_tag.text.strip()[:500] if abstract_tag else "",
-                    source="arxiv_api",
-                    source_url=f"https://arxiv.org/abs/{arxiv_id}",
-                    source_category=category,
-                ))
+                results.append(
+                    SourcePaper(
+                        arxiv_id=arxiv_id,
+                        title=title_tag.text.strip()[:200] if title_tag else "",
+                        abstract=abstract_tag.text.strip()[:500] if abstract_tag else "",
+                        source="arxiv_api",
+                        source_url=f"https://arxiv.org/abs/{arxiv_id}",
+                        source_category=category,
+                    )
+                )
         except Exception as e:
             logger.warning(f"  [arxiv_api] search failed: {e}")
         logger.info(f"  [arxiv_api] {query}: {len(results)} papers")
@@ -376,6 +389,7 @@ def get_raw_searchers() -> list:
     # 1. Local FTS5 index (highest priority, 0 network requests)
     try:
         from hfpapers.arxiv_search import ArxivLocalSpider
+
         local = ArxivLocalSpider()
         # Check if there is data
         if local.engine.count() > 100:
