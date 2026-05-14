@@ -53,9 +53,9 @@ try:
     sf_id = store.upsert_paper(rec)
     store.add_identifier(sf_id, "arxiv", "2010.08895", source="demo")
 
-    print(f"\n2. Paper Store: sf_id={sf_id}")
-    print(f"\n2. Paper Store: sf_id={sf_id}")
-    print(f"   Paper: {got.title}")
+    print(f"  Paper Store: sf_id={sf_id}")
+    paper = store.get_paper_by_id(sf_id)
+    print(f"  Paper: {paper.title}")
     ids = store.get_identifiers(sf_id)
     for i in ids:
         print(f"   Identifier: {i.id_type}={i.id_value}")

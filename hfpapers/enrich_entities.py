@@ -13,7 +13,6 @@ import logging
 import os
 import re
 import sqlite3
-from string import Template
 from pathlib import Path
 
 logging.basicConfig(
@@ -224,7 +223,7 @@ def inject_references(entity_path: str, arxiv_id: str, title: str) -> bool:
         content = f.read()
 
     if "<!-- END REFERENCES -->" in content:
-        logger.info(f"  Already has references, skip")
+        logger.info("  Already has references, skip")
         return False
 
     bib = bibtex_from_meta(title, authors, doi, venue, year, arxiv_id)
@@ -238,7 +237,7 @@ def inject_references(entity_path: str, arxiv_id: str, title: str) -> bool:
     with open(entity_path, "w") as f:
         f.write(content)
 
-    logger.info(f"  References injected")
+    logger.info("  References injected")
     return True
 
 

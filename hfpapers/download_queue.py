@@ -43,7 +43,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from hfpapers.config import get as cfg_get
-from hfpapers.logger import get_audit, get_logger, init_logging, record_event
+from hfpapers.logger import get_audit, init_logging, record_event
 from hfpapers.paper_store import get_store
 
 logger = logging.getLogger("hfpapers.download_queue")

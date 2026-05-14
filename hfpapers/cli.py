@@ -50,8 +50,25 @@ logger = logging.getLogger("hfpclawer")
 console = Console()
 
 
+def _version_callback(value: bool):
+    if value:
+        from hfpapers import __version__
+
+        console.print(f"hfpclawer v{__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
-def main_callback(verbose: bool = typer.Option(False, "--verbose", "-v")):
+def main_callback(
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show version and exit",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+):
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
@@ -275,7 +292,7 @@ def batch(
         for status, count in counts.items():
             console.print(f"  [{status}] {count}")
     else:
-        console.print(f"[bold green]✅ Batch complete[/bold green]")
+        console.print("[bold green]✅ Batch complete[/bold green]")
         console.print(f"  {summary.summary_line}")
         if summary.errors:
             console.print(f"[red]  Errors ({len(summary.errors)}):[/red]")
@@ -314,7 +331,6 @@ def audit(
         # ── Data source audit (arxiv_meta DB + paper_store quality) ──
         from hfpclawer.audit import (
             format_full_audit_report,
-            format_paper_store_report,
             run_full_audit,
         )
 
@@ -959,44 +975,9 @@ def download(  # noqa: F811 — intentional typer overload for OAI/Kaggle pipeli
         console.print(f"[red]❌ Unknown data source: {source} (available: oai, kaggle)[/red]")
 
 
-@app.command()
-def audit(
-    arxiv_meta: bool = typer.Option(
-        False, "--meta", "-m", help="Meta-source audit only (arxiv_meta.db)"
-    ),
-    paper_store: bool = typer.Option(
-        False, "--paper-store", "-p", help="Paper Store quality audit only"
-    ),
-    json_output: bool = typer.Option(False, "--json", "-j", help="JSON format output"),
-):
-    """Data source audit report — view per-source paper counts, state files, Paper Store cross-validation"""
-    from hfpclawer.audit import (
-        format_audit_report,
-        format_full_audit_report,
-        format_paper_store_report,
-        run_audit,
-        run_full_audit,
-        run_paper_store_audit,
-    )
-
-    if arxiv_meta:
-        report = run_audit()
-    elif paper_store:
-        report = run_paper_store_audit()
-    else:
-        report = run_full_audit()
-
-    if json_output:
-        import json as json_mod
-
-        console.print(json_mod.dumps(report, indent=2, ensure_ascii=False))
-    else:
-        if not arxiv_meta and not paper_store:
-            console.print(format_full_audit_report(report))
-        elif paper_store:
-            console.print(format_paper_store_report(report))
-        else:
-            console.print(format_audit_report(report))
+# ── Second audit command removed (merged into `audit` above) ──
+# The `audit` at line 289 already supports `audit data` for data source audit.
+# The duplicate below was merged via the first command's `action="data"` path.
 
 
 def _import_dummy():

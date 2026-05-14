@@ -10,7 +10,6 @@ Run from project root. Interrupt with Ctrl+C, resuming is safe (resumes from DB 
 
 import sys
 import time
-import logging
 
 # Ensure project root is on sys.path
 from pathlib import Path
@@ -95,7 +94,7 @@ def main():
 
     total_elapsed = time.time() - start_time
     print(f"\n{'=' * 50}")
-    print(f"🏁 FULL COMPLETE")
+    print("🏁 FULL COMPLETE")
     print(f"  ⏱ {total_elapsed:.0f}s ({total_elapsed / 60:.0f}min)")
     print(f"  ⬇️ {total_dl} DL | 📝 {total_conv} MD | 📋 {total_wiki} wiki | ❌ {total_fail} fail")
     print(f"{'=' * 50}")

@@ -10,11 +10,54 @@ runner = CliRunner()
 
 
 class TestCLI:
+    """Test CLI invocation and options"""
+
     def test_help(self):
+        """--help shows usage, hfpclawer name, and all subcommands"""
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
         assert "Usage:" in result.output
         assert "hfpclawer" in result.output
+
+        # All top-level subcommands must be listed
+        expected_commands = [
+            "search",
+            "download",
+            "convert",
+            "full",
+            "batch",
+            "audit",
+            "dedup",
+            "list",
+            "info",
+            "stats",
+            "config",
+            "store",
+            "sniff",
+            "mcp",
+            "init",
+            "monitor",
+        ]
+        for cmd in expected_commands:
+            assert cmd in result.output, f"Missing command in --help: {cmd}"
+
+        # --version option must appear
+        assert "--version" in result.output
+
+    def test_version(self):
+        """--version shows hfpclawer v<semver>"""
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert result.output.startswith("hfpclawer v")
+        # Version must be semver-like (X.Y.Z)
+        import re
+
+        assert re.search(r"v\d+\.\d+\.\d+", result.output)
+
+    def test_verbose(self, test_env):
+        """-v sets debug level, doesn't crash"""
+        result = runner.invoke(app, ["-v", "config"])
+        assert result.exit_code == 0
 
     def test_config(self, test_env):
         result = runner.invoke(app, ["config"])

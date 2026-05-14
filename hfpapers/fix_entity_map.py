@@ -5,7 +5,6 @@
 # Fix incorrect arXiv IDs in enrich_entities.py
 # Cross-validates each entity's expected paper against actual arXiv metadata
 
-import re
 import sqlite3
 from pathlib import Path
 
