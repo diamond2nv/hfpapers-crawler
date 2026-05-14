@@ -106,9 +106,11 @@ class AsyncPdfDownloader:
                 try:
                     async with session.get(f"https://arxiv.org/pdf/{aid}") as resp:
                         if resp.status != 200:
+                            self._last_error = f"HTTP {resp.status}"
                             continue
                         data = await resp.read()
                         if len(data) < 5000:
+                            self._last_error = "PDF too small (<5KB)"
                             continue  # Too small to be a valid PDF
 
                         # Write PDF
@@ -135,6 +137,7 @@ class AsyncPdfDownloader:
                         return result
 
                 except (asyncio.TimeoutError, Exception) as e:
+                    self._last_error = str(e)
                     if attempt < 2:
                         await asyncio.sleep(2**attempt)
                     else:
@@ -152,12 +155,13 @@ class AsyncPdfDownloader:
                         return result
 
         self._stats["failed"] += 1
+        err = getattr(self, "_last_error", "failed after 3 retries")
         result = {
             "arxiv_id": aid,
             "success": False,
             "pdf_path": "",
             "md_path": "",
-            "error": "failed after 3 retries",
+            "error": err,
         }
         if self.progress_cb:
             self.progress_cb(result)

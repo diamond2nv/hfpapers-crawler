@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     event_time  TEXT NOT NULL DEFAULT (datetime('now')),
     arxiv_id    TEXT DEFAULT '',
-    event       TEXT NOT NULL,         -- download_start / download_done / convert_done / wiki_sync / failure
+    event       TEXT NOT NULL,         -- download_start/done/convert/wiki_sync
     batch_id    TEXT DEFAULT '',
     phase       TEXT DEFAULT '',       -- download / convert / wiki_sync / batch
     status      TEXT DEFAULT '',       -- pending / done / failed
