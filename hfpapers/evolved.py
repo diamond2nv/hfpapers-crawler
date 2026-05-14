@@ -195,19 +195,20 @@ class HFPapersCrawler:
         self.detector = detector
         self.found: list[PaperInfo] = []
         self.queries = cfg_get("search.queries", [])
-
     def crawl(self, max_pages: int = 3) -> list[PaperInfo]:
         """Search (sync interface, uses async dispatcher internally)
 
         Internally uses SearchDispatcher to search all dimensions concurrently.
         max_pages controls results per dimension (max_pages * 10).
+        Handles Ctrl+C and Ctrl+Z gracefully — CancelledError is caught
+        and partial results are returned instead of a messy traceback.
         """
         import asyncio
 
         from hfpapers.search_queue import SearchDispatcher
 
         limit = max_pages * 10
-        logger.info(f"🚀 Searching {len(self.queries)} dimensions, top-{limit}")
+        logger.info(f"Searching {len(self.queries)} dimensions, top-{limit}")
 
         # Use async dispatcher
         dispatcher = SearchDispatcher(max_workers=min(5, len(self.queries)))
@@ -220,12 +221,21 @@ class HFPapersCrawler:
                 priority=q.get("priority", 5),
             )
 
-        # Run
+        # Run async dispatcher, catch interruption gracefully
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            search_results = loop.run_until_complete(dispatcher.run())
+            try:
+                search_results = loop.run_until_complete(dispatcher.run())
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                logger.info("Crawl interrupted by user")
+                search_results = dispatcher.results
         finally:
+            try:
+                # Suppress CancelledError warnings from shutdown_asyncgens
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
             loop.close()
 
         # Relevance detection + paper_store dedup

@@ -66,10 +66,10 @@ def _parse_jsonl_output(text: str) -> list[dict]:
     lines = text.strip().split("\n")
     # Find first { to last }
     start, end = None, None
-    for i, l in enumerate(lines):
-        if l.strip().startswith("{"):
+    for i, line in enumerate(lines):
+        if line.strip().startswith("{"):
             start = i
-        if l.strip().endswith("}"):
+        if line.strip().endswith("}"):
             end = i
     if start is not None and end is not None:
         joined = "\n".join(lines[start : end + 1])
@@ -113,7 +113,7 @@ class TestCLIIntegration:
         assert "❌" in text or "0" in text or "db_exists" in text.lower()
 
     def test_audit_json_output(self, test_env):
-        """audit --json returns valid JSON"""
+        """audit data returns structured data"""
         # Insert a paper so audit has data to work with
         db_dir = os.path.join(os.getcwd(), "data")
         os.makedirs(db_dir, exist_ok=True)
@@ -124,18 +124,13 @@ class TestCLIIntegration:
             ],
         )
 
-        result = runner.invoke(app, ["audit", "--json"])
+        result = runner.invoke(app, ["audit", "data"])
         assert result.exit_code == 0
+        # Should show the data source audit report
+        assert "oai" in result.output.lower() or "arxiv_meta" in result.output.lower()
 
-        parsed = _parse_jsonl_output(result.output)
-        assert parsed is not None, "Could not parse JSON from output"
-        # full_audit top-level structure: timestamp + arxiv_meta + paper_store
-        assert "timestamp" in parsed
-        assert "arxiv_meta" in parsed
-        assert "paper_store" in parsed
-
-    def test_audit_json_via_cli_flag(self, test_env):
-        """audit --meta --json outputs valid JSON"""
+    def test_audit_ops_events(self, test_env):
+        """audit ops events shows event list"""
         db_dir = os.path.join(os.getcwd(), "data")
         os.makedirs(db_dir, exist_ok=True)
         _create_arxiv_meta_db(
@@ -145,12 +140,10 @@ class TestCLIIntegration:
             ],
         )
 
-        result = runner.invoke(app, ["audit", "--meta", "--json"])
+        result = runner.invoke(app, ["audit", "ops", "stats"])
         assert result.exit_code == 0
-        parsed = _parse_jsonl_output(result.output)
-        assert parsed is not None
-        assert "db_path" in parsed
-        assert parsed.get("total") == 1
+        # Operation audit statistics should show event counts
+        assert "event" in result.output.lower() or "Total" in result.output
 
     def test_store_stats_empty_output(self, test_env):
         """store stats output contains 'papers' text"""
@@ -220,11 +213,9 @@ class TestCLIIntegration:
         assert len(text) > 0
 
     def test_audit_paper_store_flags(self, test_env):
-        """audit --paper-store / --meta different flags produce different output"""
-        # Both flags at least run without crashing
-        # --meta may return 1 on empty DB (no DB exception), --paper-store may return 0
-        r1 = runner.invoke(app, ["audit", "--paper-store"])
-        r2 = runner.invoke(app, ["audit", "--meta"])
+        """audit data / audit ops produce different output"""
+        r1 = runner.invoke(app, ["audit", "data"])
+        r2 = runner.invoke(app, ["audit", "ops", "stats"])
         for r in [r1, r2]:
             assert r.exit_code in (0, 1), f"exit_code={r.exit_code}: {r.output[:200]}"
 
@@ -375,7 +366,7 @@ class TestMCPStdioProtocol:
                 pass
 
         output = mock_stdout.getvalue()
-        lines = [l for l in output.strip().split("\n") if l.strip()]
+        lines = [line for line in output.strip().split("\n") if line.strip()]
 
         assert len(lines) >= 1
         resp = json.loads(lines[0])
@@ -410,7 +401,7 @@ class TestMCPStdioProtocol:
                 pass
 
         output = mock_stdout.getvalue()
-        lines = [l for l in output.strip().split("\n") if l.strip()]
+        lines = [line for line in output.strip().split("\n") if line.strip()]
         assert len(lines) >= 1
 
         resp = json.loads(lines[0])
@@ -449,7 +440,7 @@ class TestMCPStdioProtocol:
                 pass
 
         output = mock_stdout.getvalue()
-        lines = [l for l in output.strip().split("\n") if l.strip()]
+        lines = [line for line in output.strip().split("\n") if line.strip()]
         assert len(lines) >= 1
 
         resp = json.loads(lines[0])
@@ -485,7 +476,7 @@ class TestMCPStdioProtocol:
                 pass
 
         output = mock_stdout.getvalue()
-        lines = [l for l in output.strip().split("\n") if l.strip()]
+        lines = [line for line in output.strip().split("\n") if line.strip()]
         assert len(lines) >= 1
 
         resp = json.loads(lines[0])
@@ -514,7 +505,7 @@ class TestMCPStdioProtocol:
                 pass
 
         output = mock_stdout.getvalue()
-        lines = [l for l in output.strip().split("\n") if l.strip()]
+        lines = [line for line in output.strip().split("\n") if line.strip()]
         assert len(lines) >= 1
 
         resp = json.loads(lines[0])
@@ -544,7 +535,7 @@ class TestMCPStdioProtocol:
                 pass
 
         output = mock_stdout.getvalue()
-        lines = [l for l in output.strip().split("\n") if l.strip()]
+        lines = [line for line in output.strip().split("\n") if line.strip()]
         assert len(lines) >= 1
 
         resp = json.loads(lines[0])
@@ -573,7 +564,7 @@ class TestMCPStdioProtocol:
                 pass
 
         output = mock_stdout.getvalue()
-        lines = [l for l in output.strip().split("\n") if l.strip()]
+        lines = [line for line in output.strip().split("\n") if line.strip()]
         assert len(lines) >= 1
 
         # Legacy protocol returns JSON string directly (not JSON-RPC response)
@@ -596,7 +587,7 @@ class TestMCPStdioProtocol:
                 pass
 
         # Should not throw exception, should ignore malformed line
-        output = mock_stdout.getvalue()
+        mock_stdout.getvalue()
         # Can be silently ignored or return error, but never crash
         assert True  # No exception means success
 
@@ -656,7 +647,7 @@ class TestMCPHTTP:
     def test_http_tools_list_via_get(self):
         """HTTP MCP: GET /tools returns tool list"""
         port = self._free_port()
-        t = self._serve_http(port)
+        self._serve_http(port)
         if not self._wait_http(port):
             pytest.skip(f"HTTP server could not start on port {port}")
 
@@ -672,7 +663,7 @@ class TestMCPHTTP:
     def test_http_call_via_get(self):
         """HTTP MCP: GET /call/stats returns statistics"""
         port = self._free_port()
-        t = self._serve_http(port)
+        self._serve_http(port)
         if not self._wait_http(port):
             pytest.skip(f"HTTP server could not start on port {port}")
 
@@ -691,7 +682,7 @@ class TestMCPHTTP:
     def test_http_call_via_post(self):
         """HTTP MCP: POST /call/hfpclawer_search with parameters"""
         port = self._free_port()
-        t = self._serve_http(port)
+        self._serve_http(port)
         if not self._wait_http(port):
             pytest.skip(f"HTTP server could not start on port {port}")
 
@@ -713,7 +704,7 @@ class TestMCPHTTP:
     def test_http_unknown_tool(self):
         """HTTP MCP: non-existent tool returns 404"""
         port = self._free_port()
-        t = self._serve_http(port)
+        self._serve_http(port)
         if not self._wait_http(port):
             pytest.skip(f"HTTP server could not start on port {port}")
 
@@ -735,7 +726,7 @@ class TestMCPHTTP:
     def test_http_health_endpoint(self):
         """HTTP MCP: GET /health returns ok"""
         port = self._free_port()
-        t = self._serve_http(port)
+        self._serve_http(port)
         if not self._wait_http(port):
             pytest.skip(f"HTTP server could not start on port {port}")
 

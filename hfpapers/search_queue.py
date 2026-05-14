@@ -337,14 +337,26 @@ class SearchDispatcher:
     async def run(self) -> list[SearchResult]:
         """Run dispatcher until queue is empty"""
         total = self.queue.qsize()
-        logger.info(f"🚀 Starting search dispatcher: {total} tasks, {self.max_workers} concurrent")
+        logger.info(f"Starting search dispatcher: {total} tasks, {self.max_workers} concurrent")
 
         workers = []
         for _ in range(min(self.max_workers, total)):
             worker = asyncio.create_task(self._worker_loop())
             workers.append(worker)
 
-        await asyncio.gather(*workers)
+        try:
+            await asyncio.gather(*workers)
+        except asyncio.CancelledError:
+            logger.info("Search cancelled by user")
+            # Cancel any incomplete workers to avoid warning noise
+            for w in workers:
+                if not w.done():
+                    w.cancel()
+            # Return whatever results we have so far
+            if self._session:
+                self._session.close()
+                self._session = None
+            return self.results
 
         if self._session:
             self._session.close()
@@ -363,6 +375,9 @@ class SearchDispatcher:
 
             try:
                 await self._process_task(task)
+            except asyncio.CancelledError:
+                logger.debug("Worker cancelled")
+                raise
             except Exception as e:
                 logger.error(f"Task processing exception: {e}")
             finally:

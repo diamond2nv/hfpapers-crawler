@@ -104,14 +104,19 @@ def search(
     from hfpapers.evolved import DedupEngine, HFPapersCrawler, RelevanceDetector
 
     hw = _get_probe()
-    console.print(f"[dim]🔧 {hw.summary()}[/dim]")
+    console.print(f"[dim]{hw.summary()}[/dim]")
 
     dedup = DedupEngine()
     detector = RelevanceDetector()
     clawler = HFPapersCrawler(dedup=dedup, detector=detector)
 
     start_t = time.time()
-    papers = clawler.crawl(max_pages=max_pages)
+    try:
+        papers = clawler.crawl(max_pages=max_pages)
+    except KeyboardInterrupt:
+        console.print()
+        console.print("[yellow]Search interrupted by user (Ctrl+C).[/yellow]")
+        return
     elapsed = time.time() - start_t
 
     if not show_all:
@@ -282,8 +287,8 @@ def batch(
     )
 
     if summary.total == 0:
-        pending = summary.total  # from count_pending
-        console.print("[yellow]📭 No pending papers in paper_store[/yellow]")
+        # pending is intentionally not used here; comment documents intent
+        console.print("[yellow]No pending papers in paper_store[/yellow]")
         # Show queue status
         from hfpapers.download_queue import DownloadQueue
 
