@@ -224,7 +224,264 @@ def full(
             console.print("[yellow]⚠️  Skipping conversion (pymupdf4llm unavailable)[/yellow]")
 
     total_elapsed = time.time() - start_t
-    console.print(f"\n[bold green]✅ Full pipeline complete ({total_elapsed:.0f}s)[/bold green]")
+    console.print(f"\\n[bold green]✅ Full pipeline complete ({total_elapsed:.0f}s)[/bold green]")
+
+
+@app.command()
+def batch(
+    limit: int = typer.Option(50, "--limit", "-l", help="Max papers to process"),
+    priority: str = typer.Option("P0", "--priority", "-p",
+                                 help="Priority tier: P0(relevance≥60) P1(≥30) P2(all pending)"),
+    skip_convert: bool = typer.Option(False, "--skip-convert", help="Skip PDF→MD conversion"),
+    no_wiki: bool = typer.Option(False, "--no-wiki", help="Skip wiki sync"),
+):
+    """Batch download from paper_store queue (new DownloadQueue)
+
+    Pulls pending papers from paper_store by priority, downloads PDFs,
+    converts to Markdown, and optionally syncs to wiki/raw/papers.
+
+    Priority tiers:
+      P0 — relevance ≥ 60 (immediate, high-value papers)
+      P1 — relevance 30-59 (medium priority)
+      P2 — all remaining pending
+
+    Uses AsyncPdfDownloader with up to 8 concurrent downloads.
+    """
+    from hfpapers.download_queue import batch_download_cli
+
+    hw = _get_probe()
+    console.print(f"[dim]🔧 {hw.summary()}[/dim]")
+
+    summary = batch_download_cli(
+        limit=limit,
+        priority=priority,
+        skip_convert=skip_convert,
+        to_wiki=not no_wiki,
+    )
+
+    if summary.total == 0:
+        pending = summary.total  # from count_pending
+        console.print("[yellow]📭 No pending papers in paper_store[/yellow]")
+        # Show queue status
+        from hfpapers.download_queue import DownloadQueue
+        q = DownloadQueue()
+        counts = q.count_pending()
+        for status, count in counts.items():
+            console.print(f"  [{status}] {count}")
+    else:
+        console.print(f"[bold green]✅ Batch complete[/bold green]")
+        console.print(f"  {summary.summary_line}")
+        if summary.errors:
+            console.print(f"[red]  Errors ({len(summary.errors)}):[/red]")
+            for e in summary.errors[:5]:
+                console.print(f"    ❌ {e}")
+            if len(summary.errors) > 5:
+                console.print(f"    ... and {len(summary.errors) - 5} more")
+
+
+@app.command()
+def audit(
+    action: str = typer.Argument("data", help="data | ops | stats | events | batch | paper"),
+    arg: str = typer.Argument("", help="arxiv_id / batch_id / since"),
+    limit: int = typer.Option(20, "--limit", "-l", help="Result limit"),
+):
+    """Audit & data quality inspection
+
+    Two audit engines:
+      data  — source data audit (arxiv_meta DB, paper_store quality) [default]
+      ops   — download/convert/wiki operation trail (AuditTrail events)
+
+    Ops sub-actions:
+      stats  — aggregate event counts
+      events — recent operation events
+      batch  — summary for a specific batch_id (omit arg for latest)
+      paper  — all events for a specific arxiv_id
+
+    Examples:
+      hfpclawer audit data           # Data source audit (default)
+      hfpclawer audit ops stats      # Operation event counts
+      hfpclawer audit ops events -l 10
+      hfpclawer audit ops batch      # Latest batch summary
+      hfpclawer audit ops paper 2001.08361
+    """
+    if action == "data":
+        # ── Data source audit (arxiv_meta DB + paper_store quality) ──
+        from hfpclawer.audit import (
+            format_full_audit_report,
+            format_paper_store_report,
+            run_full_audit,
+        )
+
+        report = run_full_audit()
+        console.print(format_full_audit_report(report))
+
+    elif action == "ops":
+        # ── Operation trail audit (AuditTrail events) ──
+        from hfpapers.logger import get_audit as get_op_audit
+
+        a = get_op_audit()
+        sub = arg or "stats"
+
+        if sub == "stats":
+            stats = a.stats()
+            table = Table(title="📊 Operation Audit Statistics")
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="white")
+            table.add_row("Total events", str(stats["total_events"]))
+            table.add_row("Total failures", str(stats["total_failures"]))
+            for event, cnt in sorted(stats["by_event"].items(),
+                                     key=lambda x: -x[1]):
+                table.add_row(f"  {event}", str(cnt))
+            console.print(table)
+
+        elif sub == "events":
+            events = a.query(limit=limit)
+            if not events:
+                console.print("[yellow]No events found[/yellow]")
+                return
+            table = Table(title=f"🕐 Recent {len(events)} events")
+            table.add_column("Time", style="dim", width=19)
+            table.add_column("Event", style="cyan", width=18)
+            table.add_column("arXiv ID", style="blue", width=15)
+            table.add_column("Batch", style="green", width=16)
+            table.add_column("Status", style="white")
+            for e in events:
+                status = e["status"] or ""
+                if status == "failed":
+                    status = f"[red]{status}[/red]"
+                elif status == "done":
+                    status = f"[green]{status}[/green]"
+                table.add_row(
+                    e["event_time"][:19],
+                    e["event"],
+                    e["arxiv_id"],
+                    e["batch_id"],
+                    status,
+                )
+            console.print(table)
+
+        elif sub == "batch":
+            batch_id = arg
+            if not batch_id:
+                batch_id = a.latest_batch()
+                if not batch_id:
+                    console.print("[yellow]No batches found[/yellow]")
+                    return
+                console.print(f"[dim]Auto: latest batch = {batch_id}[/dim]")
+            summary = a.batch_summary(batch_id)
+            table = Table(title=f"📦 Batch: {summary['batch_id']}")
+            table.add_column("Event", style="cyan")
+            table.add_column("Status", style="white")
+            table.add_column("Count", style="yellow", justify="right")
+            for e in summary["events"]:
+                table.add_row(e["event"], e["status"], str(e["cnt"]))
+            console.print(table)
+
+        elif sub == "paper":
+            pid = arg  # arxiv_id
+            if not pid:
+                console.print("[red]❌ Requires arxiv_id argument[/red]")
+                raise typer.Exit(1)
+            events = a.query(arxiv_id=pid, limit=limit)
+            if not events:
+                console.print(f"[yellow]No events for {pid}[/yellow]")
+                return
+            table = Table(title=f"📄 Events for {pid}")
+            table.add_column("Time", style="dim", width=19)
+            table.add_column("Event", style="cyan", width=18)
+            table.add_column("Batch", style="green", width=16)
+            table.add_column("Status", style="white")
+            for e in events:
+                status = e["status"] or ""
+                if status == "failed":
+                    status = f"[red]{status}[/red]"
+                elif status == "done":
+                    status = f"[green]{status}[/green]"
+                table.add_row(
+                    e["event_time"][:19],
+                    e["event"],
+                    e["batch_id"],
+                    status,
+                )
+            console.print(table)
+
+        else:
+            console.print(f"[red]❌ Unknown ops sub-action: {sub}. Use stats|events|batch|paper[/red]")
+
+    elif action in ("stats", "events", "batch", "paper"):
+        # Shorthand: allow without "ops" prefix for legacy compat
+        from hfpapers.logger import get_audit as get_op_audit
+        a = get_op_audit()
+
+        if action == "stats":
+            stats = a.stats()
+            table = Table(title="📊 Operation Audit Statistics")
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", style="white")
+            table.add_row("Total events", str(stats["total_events"]))
+            table.add_row("Total failures", str(stats["total_failures"]))
+            for event, cnt in sorted(stats["by_event"].items(), key=lambda x: -x[1]):
+                table.add_row(f"  {event}", str(cnt))
+            console.print(table)
+        elif action == "batch":
+            batch_id = arg or a.latest_batch()
+            if not batch_id:
+                console.print("[yellow]No batches found[/yellow]")
+                return
+            if arg == "":
+                console.print(f"[dim]Auto: latest batch = {batch_id}[/dim]")
+            summary = a.batch_summary(batch_id)
+            table = Table(title=f"📦 Batch: {summary['batch_id']}")
+            table.add_column("Event", style="cyan")
+            table.add_column("Status", style="white")
+            table.add_column("Count", style="yellow", justify="right")
+            for e in summary["events"]:
+                table.add_row(e["event"], e["status"], str(e["cnt"]))
+            console.print(table)
+        elif action == "paper":
+            if not arg:
+                console.print("[red]❌ Requires arxiv_id[/red]")
+                raise typer.Exit(1)
+            events = a.query(arxiv_id=arg, limit=limit)
+            if not events:
+                console.print(f"[yellow]No events for {arg}[/yellow]")
+                return
+            table = Table(title=f"📄 Events for {arg}")
+            table.add_column("Time", style="dim", width=19)
+            table.add_column("Event", style="cyan", width=18)
+            table.add_column("Batch", style="green", width=16)
+            table.add_column("Status", style="white")
+            for e in events:
+                status = e["status"] or ""
+                if status == "failed":
+                    status = f"[red]{status}[/red]"
+                elif status == "done":
+                    status = f"[green]{status}[/green]"
+                table.add_row(e["event_time"][:19], e["event"], e["batch_id"], status)
+            console.print(table)
+        else:
+            # action == "events"
+            events = a.query(limit=limit)
+            if not events:
+                console.print("[yellow]No events found[/yellow]")
+                return
+            table = Table(title=f"🕐 Recent {len(events)} events")
+            table.add_column("Time", style="dim", width=19)
+            table.add_column("Event", style="cyan", width=18)
+            table.add_column("arXiv ID", style="blue", width=15)
+            table.add_column("Batch", style="green", width=16)
+            table.add_column("Status", style="white")
+            for e in events:
+                status = e["status"] or ""
+                if status == "failed":
+                    status = f"[red]{status}[/red]"
+                elif status == "done":
+                    status = f"[green]{status}[/green]"
+                table.add_row(e["event_time"][:19], e["event"], e["arxiv_id"], e["batch_id"], status)
+            console.print(table)
+
+    else:
+        console.print(f"[red]❌ Unknown action: {action}. Use data or ops[/red]")
 
 
 @app.command()

@@ -211,8 +211,8 @@ wiki:
 # ===== 8. Output Paths =====
 paths:
   data_dir: "data"
-  pdf_dir: "pdfs"
-  md_dir: "md_extracts"
+  pdf_dir: "data/pdfs"
+  md_dir: "data/md_extracts"
   log_dir: "logs"
   crawled_db: "crawled.json"
   # Dedup record — absolute path or relative to wiki.base_dir

@@ -173,8 +173,8 @@ def load_config(reload: bool = False) -> dict:
             },
             "paths": {
                 "data_dir": "data",
-                "pdf_dir": "pdfs",
-                "md_dir": "mds",
+                "pdf_dir": "data/pdfs",
+                "md_dir": "data/md_extracts",
                 "global_dedup": "crawled.json",
             },
             "db": {
