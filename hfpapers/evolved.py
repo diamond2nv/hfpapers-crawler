@@ -42,6 +42,7 @@ class PaperInfo:
     code_url: str = ""
     has_code: str = "unknown"
     md5_abstract: str = ""
+    doi: str = ""
 
 
 # ════════════════════════════════════════════
@@ -112,6 +113,7 @@ class DedupEngine:
                 source="hfpapers.evolved",
                 relevance=p.relevance,
                 code_url=p.code_url,
+                doi=p.doi,
             )
         self.count = self._store.stats()["papers_total"]
 
@@ -247,6 +249,7 @@ class HFPapersCrawler:
                 source_url=sr.source_url,
                 categories=[sr.source_category],
                 code_url=sr.code_url,
+                doi=sr.doi,
                 md5_abstract=hashlib.md5(sr.abstract.encode()).hexdigest() if sr.abstract else "",
             )
 
@@ -314,6 +317,7 @@ class PaperDownloader:
                 source="downloader",
                 relevance=p.relevance,
                 code_url=p.code_url,
+                doi=p.doi,
             )
 
 

@@ -226,9 +226,9 @@ class DownloadQueue:
                 f"JOIN identifiers i ON p.sf_id = i.sf_id AND i.id_type='arxiv' "
             )
             order_sql = (
-                f"ORDER BY p.relevance DESC, "
-                f"arxiv_year DESC, "
-                f"has_doi DESC"
+                "ORDER BY p.relevance DESC, "
+                "arxiv_year DESC, "
+                "has_doi DESC"
             )
 
             if priority == "P0":

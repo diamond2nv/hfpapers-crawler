@@ -892,6 +892,7 @@ def ensure_paper(
     venue: str = "",
     code_url: str = "",
     relevance: int = 0,
+    doi: str = "",
 ) -> tuple[int, bool]:
     """Ensure paper exists, returns (sf_id, is_new).
 
@@ -899,7 +900,15 @@ def ensure_paper(
     Then attempts (async/lazy) cross-validation via Crossref.
     """
     store = get_store()
-    existing = store.get_paper_by_identifier("arxiv", arxiv_id)
+    existing = None
+
+    # Try lookup by arxiv_id first
+    if arxiv_id:
+        existing = store.get_paper_by_identifier("arxiv", arxiv_id)
+
+    # Fallback: lookup by DOI (for CNS/non-arxiv papers)
+    if not existing and doi:
+        existing = store.get_paper_by_identifier("doi", doi)
 
     if existing:
         # Update info
@@ -935,10 +944,17 @@ def ensure_paper(
         has_code=bool(code_url),
     )
     sf_id = store.upsert_paper(record)
-    store.add_identifier(sf_id, "arxiv", arxiv_id, source=source)
+
+    # Add arxiv identifier (skip if empty — DOI-only CNS papers)
+    if arxiv_id:
+        store.add_identifier(sf_id, "arxiv", arxiv_id, source=source)
+
+    # Add DOI identifier if provided
+    if doi:
+        store.add_identifier(sf_id, "doi", doi, source=source)
 
     # If title is provided, try Crossref validation
-    if title:
+    if title and arxiv_id:
         try:
             cr = get_crossref()
             result = cr.cross_verify(arxiv_id, title)

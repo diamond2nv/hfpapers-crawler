@@ -67,9 +67,7 @@ jmespath==1.1.0
 joblib==1.5.3
 jsonschema==4.23.0
 jsonschema-specifications==2025.9.1
-litellm==1.83.0
-litellm-enterprise==0.1.39
-litellm-proxy-extras==0.4.69
+litellm==1.85.0
 lxml==6.1.0
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3

@@ -20,6 +20,8 @@ import json
 import logging
 import sys
 
+from hfpapers import __version__
+
 logger = logging.getLogger("hfpapers.mcp")
 
 
@@ -313,7 +315,7 @@ def _run_stdio():
                     {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "hfpapers-mcp", "version": "0.3.0"},
+                        "serverInfo": {"name": "hfpapers-mcp", "version": __version__},
                     },
                 )
 

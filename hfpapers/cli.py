@@ -6,10 +6,11 @@
 
 """
 Usage:
+  hfpclawer version          Show version
   hfpclawer search           Search + classify + list new papers (async multi-source search)
   hfpclawer download         Download top candidate PDFs (8 concurrent)
   hfpclawer convert          pymupdf4llm convert to Markdown
-  hfpclawer full             Full pipeline (search → download → convert)
+  hfpclawer full             Full pipeline (search -> download -> convert)
   hfpclawer dedup            Dedup status
   hfpclawer list|ls          List all papers
   hfpclawer info <arxiv_id>  Show paper details
@@ -50,24 +51,9 @@ logger = logging.getLogger("hfpclawer")
 console = Console()
 
 
-def _version_callback(value: bool):
-    if value:
-        from hfpapers import __version__
-
-        console.print(f"hfpclawer v{__version__}")
-        raise typer.Exit()
-
-
 @app.callback()
 def main_callback(
     verbose: bool = typer.Option(False, "--verbose", "-v"),
-    version: bool = typer.Option(
-        False,
-        "--version",
-        help="Show version and exit",
-        callback=_version_callback,
-        is_eager=True,
-    ),
 ):
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
@@ -79,6 +65,14 @@ def main_callback(
 
 def _get_probe() -> HardwareProbe:
     return HardwareProbe()
+
+
+@app.command()
+def version():
+    """Show version and exit"""
+    from hfpapers import __version__
+
+    console.print(f"hfpclawer v{__version__}")
 
 
 # ════════════════════════════════════════════

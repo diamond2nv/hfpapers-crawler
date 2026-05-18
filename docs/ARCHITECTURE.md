@@ -104,6 +104,6 @@ HF CLI search ──→ arXiv ID verification ──→ Keyword classify ──�
 
 ## Version History
 
-- `v3.0.0` — Project migrated to `~/Gitlab/Agentic4Sci/hfpapers-clawler/`
-- `v2.0.0` — Scrapy integration + anti-crawl middleware + distributed dedup
-- `v1.0.0` — Initial version: HF CLI search + JSON dedup + keyword classification
+- `v0.3.0` — Project migrated to `hfpapers-clawler`
+- `v0.2.0` — Scrapy integration + anti-crawl middleware + distributed dedup
+- `v0.1.0` — Initial version: HF CLI search + JSON dedup + keyword classification

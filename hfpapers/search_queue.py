@@ -161,6 +161,7 @@ class SearchDispatcher:
         self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self.results: list[SearchResult] = []
         self._seen_ids: set[str] = set()
+        self._seen_dois: set[str] = set()  # DOI dedup for CNS/non-arxiv papers
         self.max_workers = max_workers
         self.sem = asyncio.Semaphore(max_workers)
         self._session: Optional[requests.Session] = None
@@ -239,9 +240,15 @@ class SearchDispatcher:
             return []
 
     async def _process_task(self, task: SearchTask):
-        """Process a search task (iterate through all available searchers, return on first success)"""
+        """Process a search task across all available searchers.
+
+        Iterates through all searchers (not just first success) because
+        different sources cover different corpora (arXiv vs CNS journals).
+        Dedup by arXiv ID + DOI handles cross-source duplicates.
+        """
         async with self.sem:
             searchers = get_available()
+            any_success = False
             for searcher in searchers:
                 results = await self._search_one_source(searcher, task)
                 if results:
@@ -249,18 +256,18 @@ class SearchDispatcher:
                     new_results = self._dedup_and_verify(results)
                     if new_results:
                         self.results.extend(new_results)
+                        any_success = True
                         logger.info(
                             f"  ✅ [{task.category}] {searcher.name}: "
                             f"{len(results)}->{len(new_results)} new papers"
                         )
-                        return
                 else:
                     logger.debug(
                         f"  [{task.category}] {searcher.name}: 0 results, trying next source"
                     )
 
             # Retry when all sources fail
-            if task.retry_count < task.max_retries:
+            if not any_success and task.retry_count < task.max_retries:
                 task.retry_count += 1
                 logger.debug(
                     f"  [{task.category}] All sources failed, retry {task.retry_count}/{task.max_retries}"
@@ -272,17 +279,31 @@ class SearchDispatcher:
         """Dedup + arXiv title verification
 
         Multi-tier filtering:
-        1. Format check (arXiv ID regex)
-        2. In-session seen set dedup
+        1. Format check (arXiv ID regex or DOI present)
+        2. In-session seen set dedup (arXiv ID + DOI)
         3. Local FTS5 pre-filter (skip if already in 3M-paper index)
-        4. arXiv ID → title verification (local FTS5 first, remote API fallback)
+        4. arXiv ID -> title verification (local FTS5 first, remote API fallback)
         5. Title similarity check (trigram Jaccard)
+
+        DOI-only papers (CNS journals, etc.) bypass arXiv verification
+        and use DOI as the dedup key instead.
         """
         verified = []
 
         for r in results:
             aid = r.arxiv_id
-            if not aid or not _ARXIV_ID_RE.match(aid):
+            is_arxiv = bool(aid and _ARXIV_ID_RE.match(aid))
+
+            # DOI-only path: skip arxiv format check, use DOI as key
+            if not is_arxiv and r.doi:
+                if r.doi in self._seen_dois:
+                    continue
+                self._seen_dois.add(r.doi)
+                verified.append(r)
+                continue
+
+            # arXiv path: must have valid arXiv ID
+            if not is_arxiv:
                 continue
             if aid in self._seen_ids:
                 continue
@@ -311,7 +332,7 @@ class SearchDispatcher:
 
             self._seen_ids.add(aid)
 
-            # Code matching (multi-tier: PwC API → arXiv page → GitHub search)
+            # Code matching (multi-tier: PwC API -> arXiv page -> GitHub search)
             if self._code_match_enabled and not r.code_url:
                 try:
                     matcher = self._get_code_matcher()

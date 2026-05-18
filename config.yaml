@@ -31,6 +31,20 @@ search:
       enable: true               # Code repos + SOTA rankings
       notes: "Includes official code repository links"
 
+    # ─── CNS OA Journal Sources (Nature/Science/Cell Open Access) ───
+    europepmc:
+      enabled: false             # Enable for Nature Communications / Cell Reports searches
+      journals:
+        - "Nature Communications"
+      page_size: 25
+      notes: "Europe PMC REST API — public, no key required. Covers Nature Comms, Sci Reports, Cell Reports"
+    semanticscholar:
+      enabled: false             # Enable for Science Advances / OA journal searches
+      journals:
+        - "Science Advances"
+      api_key: ""                # Optional: get from https://api.semanticscholar.org/
+      notes: "Semantic Scholar API — journal-filtered, OA PDF filter. 100req/5min without key"
+
   # Enabled search sources (ordered by priority)
   enabled:
     - "hf_cli"

@@ -21,10 +21,10 @@ logger = logging.getLogger("hfpapers.searcher_registry")
 class SearchResult:
     """Unified search result"""
 
-    arxiv_id: str
-    title: str
-    abstract: str
-    source: str  # "hf_cli" | "arxiv_local" | "arxiv_api" | "openreview" | "pwc_api"
+    arxiv_id: str = ""  # Optional — CNS/DOI papers may not have arXiv ID
+    title: str = ""
+    abstract: str = ""
+    source: str = ""  # "hf_cli" | "arxiv_local" | "arxiv_api" | "openreview" | "europepmc" | "semanticscholar"
     source_category: str = ""
     source_url: str = ""
     code_url: str = ""
@@ -386,6 +386,45 @@ def init_registry():
     register(ArxivApiSearcher())
     register(ArxivMcpSearcher())
     register(OpenReviewSearcher())
+
+    # CNS OA searchers (config-driven)
+    try:
+        from hfpapers.config import get as cfg_get
+        from hfpapers.searchers.europepmc import EuropePMCSearcher
+        from hfpapers.searchers.semanticscholar import SemanticScholarSearcher
+
+        # Europe PMC — one instance per journal if enabled
+        epmc_enabled = cfg_get("search.sources.europepmc.enabled", False)
+        if epmc_enabled:
+            epmc_journals = cfg_get(
+                "search.sources.europepmc.journals",
+                ["Nature Communications"],
+            )
+            for journal in epmc_journals:
+                register(
+                    EuropePMCSearcher(
+                        journal=journal,
+                        page_size=cfg_get("search.sources.europepmc.page_size", 25),
+                    )
+                )
+
+        # Semantic Scholar — one instance per journal if enabled
+        s2_enabled = cfg_get("search.sources.semanticscholar.enabled", False)
+        if s2_enabled:
+            s2_journals = cfg_get(
+                "search.sources.semanticscholar.journals",
+                ["Science Advances"],
+            )
+            s2_api_key = cfg_get("search.sources.semanticscholar.api_key", "")
+            for journal in s2_journals:
+                register(
+                    SemanticScholarSearcher(
+                        journal=journal,
+                        api_key=s2_api_key,
+                    )
+                )
+    except Exception as e:
+        logger.debug(f"CNS searchers not loaded: {e}")
 
     available = get_available()
     logger.info(f"Search registry ready: {len(available)}/{len(_searchers)} available")

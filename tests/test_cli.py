@@ -70,10 +70,10 @@ class TestEntryPoint:
     """
 
     def test_version(self):
-        """Entry point --version shows hfpclawer v<semver>"""
-        result = _run_entry_point(["--version"])
+        """Entry point version shows hfpclawer v<semver>"""
+        result = _run_entry_point(["version"])
         assert result.returncode == 0, (
-            f"entry point --version failed:\n  stdout: {result.stdout}\n  stderr: {result.stderr}"
+            f"entry point version failed:\n  stdout: {result.stdout}\n  stderr: {result.stderr}"
         )
         assert result.stdout.startswith("hfpclawer v")
 
@@ -135,7 +135,7 @@ class TestEntryPoint:
             assert install.returncode == 0, f"pip install failed: {install.stderr}"
 
             result = subprocess.run(
-                [hfp, "--version"],
+                [hfp, "version"],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -175,20 +175,33 @@ class TestCLI:
             "mcp",
             "init",
             "monitor",
+            "version",
         ]
         for cmd in expected_commands:
             assert cmd in result.output, f"Missing command in --help: {cmd}"
 
-        assert "--version" in result.output
+        assert "--verbose" in result.output
 
     def test_version(self):
-        """--version shows hfpclawer v<semver>"""
-        result = runner.invoke(app, ["--version"])
+        """version command shows hfpclawer v<semver>"""
+        result = runner.invoke(app, ["version"])
         assert result.exit_code == 0
-        assert result.output.startswith("hfpclawer v")
+        assert result.output.strip().startswith("hfpclawer v")
         import re
 
         assert re.search(r"v\d+\.\d+\.\d+", result.output)
+
+    def test_no_dash_version_rejected(self):
+        """--version is no longer an option — shows error (exit 2)"""
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 2
+        assert "No such option" in result.output
+
+    def test_version_help(self):
+        """version --help shows subcommand info"""
+        result = runner.invoke(app, ["version", "--help"])
+        assert result.exit_code == 0
+        assert "Show version" in result.output
 
     def test_verbose(self, test_env):
         """-v sets debug level, doesn't crash"""
