@@ -180,6 +180,23 @@ class DownloadQueue:
 
     # ── Pull ────────────────────────────────────────────
 
+    def _build_year_sort(self, conn) -> str:
+        """Build year-from-arxiv-id sort expression for ORDER BY.
+
+        arXiv IDs: YYMM.xxxxx → extract YY prefix → 2000+YY as numeric year.
+        Higher years = newer papers = higher priority.
+        Returns SQL expression that evaluates to integer year (0 for missing).
+        """
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_arxiv_id_prefix
+            ON identifiers(id_value)
+        """)
+        return (
+            "CASE WHEN i.id_value GLOB '[0-9][0-9]*' "
+            "THEN CAST('20' || SUBSTR(i.id_value, 1, 2) AS INTEGER) "
+            "ELSE 0 END"
+        )
+
     def pull_batch(self, batch_size: int = 50, priority: str = "P0") -> list[dict]:
         """Pull pending papers from paper_store
 
@@ -187,38 +204,44 @@ class DownloadQueue:
             P0: relevance >= 60 (high value, immediate)
             P1: relevance >= 30 and < 60
             P2: all remaining pending
+
+        Sort: relevance DESC → year DESC (newer first) → has_doi DESC.
+        This ensures:
+          1. High-relevance papers always first
+          2. Within same relevance, newer papers (2025/2026) before old ones
+          3. Within same year, papers with DOI before those without
         """
         with self.store._conn() as conn:
+            year_expr = self._build_year_sort(conn)
+            has_doi_subq = (
+                "(SELECT 1 FROM identifiers i2 "
+                "WHERE i2.sf_id = p.sf_id AND i2.id_type='doi' LIMIT 1)"
+            )
+
+            base_sql = (
+                f"SELECT p.sf_id, p.title, p.abstract, p.relevance, "
+                f"i.id_value as arxiv_id, {year_expr} as arxiv_year, "
+                f"{has_doi_subq} as has_doi "
+                f"FROM papers p "
+                f"JOIN identifiers i ON p.sf_id = i.sf_id AND i.id_type='arxiv' "
+            )
+            order_sql = (
+                f"ORDER BY p.relevance DESC, "
+                f"arxiv_year DESC, "
+                f"has_doi DESC"
+            )
+
             if priority == "P0":
-                rows = conn.execute(
-                    """SELECT p.sf_id, p.title, p.abstract, p.relevance, i.id_value as arxiv_id
-                       FROM papers p
-                       JOIN identifiers i ON p.sf_id = i.sf_id AND i.id_type='arxiv'
-                       WHERE p.download_status='pending' AND p.relevance >= 60
-                       ORDER BY p.relevance DESC
-                       LIMIT ?""",
-                    (batch_size,),
-                ).fetchall()
+                where = "WHERE p.download_status='pending' AND p.relevance >= 60 "
             elif priority == "P1":
-                rows = conn.execute(
-                    """SELECT p.sf_id, p.title, p.abstract, p.relevance, i.id_value as arxiv_id
-                       FROM papers p
-                       JOIN identifiers i ON p.sf_id = i.sf_id AND i.id_type='arxiv'
-                       WHERE p.download_status='pending' AND p.relevance >= 30 AND p.relevance < 60
-                       ORDER BY p.relevance DESC
-                       LIMIT ?""",
-                    (batch_size,),
-                ).fetchall()
-            else:  # P2 — all remaining
-                rows = conn.execute(
-                    """SELECT p.sf_id, p.title, p.abstract, p.relevance, i.id_value as arxiv_id
-                       FROM papers p
-                       JOIN identifiers i ON p.sf_id = i.sf_id AND i.id_type='arxiv'
-                       WHERE p.download_status='pending'
-                       ORDER BY p.relevance DESC
-                       LIMIT ?""",
-                    (batch_size,),
-                ).fetchall()
+                where = "WHERE p.download_status='pending' AND p.relevance >= 30 AND p.relevance < 60 "
+            else:  # P2
+                where = "WHERE p.download_status='pending' "
+
+            rows = conn.execute(
+                base_sql + where + order_sql + " LIMIT ?",
+                (batch_size,),
+            ).fetchall()
 
             papers = []
             for r in rows:
@@ -229,6 +252,8 @@ class DownloadQueue:
                         "title": r["title"],
                         "abstract": r["abstract"],
                         "relevance": r["relevance"],
+                        "arxiv_year": r["arxiv_year"],
+                        "has_doi": bool(r["has_doi"]),
                     }
                 )
                 self._arxiv_ids[r["arxiv_id"]] = r["sf_id"]
