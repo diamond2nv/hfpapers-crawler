@@ -347,12 +347,13 @@ hfpclawer = HF (HuggingFace Papers) + claw + er
 
 ## Skills (Hermes Agent Skills)
 
-The repo ships two Hermes Agent skills under `skills/`:
+The repo ships three Hermes Agent skills under `skills/`:
 
 | Skill | File | What it automates |
 |-------|------|-------------------|
 | `hfpclawer-paper-search` | `skills/hfpclawer-paper-search/SKILL.md` | Daily paper discovery → download → convert → wiki sync |
 | `hfpclawer-citation-audit` | `skills/hfpclawer-citation-audit/SKILL.md` | Citation verification (local → S2 → OpenAlex) |
+| `hfpclawer-academic-integrity` | `skills/hfpclawer-academic-integrity/SKILL.md` | Paper draft integrity audit: extract citations → L1→L2→L3→L4 cascade → flag FABRICATED → structured report |
 
 These skills are written for **fresh Hermes Agent users** who have just
 `pip install hfpclawer` and want to use the tool through natural-language

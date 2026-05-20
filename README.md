@@ -198,6 +198,7 @@ AI coding assistant that supports the Hermes skill format):
 |-------|---------|---------|
 | `hfpclawer-paper-search` | Daily paper discovery → download → wiki | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-paper-search/SKILL.md` |
 | `hfpclawer-citation-audit` | Verify citations via S2 + OpenAlex | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-citation-audit/SKILL.md` |
+| `hfpclawer-academic-integrity` | Paper draft integrity: extract → verify → flag FABRICATED | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-academic-integrity/SKILL.md` |
 
 After installing, load with `skill_view(name='hfpclawer-paper-search')` in any
 Hermes conversation.

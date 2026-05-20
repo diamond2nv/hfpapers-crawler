@@ -187,6 +187,7 @@ MIT
 |:-----|:------|:------|
 | `hfpclawer-paper-search` | 自动搜寻论文 → 下载 → 转换 → wiki 同步 | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-paper-search/SKILL.md` |
 | `hfpclawer-citation-audit` | 通过 S2 + OpenAlex 验证引用 | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-citation-audit/SKILL.md` |
+| `hfpclawer-academic-integrity` | 论文草稿完整性审查：提取引用 → 验证 → 标记伪造引用 | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-academic-integrity/SKILL.md` |
 
 安装后，在任何 Hermes 对话中用 `skill_view(name='hfpclawer-paper-search')` 加载。
 
