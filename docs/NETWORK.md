@@ -11,7 +11,7 @@ Inventory of all external network connections, sites, ports, and protocols used 
 | `api.openreview.net` | HTTPS | 443 | OpenReview API search | ❌ Optional source |
 | `arxiv.org` | HTTPS | 443 | PDF download (`hfpclawer download`) | ❌ Download only |
 | `www.openarchives.org` | HTTP | 80 | OAI-PMH protocol definition (XML namespace) | ❌ Runtime reference only |
-| `gitlab.zhejianglab.com` | HTTPS | 443 | `[arxiv]` extra dependency install (private GitLab) | ❌ Local development only |
+| `api.github.com` | HTTPS | 443 | `[arxiv]` extra dependency from public GitHub |  (PyPI doesn't support `git+https`). See [docs/kaggle-metadata.md](docs/kaggle-metadata.md) |
 | `pypi.org` | HTTPS | 443 | `pip install` package dependency download | ✅ First install |
 | `files.pythonhosted.org` | HTTPS | 443 | pip package file download | ✅ First install |
 

@@ -135,6 +135,7 @@ Exceptions (Chinese allowed):
 | `.hermes/` | Hermes agent plans | Internal tooling, not user-facing |
 | `README.md` | `简体中文` navigation link only | One-line label |
 | `AGENTS.md` | `中文文档` directory reference only | One-line comment |
+| `docs/CHANGELOG.md` | Changelog entries | English only (PEP8 compliance) |
 
 ### Chinese Documentation Convention
 
@@ -183,6 +184,19 @@ twine upload dist/*
 
 ## Pitfalls
 
+### Config Cache Is Global (from expflow practice)
+
+`_config_cache` in `config.py` is a module-level global, shared across all imports.
+Tests must reset cache between runs:
+
+```python
+@pytest.fixture(autouse=True)
+def reset_config():
+    from hfpapers import config
+    config._config_cache.clear()
+    yield
+```
+
 ### Circular Import in paper_store.py
 
 `CrossrefClient.cross_verify()` in `paper_store.py` imports `HFPapersCrawler._title_similarity`:
@@ -221,6 +235,63 @@ if probe.use_bert:            # Check CUDA + sentence-transformers
 - ✅ Use `write_file` for creating files, `terminal` for running commands
 - ✅ Use `search_files(target="files")` instead of `ls`
 - ✅ Use `search_files(pattern="content")` instead of `grep`
+
+## Exception Handling Style: Graceful Degradation (from expflow practice)
+
+All Python code MUST follow "never crash, always degrade" (永不休机，优雅降级):
+
+**Rule 1: Every SDK call gets a try/except guard.**
+```python
+# ✅ Correct — return empty on failure
+try:
+    results = cr.title_to_doi(title)
+except Exception:
+    return None
+```
+
+**Rule 2: Non-critical operations are silent on failure.**
+```python
+try:
+    store.add_identifier(sf_id, "doi", doi, source="crossref")
+except Exception:
+    pass  # Non-critical — identifier write shouldn't fail the sync
+```
+
+**Rule 3: Critical errors return a dict with "error" key.**
+```python
+except Exception as e:
+    return {"error": str(e)}
+```
+
+**Rule 4: CLI entry point wraps everything in KeyboardInterrupt + Exception.**
+```python
+def main() -> None:
+    try:
+        app()  # Typer CLI
+    except KeyboardInterrupt:
+        print("Aborted.")
+        sys.exit(130)
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+```
+
+**Rule 5: MCP entry point also handles BrokenPipeError (parent disconnect).**
+```python
+def main() -> None:
+    try:
+        start_mcp()
+    except KeyboardInterrupt:
+        print("MCP server stopped.", file=sys.stderr)
+        sys.exit(130)
+    except BrokenPipeError:
+        sys.exit(0)  # Parent closed stdin/stdout — normal shutdown
+```
+
+**Rule 6: Never use bare `except:`. Always specify `except Exception:` or narrower.**
+- `except Exception:` catches all recoverable errors
+- `except (ValueError, TypeError):` for data conversion
+- `except KeyboardInterrupt:` is caught **only at the top-level entry point**
 
 ## Git Conventions
 
@@ -273,3 +344,21 @@ hfpclawer = HF (HuggingFace Papers) + claw + er
 | `HFPCrawler/1.0` | HTTP User-Agent | crawl (crawler identifier) | ✅ HTTP semantics, keep |
 
 **Key distinction**: Package/repo name `clawler` is NOT a typo — it has a completely different etymology from the `HFPapersCrawler` class.
+
+## Skills (Hermes Agent Skills)
+
+The repo ships two Hermes Agent skills under `skills/`:
+
+| Skill | File | What it automates |
+|-------|------|-------------------|
+| `hfpclawer-paper-search` | `skills/hfpclawer-paper-search/SKILL.md` | Daily paper discovery → download → convert → wiki sync |
+| `hfpclawer-citation-audit` | `skills/hfpclawer-citation-audit/SKILL.md` | Citation verification (local → S2 → OpenAlex) |
+
+These skills are written for **fresh Hermes Agent users** who have just
+`pip install hfpclawer` and want to use the tool through natural-language
+conversations. They assume zero prior knowledge of the codebase.
+
+Install with:
+```bash
+hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/<skill-name>/SKILL.md
+```

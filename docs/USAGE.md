@@ -14,6 +14,7 @@ source venv/bin/activate
 pip install -e .          # Base installation
 pip install -e ".[scrapy]"  # With Scrapy (requires extra dependencies)
 pip install -e ".[dev]"     # With development tools
+pip install -e ".[arxiv]"   # With arXiv local search (OAI-PMH or Kaggle — see [kaggle-metadata.md](kaggle-metadata.md))
 
 # Configuration
 cp env.template .env
@@ -22,6 +23,8 @@ cp env.template .env
 # Verify
 hfpclawer --help
 ```
+
+> **Note**: For first-time Kaggle metadata setup (optional, ~5.3 GB download + ~11 GB index), see [kaggle-metadata.md](kaggle-metadata.md) — covers `kaggle` CLI install, API token configuration, and storage space requirements.
 
 ## CLI Commands
 

@@ -301,11 +301,27 @@ def batch(
                 console.print(f"    ... and {len(summary.errors) - 5} more")
 
 
+ACTION_DESCRIPTIONS = {
+    "data": "source data audit (arxiv_meta DB, paper_store quality)",
+    "ops": "operation trail audit (AuditTrail events)",
+    "verify": "citation verification (local → S2 → OpenAlex)",
+}
+
+VALID_ACTIONS = list(ACTION_DESCRIPTIONS.keys())
+
 @app.command()
 def audit(
-    action: str = typer.Argument("data", help="data | ops | stats | events | batch | paper"),
-    arg: str = typer.Argument("", help="arxiv_id / batch_id / since"),
+    action: str = typer.Argument(
+        "data",
+        help="| ".join(f"{k}: {v}" for k, v in ACTION_DESCRIPTIONS.items()),
+    ),
+    arg: str = typer.Argument("", help="arxiv_id / batch_id / citation text"),
     limit: int = typer.Option(20, "--limit", "-l", help="Result limit"),
+    source: str = typer.Option(
+        "auto",
+        "--source",
+        help="For verify: citation source (auto|local|s2|openalex)",
+    ),
 ):
     """Audit & data quality inspection
 
@@ -335,6 +351,19 @@ def audit(
 
         report = run_full_audit()
         console.print(format_full_audit_report(report))
+
+    elif action == "verify":
+        # ── Citation verification (L1→L2→L3) ──
+        from hfpclawer.citation_audit import check_citation, format_result
+
+        if not arg:
+            console.print("[red][ERR] verify requires citation text as argument[/red]")
+            console.print("[dim]  Example: hfpclawer audit verify \"Fourier Neural Operator\" --source auto[/dim]")
+            raise typer.Exit(1)
+
+        with console.status(f"[dim]Verifying citation: {arg[:80]}...[/dim]"):
+            result = check_citation(arg, source=source)
+        console.print(format_result(result))
 
     elif action == "ops":
         # ── Operation trail audit (AuditTrail events) ──

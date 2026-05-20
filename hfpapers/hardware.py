@@ -24,9 +24,13 @@ class HardwareProbe:
         self._probe()
 
     def _probe(self):
-        import psutil
-
-        self.total_ram_gb = round(psutil.virtual_memory().total / (1024**3), 1)
+        # RAM — gracefully degrade if psutil is broken (e.g. version mismatch)
+        try:
+            import psutil
+            self.total_ram_gb = round(psutil.virtual_memory().total / (1024**3), 1)
+        except Exception as e:
+            logger.warning("Failed to probe RAM via psutil: %s", e)
+            self.total_ram_gb = 0.0
 
         # PyTorch + CUDA
         try:

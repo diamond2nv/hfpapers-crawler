@@ -54,6 +54,7 @@ paths:
 
         _ps._store_instance = None
         _ps._crossref_instance = None
+
         yield tmpdir
         os.chdir(old_cwd)
         # Cleanup global singletons (for subsequent tests)

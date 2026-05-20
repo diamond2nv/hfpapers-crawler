@@ -28,9 +28,8 @@
 | 严重度 | 问题 | 描述 |
 |--------|------|------|
 | 🟡 中 | `test_is_duplicate_nonexistent` 失败 | 预存测试数据干扰，不影响功能 |
-| 🟡 中 | 42 pyright 类型错误 | 主要在 Scrapy spider + MCP server，不影响运行时 |
+| 🟡 中 | pyright 类型错误 (~143) | 主要在 Scrapy spider + MCP server，不影响运行时 |
 | 🟠 低 | CLI 中 `remove-legacy-import` 残留 | `hfpapers/cli.py` 中 `_import_dummy()` 已不再需要 |
-| 🟠 低 | `download_arxiv.log` 曾被跟踪 | 已删除，干净了 |
 
 ---
 
@@ -132,18 +131,30 @@
 
 ## Phase D：发布与分发（0.5.0 → 1.0.0）
 
-### D1：PyPI 发布准备
+### D1：Citation Audit Phase 2 — 基于 ARS 代码的三索引降级管道 ✅
+- [x] 复制 `_text_similarity.py`（从 ARS, CC BY-NC 4.0）→ `hfpclawer/_text_similarity.py`
+- [x] 创建 `hfpclawer/citation_audit_s2.py`（参考 ARS, Semantic Scholar 客户端）
+- [x] 创建 `hfpclawer/citation_audit_oa.py`（参考 ARS, OpenAlex 客户端）
+- [x] 重写 `citation_audit.py` → L1 (local) → L2 (S2) → L3 (OA) 降级链
+- [x] README 添加 ARS Attribution 声明（CC BY-NC 4.0）
+- [x] 测试全覆盖（含 mock 网络请求）
+- [x] `hfpclawer audit verify --source local|s2|openalex` CLI 支持
+- [x] 修复 psutil `getpagesize` 退化（`HardwareProbe` try/except + 测试放宽）
+- [x] 修复 substring 标题匹配（短关键词→长标题）
+- [x] 修复合并结果丢失 details（authors, doi, venue）
+- [x] 修复 PEP8 风格（emoji → 纯文本 `[OK]`/`[NF]`/`[ERR]`）
+### D2：PyPI 发布准备
 - [ ] `pyproject.toml` 完善：添加 `classifiers`, `keywords`, `project.urls`
 - [ ] 添加 `README.md` 到 PyPI（当前够用）
 - [ ] 修复依赖声明：`optional-dependencies` 中的 `[arxiv]` 确认可用
 - [ ] 构建 + Test PyPI 验证
 
-### D2：文档完善
+### D3：文档完善
 - [ ] 为 `hfpclawer` 创建 Sphinx 文档或 README 补充
 - [ ] API 参考文档
 - [ ] 常见问题 FAQ
 
-### D3：GitHub/GitLab Release
+### D4：GitHub/GitLab Release
 - [ ] 版本标签 `v0.5.0`, `v1.0.0`
 - [ ] Release Notes
 - [ ] 二进制发布（可选）
@@ -155,30 +166,27 @@
 ```
 高优先级 ────────────────────────────────────────── 低优先级
 
-A1 A3     A2 B1 B3     B2 B4 C1     C2 C3 D1 D2 D3
+D2 D3     A1 A2 B1 B4     C1 C2 D4
 ↑                               ↑
 需求迫切，修复问题可跑              锦上添花
 ↑
-A1 + A3 完成后可输出 0.3.0
+D1 已完成 → 接下来最短路线上 PyPI
 ```
 
 **建议立即开工的 3 件事：**
-1. **A1**：修复测试隔离（~15 分钟）—— 让全量测试 62/62 通过
-2. **A3**：添加集成测试（~20 分钟）—— 覆盖 CLI + MCP
-3. **A2**：减少 pyright 错误（~30 分钟）—— 提高到代码质量
-
-完成后即可 tag `v0.3.0`。
+1. **D2**：`pyproject.toml` 完善 + Test PyPI 验证（~30 分钟）
+2. **D3**：README + docs 中英文增补（~20 分钟）
+3. **A1**：修复 `test_is_duplicate_nonexistent` 隔离（~15 分钟）
 
 ---
 
 ## 版本演进预测
 
 ```
-v0.2.0    ← 当前
-v0.3.0    ← Phase A (稳定 + 测试)
-v0.4.0    ← Phase B (功能完善)
-v0.5.0    ← Phase C (Hermes 深度集成)
-v1.0.0    ← Phase D (PyPI 发布)
-```
+v0.2.0    ← 当前基线
+v0.5.x    ← 当前（D1 + 回归修复已完成，公测阶段）
+v0.6.0    ← D2 PyPI 就绪
+v0.7.0    ← D4 Release + docs
+---
 
-每个版本预期 1-2 次开发 session。
+当前状态：D1 已完成，D2～D4 可直接推进到 v0.6.0。公测阶段保持 0.x.y 前缀，成熟后再升 v1.0.0。

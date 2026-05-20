@@ -36,7 +36,8 @@ pip install hfpclawer
 - **PDF conversion** (optional): `pip install hfpclawer[pdf]`
 - **Scrapy spiders** (optional): `pip install hfpclawer[scrapy]`
 - **Dev** (testing): `pip install hfpclawer[dev]`
-- **arXiv local search** (optional): `pip install hfpclawer[arxiv]` — requires access to private GitLab repo
+- **arXiv local search** (optional): `pip install hfpclawer[arxiv]` documents the metadata dependency only (PyPI doesn't support `git+https`). See [docs/kaggle-metadata.md](docs/kaggle-metadata.md) for manual `git clone` + OAI-PMH or Kaggle setup.
+- **Citation audit** (optional): `pip install hfpclawer[audit]` declares namespace only. See [hfpclawer/citation_audit.py](hfpclawer/citation_audit.py) for manual setup.
 
 ### Local Development
 
@@ -187,6 +188,30 @@ pytest tests/ --cov=hfpapers  # With coverage
 ## License
 
 MIT
+
+## Hermes Agent Skills
+
+These skills automate common hfpclawer workflows inside **Hermes Agent** (or any
+AI coding assistant that supports the Hermes skill format):
+
+| Skill | Purpose | Install |
+|-------|---------|---------|
+| `hfpclawer-paper-search` | Daily paper discovery → download → wiki | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-paper-search/SKILL.md` |
+| `hfpclawer-citation-audit` | Verify citations via S2 + OpenAlex | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-citation-audit/SKILL.md` |
+
+After installing, load with `skill_view(name='hfpclawer-paper-search')` in any
+Hermes conversation.
+
+## Acknowledgments
+
+This project incorporates code adapted from:
+
+- **academic-research-skills** by Cheng-I Wu
+  (https://github.com/Imbad0202/academic-research-skills)
+  - `hfpclawer/_text_similarity.py` — title normalization and similarity scoring
+  - `hfpclawer/citation_audit_s2.py` — Semantic Scholar API client (architecture reference)
+  - `hfpclawer/citation_audit_oa.py` — OpenAlex API client (architecture reference)
+  Licensed under CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/)
 
 ## Links
 

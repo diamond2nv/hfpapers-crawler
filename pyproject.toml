@@ -12,17 +12,26 @@ authors = [
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.10"
-keywords = ["pdf", "clawler", "snowflake", "crossref", "scrapy", "pytorch", "arxiv", "neural-operator", "paper-store"]
+keywords = [
+    "pdf", "clawler", "snowflake", "crossref",
+    "scrapy", "arxiv", "neural-operator",
+    "paper-store", "pde", "machine-learning",
+    "oai-pmh", "citation-audit", "semantic-scholar",
+    "openalex", "mcp-server",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
     "pyyaml>=6.0",
@@ -38,6 +47,8 @@ dependencies = [
 Homepage = "https://github.com/diamond2nv/hfpapers-crawler"
 Repository = "https://github.com/diamond2nv/hfpapers-crawler"
 Documentation = "https://github.com/diamond2nv/hfpapers-crawler"
+"Bug Tracker" = "https://github.com/diamond2nv/hfpapers-crawler/issues"
+"Changelog" = "https://github.com/diamond2nv/hfpapers-crawler/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 llm = [
@@ -60,9 +71,15 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
 ]
-# arxiv = [
-#     "arxiv-metadata-service @ git+https://github.com/diamond2nv/arxiv-metadata-service.git@v0.2.0",
-# ]
+arxiv = [
+    # NOTE: arxiv-metadata-service is NOT installable via PyPI (requires GitHub clone).
+    # See docs/kaggle-metadata.md for manual setup instructions.
+    # pip install from GitHub will NOT work when hfpclawer is installed via PyPI.
+]
+audit = [
+    # hfpclawer.citation_audit_s2 / citation_audit_oa use pure stdlib (urllib).
+    # No additional dependencies required.
+]
 [project.scripts]
 hfpclawer = "hfpapers.cli:app"
 

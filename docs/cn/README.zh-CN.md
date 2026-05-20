@@ -38,6 +38,8 @@ hfpclawer search
 | LLM 分析 | `pip install hfpclawer[llm]` | `sniff` / `analyze` 命令 |
 | PDF 转换 | `pip install hfpclawer[pdf]` | PDF → Markdown |
 | Scrapy 爬虫 | `pip install hfpclawer[scrapy]` | 多源爬虫 |
+| arXiv 本地搜索 | `pip install hfpclawer[arxiv]` | 仅声明依赖命名空间（PyPI 不支持 `git+https`）。需手动 `git clone` 后安装，详见 [Kaggle 元数据指南](kaggle-metadata.zh-CN.md) |
+| 引用核验 | `pip install hfpclawer[audit]` | 引用真实性与声明验证（见 [citation_audit](../USAGE.md#citation-audit)） |
 | 开发工具 | `pip install hfpclawer[dev]` | 测试、lint |
 
 ### 本地开发
@@ -176,6 +178,28 @@ pytest tests/ --cov=hfpapers  # 含覆盖率
 ## 许可证
 
 MIT
+
+## Hermes Agent 技能
+
+以下技能可在 **Hermes Agent**（或任何支持 Hermes 技能格式的 AI 助手）中自动化常见 hfpclawer 工作流：
+
+| 技能 | 用途 | 安装 |
+|:-----|:------|:------|
+| `hfpclawer-paper-search` | 自动搜寻论文 → 下载 → 转换 → wiki 同步 | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-paper-search/SKILL.md` |
+| `hfpclawer-citation-audit` | 通过 S2 + OpenAlex 验证引用 | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-citation-audit/SKILL.md` |
+
+安装后，在任何 Hermes 对话中用 `skill_view(name='hfpclawer-paper-search')` 加载。
+
+## 致谢
+
+本项目包含改编自以下项目的代码：
+
+- **academic-research-skills** by Cheng-I Wu
+  (https://github.com/Imbad0202/academic-research-skills)
+  - `hfpclawer/_text_similarity.py` — 标题标准化与相似度评分
+  - `hfpclawer/citation_audit_s2.py` — Semantic Scholar API 客户端（架构参考）
+  - `hfpclawer/citation_audit_oa.py` — OpenAlex API 客户端（架构参考）
+  基于 CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/) 许可
 
 ## 链接
 
