@@ -2,7 +2,11 @@
   <a href="README.md">English</a> | <a href="docs/cn/README.zh-CN.md">简体中文</a>
 </p>
 
-# hfpapers-clawler
+# hfpapers-crawler
+
+[![PyPI version](https://img.shields.io/pypi/v/hfpclawer)](https://pypi.org/project/hfpclawer/)
+[![Python versions](https://img.shields.io/pypi/pyversions/hfpclawer)](https://pypi.org/project/hfpclawer/)
+[![License](https://img.shields.io/github/license/diamond2nv/hfpapers-crawler)](https://github.com/diamond2nv/hfpapers-clawler/blob/master/LICENSE)
 
 > **Naming philosophy**: `claw` (sharp grasp) ≠ `crawl` (creep).
 > `hfpclawer` = **H**ugging**F**ace **P**apers + **claw** + **er**
