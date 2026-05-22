@@ -1223,3 +1223,37 @@ def monitor(
             console.print("[yellow]⚠️  MonitorDaemon not running[/yellow]")
         console.print(f"  PID file: {st['pid_file']}")
         console.print(f"  Log file: {st['log_file']}")
+
+
+@app.command()
+def semantic_service(
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind address"),
+    port: int = typer.Option(8765, "--port", "-p", help="Port"),
+    preload: bool = typer.Option(False, "--preload", help="Preload model on startup"),
+    log_level: str = typer.Option(
+        "info", "--log-level", help="Logging level: debug, info, warning, error"
+    ),
+):
+    """Start the semantic similarity sidecar (FastAPI + sentence-transformers).
+
+    Provides /embed, /similarity, /classify endpoints for expflow.
+
+    Requires: pip install sentence-transformers
+    Model: all-MiniLM-L6-v2 (~80MB, CPU/GPU)
+    """
+    from hfpapers.semantic_service import main
+
+    import sys
+
+    sys.argv = [
+        "semantic-service",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--log-level",
+        log_level,
+    ]
+    if preload:
+        sys.argv.append("--preload")
+    main()
