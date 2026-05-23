@@ -363,3 +363,62 @@ Install with:
 ```bash
 hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/<skill-name>/SKILL.md
 ```
+
+## Cross-Repository Dependencies
+
+This project is the **upstream data pipeline** for `~/Gitlab/Agentic4Sci/expflow`
+(the experiment orchestration tool). expflow depends on this repo for semantic
+embedding and database patterns. Before changing any module listed below, check
+the other repo first.
+
+| hfpapers Module | expflow Module | Coupling | Change Safeguard |
+|-----------------|----------------|----------|-------------------|
+| `semantic_service.py` (FastAPI sidecar) | `semantic_client.py` | HTTP REST | Endpoint paths (`/embed`, `/similarity`, `/classify`), payload schema, return format must stay compatible |
+| `paper_store.py` Snowflake | `snowflake.py` | Ported code | `base_time` (2024-10-04) and `worker_id` must stay identical |
+| `paper_store.py` SQLite + migration pattern | `dispatch_db.py` | Architecture reference | Schema migration idempotency pattern must be aligned |
+| `cli.py:semantic_service` | `semantic_client.py` via `repair.py` | 2-hop call chain | Service startup args, default port (8765) must match client defaults |
+| CLI chain | CLI chain — reverse pipeline | subprocess | `hfpclawer search` output format consumed by `expflow analyze` |
+
+## CodeGraph Integration
+
+CodeGraph (v0.9.3+) is installed and indexed for both repos. Use it during
+development, review, and testing.
+
+### Setup
+
+```bash
+# Already done — indexes are at:
+#   ~/Gitlab/Agentic4Sci/hfpapers-crawler/.codegraph/
+#   ~/Gitlab/Agentic4Sci/expflow/.codegraph/
+
+# Sync after changes (~100ms, incremental):
+cd ~/Gitlab/Agentic4Sci/hfpapers-crawler && npx codegraph sync
+```
+
+### Key Commands
+
+| When | Command | What you get |
+|------|---------|-------------|
+| Find a symbol/class/module | `npx codegraph query "SemanticService"` | Exact file+line match |
+| Get full interface context | `npx codegraph context "SemanticService"` | Class definition, methods, docstrings, callers, tests |
+| Browse project structure (with symbol counts) | `npx codegraph files` | Tree view showing each file's symbol count |
+| Find affected tests | `npx codegraph affected "hfpapers/semantic_service.py"` | List of test files that import from the changed module |
+| Real-time MCP for Hermes | `npx codegraph serve --mcp` (auto-loaded by Hermes Agent via `~/.hermes/config.yaml`) | 4 tools: `codegraph_search`, `codegraph_context`, `codegraph_explore`, `codegraph_affected` |
+
+### Cross-Repo Limitation
+
+CodeGraph indexes **one repo at a time**. When you change `dispatch_db.py`
+in expflow, CodeGraph will NOT detect that `paper_store.py` (the pattern
+source) might need updating. Check the cross-repo table above manually.
+
+### Hermes Agent Flow
+
+```
+User: "refactor semantic service to return top_k results"
+Agent: 1. codegraph context "semantic_service:SemanticService" → gets FastAPI endpoint signatures
+       2. codegraph affected "semantic_service.py"             → sees service-side tests
+       3. Check cross-repo table                               → semantic_client.py needs matching change
+       4. cd expflow && codegraph context "SemanticClient"     → gets client-side interface
+       5. cd expflow && codegraph affected "semantic_client.py" → gets client-side tests
+       6. Code both sides, run both test suites
+```
