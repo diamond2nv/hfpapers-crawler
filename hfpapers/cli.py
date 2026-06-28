@@ -1226,6 +1226,75 @@ def monitor(
 
 
 @app.command()
+def import_cmd(
+    identifier: str = typer.Argument(
+        ..., help="arXiv ID (2501.01934), DOI (10.1016/...), or URL"
+    ),
+    title: str = typer.Option("", "--title", "-t", help="Paper title (optional)"),
+    abstract: str = typer.Option(
+        "", "--abstract", "-a", help="Paper abstract (optional)"
+    ),
+    venue: str = typer.Option("", "--venue", "-v", help="Venue (optional)"),
+    source: str = typer.Option(
+        "import", "--source", help="Source label for the paper record"
+    ),
+    skip_pdf: bool = typer.Option(
+        False, "--skip-pdf", help="Skip PDF download"
+    ),
+    skip_md: bool = typer.Option(
+        False, "--skip-md", help="Skip PDF→MD conversion"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", help="Verbose step logging"
+    ),
+):
+    """Import a paper by arXiv ID / DOI / URL (atomic pipeline).
+
+    Resolves the identifier → dedup check → PDF download (3-level fallback)
+    → pymupdf4llm conversion → PaperStore write.
+
+    Examples:
+
+        hfpclawer import 2501.01934
+
+        hfpclawer import 10.1016/j.jcp.2025.114432 --skip-pdf
+
+        hfpclawer import https://arxiv.org/abs/2501.01934 --title "Fusion DeepONet"
+    """
+    from hfpclawer.import_paper.importer import import_arxiv_id
+
+    with console.status(f"[dim]Importing {identifier}...[/dim]"):
+        result = import_arxiv_id(
+            raw_id=identifier,
+            title=title,
+            abstract=abstract,
+            venue=venue,
+            source=source,
+            download_pdf=not skip_pdf,
+            convert_md=not skip_md,
+            verbose=verbose,
+        )
+
+    if result.ok:
+        console.print("[bold green]✅ Imported[/bold green]")
+        console.print(f"  sf_id: [cyan]{result.sf_id}[/cyan]")
+        if result.pdf_path:
+            console.print(f"  PDF:   [dim]{result.pdf_path}[/dim]")
+        if result.md_path:
+            console.print(f"  MD:    [dim]{result.md_path}[/dim]")
+        if verbose and result.steps:
+            console.print(f"  Steps: {', '.join(result.steps)}")
+    elif result.status == "duplicate":
+        console.print("[yellow]⏭️  Already in store[/yellow]")
+        console.print(f"  sf_id: [cyan]{result.sf_id}[/cyan]")
+    else:
+        console.print(f"[red]❌ Import failed: {result.error}[/red]")
+        if verbose and result.steps:
+            console.print(f"  Steps: {', '.join(result.steps)}")
+        raise typer.Exit(1)
+
+
+@app.command()
 def semantic_service(
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind address"),
     port: int = typer.Option(8765, "--port", "-p", help="Port"),
@@ -1241,9 +1310,9 @@ def semantic_service(
     Requires: pip install sentence-transformers
     Model: all-MiniLM-L6-v2 (~80MB, CPU/GPU)
     """
-    from hfpapers.semantic_service import main
-
     import sys
+
+    from hfpapers.semantic_service import main
 
     sys.argv = [
         "semantic-service",
