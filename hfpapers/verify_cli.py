@@ -15,16 +15,151 @@ Usage:
 
 from __future__ import annotations
 
-import json
-import sys
-from datetime import datetime, timezone
-from pathlib import Path
-
 import typer
 from rich.console import Console
 from rich.table import Table
 
 verify_app = typer.Typer(name="verify", help="Formula verification & CAS cross-validation")
+
+# ── Report generators ────────────────────────
+
+
+def _generate_latex_report(
+    entry: "FormulaEntry",
+    results: list["LayerResult"],
+) -> str:
+    """Generate a LaTeX snippet report for a verified formula."""
+    lines = []
+
+    # Build status summary
+    total = len(results)
+    passed = sum(1 for r in results if r.passed)
+    reliability = "A" if passed == total else "B" if passed >= total - 1 else "C"
+
+    # Section header
+    lines.append(r"\section{验证报告 — Verification Report}")
+    lines.append(r"\label{sec:verify-" + entry.fid.replace(":", "-") + "}")
+    lines.append("")
+
+    # Basic info table
+    lines.append(r"\subsection{基本信息 — Basic Information}")
+    lines.append(r"\begin{tabular}{ll}")
+    lines.append(r"\toprule")
+    lines.append(r"字段 & 值 \\")
+    lines.append(r"\midrule")
+    lines.append(f"FID & \\texttt{{{entry.fid}}} \\\\")
+    lines.append(f"LaTeX & ${entry.latex}$ \\\\")
+    lines.append(f"维数 & {entry.pint_dimension or '---'} \\\\")
+    lines.append(f"来源 & {', '.join(entry.source_keys) if entry.source_keys else '---'} \\\\")
+    lines.append(f"标签 & {', '.join(entry.tags) if entry.tags else '---'} \\\\")
+    lines.append(f"可信度 & {reliability}（{passed}/{total} 通过）\\\\")
+    lines.append(r"\bottomrule")
+    lines.append(r"\end{tabular}")
+    lines.append("")
+
+    # Layer-by-layer results
+    lines.append(r"\subsection{验证流水线 — Verification Pipeline}")
+    for r in results:
+        icon = r"$\checkmark$" if r.passed else r"$\times$"
+        lines.append(f"\\paragraph{{{r.layer}}}: {icon} \\hfill {r.detail}")
+        if r.cas and r.cas.proof_method:
+            lines.append(f"CAS对比: {r.cas.engine_a} $\\leftrightarrow$ {r.cas.engine_b or '---'}, "
+                         f"等价={r.cas.equivalent}, 策略={r.cas.proof_method}")
+        lines.append("")
+
+    # CAS equivalence proof detail
+    cas_results = [r for r in results if r.cas and r.cas.proof_method]
+    if cas_results:
+        lines.append(r"\subsection{CAS等价性证明 — CAS Equivalence Proof}")
+        for cr in cas_results:
+            cas = cr.cas
+            lines.append(f"\\paragraph{{{cr.fid}}}")
+            lines.append(r"\begin{align*}")
+            lines.append(f"\\text{{SymPy}} &= {cas.sympy_result} \\\\")
+            lines.append(f"\\text{{Wolfram}} &= {cas.wolfram_result} \\\\")
+            if cas.diff:
+                lines.append(f"\\Delta &= {cas.diff}")
+            lines.append(r"\end{align*}")
+            lines.append(f"证明策略: \\texttt{{{cas.proof_method}}} --- {cas.detail}")
+            lines.append("")
+
+    # Numeric check details
+    numeric_results = [r for r in results if r.computed is not None]
+    if numeric_results:
+        lines.append(r"\subsection{数值验证 — Numerical Verification}")
+        lines.append(r"\begin{tabular}{lrrl}")
+        lines.append(r"\toprule")
+        lines.append(r"FID & 计算值 & 期望值 & 相对误差 \\")
+        lines.append(r"\midrule")
+        for nr in numeric_results:
+            icon = r"$\checkmark$" if nr.passed else r"$\times$"
+            lines.append(
+                f"{icon} {nr.fid} & {nr.computed:.6e} & {nr.expected:.6e} & {nr.rel_error:.2e} \\\\"
+            )
+        lines.append(r"\bottomrule")
+        lines.append(r"\end{tabular}")
+        lines.append("")
+
+    # Footer
+    lines.append(r"\subsection{发表建议 — Publication Recommendation}")
+    if passed == total:
+        lines.append("所有验证层通过，建议发表等级：\\textbf{A}（双CAS独立验证 + 数值 + 量纲 + 极限）。")
+    elif passed >= total - 1:
+        lines.append(
+            "大部分验证通过，建议发表等级：\\textbf{B}。推荐审查以下非通过层后再发表。"
+        )
+    else:
+        lines.append(
+            "多项验证未通过，建议发表等级：\\textbf{C}。请逐层排查后重新验证。"
+        )
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def _generate_qmd_report(
+    entry: "FormulaEntry",
+    results: list["LayerResult"],
+    title: str = "",
+) -> str:
+    """Generate a full Quarto .qmd document from verification results."""
+    doc_title = title or f"验证报告: {entry.fid} --- Formula Verification Report"
+
+    lines = []
+    # YAML frontmatter
+    lines.append("---")
+    lines.append(f'title: "{doc_title}"')
+    lines.append('author: "hfpclawer verify report"')
+    lines.append("lang: zh-CN")
+    lines.append("format:")
+    lines.append("  pdf:")
+    lines.append("    documentclass: ctexart")
+    lines.append("    fontsize: 11pt")
+    lines.append("    geometry:")
+    lines.append("      - margin=2.5cm")
+    lines.append('    mainfont: "Liberation Serif"')
+    lines.append("    header-includes: |")
+    lines.append("      \\usepackage{booktabs}")
+    lines.append("      \\usepackage{fancyhdr}")
+    lines.append("      \\usepackage{amsmath,amssymb}")
+    lines.append("      \\pagestyle{fancy}")
+    lines.append("      \\fancyhf{}")
+    lines.append("      \\rhead{\\thepage}")
+    lines.append("      \\setlength{\\headheight}{14pt}")
+    lines.append("    toc: false")
+    lines.append("    number-sections: true")
+    lines.append("---")
+    lines.append("")
+
+    # Generate the LaTeX body as a {=latex} block
+    latex_body = _generate_latex_report(entry, results)
+    lines.append("```{=latex}")
+    lines.append(latex_body)
+    lines.append("```")
+
+    return "\n".join(lines)
+
+
 console = Console()
 
 
@@ -335,3 +470,58 @@ def cross_cmd(
         console.print(table)
     else:
         console.print(f"[yellow]L1b: {l1b.detail}[/yellow]")
+
+
+@verify_app.command("report")
+def report_cmd(
+    formula_id: str = typer.Argument(..., help="Formula ID to report on"),
+    registry_path: str = typer.Option(
+        "formula_registry.jsonl", "--registry", "-r",
+    ),
+    no_wolfram: bool = typer.Option(
+        False, "--no-wolfram", help="Disable Wolfram Engine",
+    ),
+    qmd: bool = typer.Option(
+        False, "--qmd", help="Generate full Quarto .qmd (default: LaTeX snippet)",
+    ),
+    title: str = typer.Option(
+        "", "--title", "-t", help="Document title (--qmd mode only)",
+    ),
+):
+    """Generate a verification report (LaTeX snippet or Quarto .qmd).
+
+    \b
+    Examples:
+      hfpclawer verify report eq:biot-savart                      # LaTeX snippet to stdout
+      hfpclawer verify report eq:biot-savart --qmd > report.qmd   # Quarto .qmd
+      quarto render report.qmd --to pdf                           # One-click PDF
+    """
+    reg = _get_registry(registry_path)
+    entry = reg.get(formula_id)
+
+    if entry is None:
+        console.print(f"[red]FID '{formula_id}' not found[/red]")
+        raise typer.Exit(1)
+
+    # Run verification
+    pipe = _get_pipeline(registry_path, wolfram=not no_wolfram)
+    results = pipe.verify_entry(entry)
+    pipe.registry.save()
+
+    # Generate report
+    console.print(f"[cyan]Generating report for {formula_id}...[/cyan]")
+
+    if qmd:
+        output = _generate_qmd_report(entry, results, title=title)
+        print(output)
+    else:
+        output = _generate_latex_report(entry, results)
+        # Wrap in \begin{document}...\end{document} with minimal preamble
+        print(r"\documentclass{article}")
+        print(r"\usepackage{booktabs}")
+        print(r"\usepackage{amsmath,amssymb}")
+        print(r"\usepackage[UTF8]{ctex}")
+        print(r"\begin{document}")
+        print(output)
+        print(r"\end{document}")
+
