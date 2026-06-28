@@ -153,4 +153,4 @@ A failed layer does **not** mean the formula is wrong. It means the checker foun
 |-------|------|-------------------|----------------|
 | **L6** † | Formal proof | Lean 4 theorem prover integration. Translate verified SymPy expressions into Lean `calc` blocks and discharge via `simp` / `ring` / `field_simp`. | v0.8+ |
 | **L7** † | Figure-of-merit | Benchmarked numerical accuracy against published values for given test cases. | v0.9+ |
-| **L8** † | Literature coherence | Cross-reference with known results from arXiv/DOI — checks whether the formula's numerical predictions match established experimental/computational baselines. | v1.0+ |
+| **L8** † | Literature coherence | Cross-reference with known results from arXiv/DOI — checks whether the formula's numerical predictions match established experimental/computational baselines. | v0.10+ |
