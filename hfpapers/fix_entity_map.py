@@ -41,12 +41,7 @@ CORRECTED_MAP = {
         "Fourier Neural Operator for Parametric Partial Differential Equations",
     ),
     "poseidon": ("2405.19101", "Poseidon: Efficient Foundation Models for PDEs"),
-    "deeponet": (
-        "1910.01493",
-        "DeepONet: Learning nonlinear operators for identifying differential equations",
-    ),
-    # 实际 DeepONet ID 是 1910.01493? 不——这个 ID 在 arXiv 上是语音论文
-    # 更正：
+    # 实际 DeepONet arXiv ID 是 1910.03193（1910.01493 是语音论文，已纠正）
     "deeponet": (
         "1910.03193",
         "DeepONet: Learning nonlinear operators for identifying differential equations",

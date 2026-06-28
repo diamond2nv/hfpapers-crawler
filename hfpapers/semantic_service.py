@@ -21,15 +21,13 @@ import argparse
 import logging
 import os
 import sys
-from pathlib import Path
-from typing import Any
 
 import numpy as np
+import uvicorn
 
 # FastAPI imports (stdlib — no torch needed here, only in the model wrapper)
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import uvicorn
 
 logger = logging.getLogger("semantic_service")
 

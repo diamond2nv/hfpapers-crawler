@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hfpclawer"
-version = "0.5.0"
+version = "0.6.0"
 description = "Multi-source academic paper clawler for PDE/neural operator/physics-informed ML — OAI-PMH download + PDF download + SQLite paper_store + Cross-Ref + MCP server"
 authors = [
     {name = "Li Shen"},
@@ -68,8 +68,10 @@ dev = [
     "ruff",
     "pyright",
     "pytest>=7.0",
+    "pytest-asyncio>=0.24",
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
+    "pytest-timeout>=2.3",
 ]
 arxiv = [
     # NOTE: arxiv-metadata-service is NOT installable via PyPI (requires GitHub clone).
@@ -92,6 +94,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-q --tb=short"
+asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow (e.g. venv creation + pip install), deselected by default",
 ]
@@ -117,3 +120,9 @@ quote-style = "double"
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "N"]
 ignore = ["E501"]
+
+# Legacy issues in non-core files (pre-existing, not our concern)
+[tool.ruff.lint.per-file-ignores]
+"examples/*" = ["E402"]
+"tests/test_audit.py" = ["F841"]
+"tests/test_semantic_service.py" = ["E402"]

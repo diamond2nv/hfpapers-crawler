@@ -90,6 +90,9 @@ def search(
     show_all: bool = typer.Option(
         False, "--all", "-a", help="Show all results (including low relevance)"
     ),
+    search_timeout: float = typer.Option(
+        15.0, "--search-timeout", help="Per-source timeout in seconds (default: 15)"
+    ),
 ):
     """Search HF Papers → arXiv verify → classify
 
@@ -102,7 +105,9 @@ def search(
 
     dedup = DedupEngine()
     detector = RelevanceDetector()
-    clawler = HFPapersCrawler(dedup=dedup, detector=detector)
+    clawler = HFPapersCrawler(
+        dedup=dedup, detector=detector, source_timeout=search_timeout
+    )
 
     start_t = time.time()
     try:

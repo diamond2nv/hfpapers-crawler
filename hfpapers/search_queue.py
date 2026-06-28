@@ -148,21 +148,22 @@ SEARCH_RESULT_CODE_LEVELS = {
 
 
 class SearchDispatcher:
-    """Async search scheduler
+    """Async search scheduler with per-source timeout control.
 
     Usage:
-        dispatcher = SearchDispatcher(max_workers=5)
+        dispatcher = SearchDispatcher(max_workers=5, source_timeout=15.0)
         dispatcher.add_task("neural operator", category="FNO")
         dispatcher.add_task("physics informed", category="PINN")
         results = await dispatcher.run()
     """
 
-    def __init__(self, max_workers: int = 5):
+    def __init__(self, max_workers: int = 5, source_timeout: float = 15.0):
         self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self.results: list[SearchResult] = []
         self._seen_ids: set[str] = set()
         self._seen_dois: set[str] = set()  # DOI dedup for CNS/non-arxiv papers
         self.max_workers = max_workers
+        self.source_timeout = source_timeout  # Per-source timeout in seconds
         self.sem = asyncio.Semaphore(max_workers)
         self._session: Optional[requests.Session] = None
         self._verify_enabled = True
@@ -224,17 +225,26 @@ class SearchDispatcher:
     async def _search_one_source(
         self, searcher: BaseSearcher, task: SearchTask
     ) -> list[SearchResult]:
-        """Search with a single searcher"""
+        """Search with a single searcher, with per-source timeout"""
         try:
             loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(
-                None,
-                searcher.search_sync,
-                task.query,
-                task.limit,
-                task.category,
+            results = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    searcher.search_sync,
+                    task.query,
+                    task.limit,
+                    task.category,
+                ),
+                timeout=self.source_timeout,
             )
             return results
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"[{searcher.name}] {task.query} timed out after "
+                f"{self.source_timeout:.0f}s"
+            )
+            return []
         except Exception as e:
             logger.warning(f"[{searcher.name}] {task.query} failed: {e}")
             return []

@@ -192,11 +192,13 @@ class HFPapersCrawler:
     - Relevance detection
     """
 
-    def __init__(self, dedup: DedupEngine, detector: RelevanceDetector):
+    def __init__(self, dedup: DedupEngine, detector: RelevanceDetector, source_timeout: float = 15.0):
         self.dedup = dedup
         self.detector = detector
         self.found: list[PaperInfo] = []
         self.queries = cfg_get("search.queries", [])
+        self.source_timeout = source_timeout
+
     def crawl(self, max_pages: int = 3) -> list[PaperInfo]:
         """Search (sync interface, uses async dispatcher internally)
 
@@ -213,7 +215,10 @@ class HFPapersCrawler:
         logger.info(f"Searching {len(self.queries)} dimensions, top-{limit}")
 
         # Use async dispatcher
-        dispatcher = SearchDispatcher(max_workers=min(5, len(self.queries)))
+        dispatcher = SearchDispatcher(
+            max_workers=min(5, len(self.queries)),
+            source_timeout=self.source_timeout,
+        )
 
         for q in self.queries:
             dispatcher.add_task(
