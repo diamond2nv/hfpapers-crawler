@@ -118,3 +118,39 @@ quarto render appendix.tex --to pdf
 2. **Wolfram Engine**: CAS cross-validation requires a running Wolfram Engine Docker container. Without it, L1b is skipped with a note.
 3. **Numeric checks**: L2 numeric verification requires `numeric_check` field in the entry — most formulas skip L2 gracefully.
 4. **Long LaTeX**: Formulas exceeding ~80 characters may be truncated in table cells. The full LaTeX is still available in the basic info row.
+
+---
+
+## Appendix: Verification Pipeline Layer Reference
+
+*Applicable to hfpclawer ≥ v0.7.3. Future layers marked with †.*
+
+The verification report grades formulas across 6 layers. Each layer targets a specific failure mode and uses an independent toolchain:
+
+| Layer | Name | What it checks | Tool | Failure examples |
+|-------|------|----------------|------|------------------|
+| **L1** | Symbolic derivation | Parse LaTeX → SymPy → simplify. Catches syntax errors, undefined symbols, divergent integrals. | SymPy | `\sin^2 x + \cos^2 x` → `1` ✅; malformed LaTeX → parse error ❌ |
+| **L1b** | CAS cross-validation | Evaluate same LaTeX in SymPy + Wolfram Engine; prove algebraic equivalence via 9 strategies (simplify/expand/together/trigsimp/powsimp/factor/derivative/ratio/numeric_fallback). | SymPy + Wolfram Engine (Docker) | `(x-1)(x+1)` vs `x^2-1` → expand ✅; `\sin^2 x` vs `1-\cos^2 x` → trigsimp ✅ |
+| **L2** | Numerical cross-check | Substitute concrete values; compare computed vs expected result within tolerance (5%). | NumPy + SymPy | `q=1.6e-19, E=1, B=0, v=0` → `F=1.6e-19` ✅; off by 10⁶× → micro-to-meter trap ❌ |
+| **L3** | Dimensional analysis | Check physical dimension via pint. Verifies the formula's dimension matches its declared quantity (e.g. force → `[M·L·T⁻²]`). | pint | `F=ma` → dimension `[M·L·T⁻²]` ✅; `F=mv` → wrong dimension ❌ |
+| **L4** | Physical limits | Symbolic limit tests: far-field (var→∞) should → 0 or constant; near-field singularity detection. | SymPy limit() | `1/r` at r→∞ → 0 ✅; `1/r` at r=0 → diverges ⚠️ |
+| **L5** | Singularity detection | AST walker finds denominator zeros, logarithmic branch cuts, and inverse-power singularities. | SymPy preorder_traversal | `\frac{1}{r}` → `1/r` flagged ⚠️; `\log(z-1)` → `log(z-1)` flagged ⚠️ |
+
+### How to interpret the grade
+
+A failed layer does **not** mean the formula is wrong. It means the checker found a signal it couldn't automatically dismiss:
+
+| Report status | Likely meaning |
+|--------------|----------------|
+| ❌ L5 (singularity) | `1/r` at origin — physically valid but flagged; review annotations needed |
+| ❌ L1 (parse) | Typo in LaTeX or unsupported macro (e.g. `\bm` instead of `\mathbf`) |
+| ❌ L1b (CAS) | SymPy ↔ Wolfram disagree — genuine discrepancy or simplification path divergence |
+| ❌ L3 (dimension) | Unit mismatch — e.g. force formula outputs `[M·L·T⁻¹]` instead of `[M·L·T⁻²]` |
+
+### Future layers (†)
+
+| Layer | Name | Planned capability | Target version |
+|-------|------|-------------------|----------------|
+| **L6** † | Formal proof | Lean 4 theorem prover integration. Translate verified SymPy expressions into Lean `calc` blocks and discharge via `simp` / `ring` / `field_simp`. | v0.8+ |
+| **L7** † | Figure-of-merit | Benchmarked numerical accuracy against published values for given test cases. | v0.9+ |
+| **L8** † | Literature coherence | Cross-reference with known results from arXiv/DOI — checks whether the formula's numerical predictions match established experimental/computational baselines. | v1.0+ |
