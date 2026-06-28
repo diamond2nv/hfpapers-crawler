@@ -47,6 +47,10 @@ from hfpapers.config import get, load_config
 from hfpapers.hardware import HardwareProbe
 
 app = typer.Typer(name="hfpclawer", help="HF Papers crawler + Wiki integration")
+
+# Mount verify subcommand
+from hfpapers.verify_cli import verify_app
+app.add_typer(verify_app, name="verify")
 logger = logging.getLogger("hfpclawer")
 console = Console()
 
