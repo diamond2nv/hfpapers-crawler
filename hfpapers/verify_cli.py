@@ -127,6 +127,33 @@ def _generate_latex_report(
         )
     lines.append("")
 
+    # ── Appendix: Layer Reference ──────────────────────────────
+    lines.append(r"\subsection*{附录：验证流水线层参考 — Verification Layer Reference}")
+    lines.append(r"\small")
+    lines.append(r"\emph{hfpclawer $\ge$ v0.7.3。未来层以（规划）标记。}")
+    lines.append("")
+    lines.append(r"\begin{tabular}{lllp{6cm}}")
+    lines.append(r"\toprule")
+    lines.append(r"层 & 名称 & 工具 & 检查内容 \\")
+    lines.append(r"\midrule")
+    lines.append(r"L1 & 符号推导 & SymPy & LaTeX → SymPy 化简，检查语法错误与发散积分 \\")
+    lines.append(r"L1b & CAS交叉验证 & SymPy+Wolfram & 双引擎9策略代数等价性证明 \\")
+    lines.append(r"L2 & 数值验证 & NumPy & 代入数值，5\%容差内对比期望值 \\")
+    lines.append(r"L3 & 量纲分析 & pint & 物理维数匹配检验（如力→$[M\cdot L\cdot T^{-2}]$） \\")
+    lines.append(r"L4 & 物理极限 & SymPy limit & 远场→0、近场发散检测 \\")
+    lines.append(r"L5 & 奇异点 & SymPy AST & 分母为零/对数分支点/反幂奇异点检出 \\")
+    lines.append(r"\midrule")
+    lines.append(r"L6（规划） & 形式化证明 & Lean 4 & v0.8+：SymPy→Lean calc块 \\")
+    lines.append(r"L7（规划） & 质量指标 & — & v0.9+：发表值基准数值精度对比 \\")
+    lines.append(r"L8（规划） & 文献一致性 & arXiv/DOI & v0.10+：与已知结果交叉验证 \\")
+    lines.append(r"\bottomrule")
+    lines.append(r"\end{tabular}")
+    lines.append("")
+    lines.append(r"\textbf{注意：} 某层未通过不代表公式有错。")
+    lines.append(r"如L5标出$1/r$奇异点是物理上有效的，需人工确认。")
+    lines.append(r"L1b的SymPy↔Wolfram不一致才需仔细排查。")
+    lines.append("")
+
     return "\n".join(lines)
 
 
