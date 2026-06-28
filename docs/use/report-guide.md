@@ -8,11 +8,12 @@ Generate publication-ready verification reports from the Formula Registry.
 # LaTeX snippet (standalone .tex document)
 hfpclawer verify report <fid>
 
-# Quarto .qmd document (for one-click PDF via Quarto)
-hfpclawer verify report <fid> --qmd > report.qmd
+# Quarto .tex document (for one-click PDF via Quarto)
+hfpclawer verify report <fid> --qmd > report.tex
+quarto render report.tex --to pdf
 
 # With custom title
-hfpclawer verify report <fid> --qmd --title "My Report" > report.qmd
+hfpclawer verify report <fid> --qmd --title "My Report" > report.tex
 ```
 
 ## Output Modes
@@ -22,7 +23,7 @@ hfpclawer verify report <fid> --qmd --title "My Report" > report.qmd
 Prints a standalone `.tex` document to stdout with:
 
 - **Basic info table**: FID, LaTeX, dimension, source, tags, reliability grade
-- **Verification pipeline**: L1→L5 layer-by-layer results with emoji status
+- **Verification pipeline**: L1→L5 layer-by-layer results with checkmark/cross
 - **CAS equivalence proof**: SymPy ↔ Wolfram Engine algebra comparison (`align*`)
 - **Numerical verification**: table of computed vs expected values
 - **Publication recommendation**: Grade A/B/C
@@ -40,17 +41,14 @@ Or embed it in an existing paper:
 \input{appendix_verify.tex}
 ```
 
-### 2. Quarto .qmd (`--qmd`)
+### 2. Standalone .tex (`--qmd`)
 
-Generates a full Quarto `.qmd` document with:
-
-- YAML frontmatter (ctexart + Liberation Serif + booktabs)
-- Validation body wrapped in `{=latex}` raw block
-- Ready for `quarto render --to pdf`
+Generates a `.tex` file using `ctexart` with Liberation Serif layout, ready for direct compilation or Quarto rendering:
 
 ```bash
-hfpclawer verify report eq:biot-savart --qmd > appendix.qmd
-quarto render appendix.qmd --to pdf
+hfpclawer verify report eq:biot-savart --qmd > report.tex
+xelatex report.tex                                          # Direct
+quarto render report.tex --to pdf                           # Via Quarto
 ```
 
 ## Prerequisites for PDF rendering
@@ -101,9 +99,9 @@ hfpclawer verify fid eq:magnetic-force
 # 3. Generate LaTeX report (for embedding in paper)
 hfpclawer verify report eq:magnetic-force > appendix_magnetic.tex
 
-# 4. Generate Quarto .qmd (for standalone PDF)
-hfpclawer verify report eq:magnetic-force --qmd > appendix.qmd
-quarto render appendix.qmd --to pdf
+# 4. Generate standalone .tex (for Quarto PDF)
+hfpclawer verify report eq:magnetic-force --qmd > appendix.tex
+quarto render appendix.tex --to pdf
 ```
 
 ## Reliability Grades

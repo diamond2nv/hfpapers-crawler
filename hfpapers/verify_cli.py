@@ -29,6 +29,18 @@ def _generate_latex_report(
     results: list["LayerResult"],
 ) -> str:
     """Generate a LaTeX snippet report for a verified formula."""
+
+    def _tex_escape(s: str) -> str:
+        """Replace Unicode chars with LaTeX-safe alternatives."""
+        return (s
+                .replace("→", r"$\to$")
+                .replace("∞", r"$\infty$")
+                .replace("⟨", r"$\langle$")
+                .replace("⟩", r"$\rangle$")
+                .replace("↔", r"$\leftrightarrow$")
+                .replace("—", "---")
+                )
+
     lines = []
 
     # Build status summary
@@ -61,10 +73,11 @@ def _generate_latex_report(
     lines.append(r"\subsection{验证流水线 — Verification Pipeline}")
     for r in results:
         icon = r"$\checkmark$" if r.passed else r"$\times$"
-        lines.append(f"\\paragraph{{{r.layer}}}: {icon} \\hfill {r.detail}")
+        detail = _tex_escape(r.detail)
+        lines.append(f"\\paragraph{{{r.layer}}}: {icon} \\hfill {detail}")
         if r.cas and r.cas.proof_method:
             lines.append(f"CAS对比: {r.cas.engine_a} $\\leftrightarrow$ {r.cas.engine_b or '---'}, "
-                         f"等价={r.cas.equivalent}, 策略={r.cas.proof_method}")
+                         f"等价={r.cas.equivalent}, 策略={_tex_escape(r.cas.proof_method)}")
         lines.append("")
 
     # CAS equivalence proof detail
@@ -122,40 +135,38 @@ def _generate_qmd_report(
     results: list["LayerResult"],
     title: str = "",
 ) -> str:
-    """Generate a full Quarto .qmd document from verification results."""
+    """Generate a standalone .tex file (renderable by quarto or pdflatex).
+
+    Quarto can render .tex files directly:
+      quarto render report.tex --to pdf
+    """
     doc_title = title or f"验证报告: {entry.fid} --- Formula Verification Report"
 
     lines = []
-    # YAML frontmatter
-    lines.append("---")
-    lines.append(f'title: "{doc_title}"')
-    lines.append('author: "hfpclawer verify report"')
-    lines.append("lang: zh-CN")
-    lines.append("format:")
-    lines.append("  pdf:")
-    lines.append("    documentclass: ctexart")
-    lines.append("    fontsize: 11pt")
-    lines.append("    geometry:")
-    lines.append("      - margin=2.5cm")
-    lines.append('    mainfont: "Liberation Serif"')
-    lines.append("    header-includes: |")
-    lines.append("      \\usepackage{booktabs}")
-    lines.append("      \\usepackage{fancyhdr}")
-    lines.append("      \\usepackage{amsmath,amssymb}")
-    lines.append("      \\pagestyle{fancy}")
-    lines.append("      \\fancyhf{}")
-    lines.append("      \\rhead{\\thepage}")
-    lines.append("      \\setlength{\\headheight}{14pt}")
-    lines.append("    toc: false")
-    lines.append("    number-sections: true")
-    lines.append("---")
+    # Minimal preamble
+    lines.append(r"\documentclass{ctexart}")
+    lines.append(r"\usepackage[T1]{fontenc}")
+    lines.append(r"\usepackage{booktabs}")
+    lines.append(r"\usepackage{fancyhdr}")
+    lines.append(r"\usepackage{amsmath,amssymb}")
+    lines.append(r"\pagestyle{fancy}")
+    lines.append(r"\fancyhf{}")
+    lines.append(r"\rhead{\thepage}")
+    lines.append(r"\setlength{\headheight}{14pt}")
+    lines.append(r"\usepackage[margin=2.5cm]{geometry}")
+    lines.append(r"\title{" + doc_title + "}")
+    lines.append(r"\author{hfpclawer verify report}")
+    lines.append(r"\begin{document}")
+    lines.append(r"\maketitle")
     lines.append("")
 
-    # Generate the LaTeX body as a {=latex} block
+    # LaTeX body from the shared generator
     latex_body = _generate_latex_report(entry, results)
-    lines.append("```{=latex}")
+    # Strip the \section and \subsection (they don't need ctexart re-wrapping)
+    # Actually the body is fine as-is since we use ctexart
     lines.append(latex_body)
-    lines.append("```")
+
+    lines.append(r"\end{document}")
 
     return "\n".join(lines)
 
@@ -482,19 +493,20 @@ def report_cmd(
         False, "--no-wolfram", help="Disable Wolfram Engine",
     ),
     qmd: bool = typer.Option(
-        False, "--qmd", help="Generate full Quarto .qmd (default: LaTeX snippet)",
+        False, "--qmd", help="Generate standalone .tex (render via quarto or xelatex)",
     ),
     title: str = typer.Option(
-        "", "--title", "-t", help="Document title (--qmd mode only)",
+        "", "--title", "-t", help="Document title",
     ),
 ):
-    """Generate a verification report (LaTeX snippet or Quarto .qmd).
+    """Generate a verification report (LaTeX or standalone .tex).
 
     \b
     Examples:
       hfpclawer verify report eq:biot-savart                      # LaTeX snippet to stdout
-      hfpclawer verify report eq:biot-savart --qmd > report.qmd   # Quarto .qmd
-      quarto render report.qmd --to pdf                           # One-click PDF
+      hfpclawer verify report eq:biot-savart --qmd > report.tex   # Standalone .tex
+      xelatex report.tex                                          # Compile directly
+      quarto render report.tex --to pdf                           # Via Quarto
     """
     reg = _get_registry(registry_path)
     entry = reg.get(formula_id)
@@ -509,19 +521,21 @@ def report_cmd(
     pipe.registry.save()
 
     # Generate report
-    console.print(f"[cyan]Generating report for {formula_id}...[/cyan]")
+    import sys
+    print(f"Generating report for {formula_id}...", file=sys.stderr)
 
     if qmd:
         output = _generate_qmd_report(entry, results, title=title)
-        print(output)
+        sys.stdout.write(output)
+        sys.stdout.write("\n")
     else:
         output = _generate_latex_report(entry, results)
         # Wrap in \begin{document}...\end{document} with minimal preamble
-        print(r"\documentclass{article}")
-        print(r"\usepackage{booktabs}")
-        print(r"\usepackage{amsmath,amssymb}")
-        print(r"\usepackage[UTF8]{ctex}")
-        print(r"\begin{document}")
-        print(output)
-        print(r"\end{document}")
+        sys.stdout.write(r"\documentclass{article}" + "\n")
+        sys.stdout.write(r"\usepackage{booktabs}" + "\n")
+        sys.stdout.write(r"\usepackage{amsmath,amssymb}" + "\n")
+        sys.stdout.write(r"\usepackage[UTF8]{ctex}" + "\n")
+        sys.stdout.write(r"\begin{document}" + "\n")
+        sys.stdout.write(output + "\n")
+        sys.stdout.write(r"\end{document}" + "\n")
 

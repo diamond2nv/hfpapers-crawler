@@ -8,11 +8,12 @@
 # LaTeX 片段（独立可编译 .tex 文档）
 hfpclawer verify report <fid>
 
-# Quarto .qmd 文档（一键 PDF 输出）
-hfpclawer verify report <fid> --qmd > report.qmd
+# Quarto .tex 文档（一键 PDF 输出）
+hfpclawer verify report <fid> --qmd > report.tex
+quarto render report.tex --to pdf
 
 # 自定义标题
-hfpclawer verify report <fid> --qmd --title "附录：公式验证" > appendix.qmd
+hfpclawer verify report <fid> --qmd --title "附录：公式验证" > report.tex
 ```
 
 ## 输出模式
@@ -40,17 +41,14 @@ xelatex appendix.tex
 \input{appendix_verify.tex}
 ```
 
-### 2. Quarto .qmd（`--qmd`）
+### 2. Standalone .tex（`--qmd`）
 
-生成完整 Quarto `.qmd` 文档，包含：
-
-- YAML 前置元数据（ctexart + Liberation Serif + booktabs）
-- 验证正文包裹在 `{=latex}` 原始块中
-- 可直接 `quarto render --to pdf`
+使用 `ctexart` 生成包含标题页的标准 LaTeX 文档，可直接编译或通过 Quarto 渲染：
 
 ```bash
-hfpclawer verify report eq:biot-savart --qmd > appendix.qmd
-quarto render appendix.qmd --to pdf
+hfpclawer verify report eq:biot-savart --qmd > report.tex
+xelatex report.tex              # 直接编译
+quarto render report.tex --to pdf  # 通过 Quarto
 ```
 
 ## PDF 渲染前置条件
@@ -101,9 +99,9 @@ hfpclawer verify fid eq:maxwell-faraday
 # 3. 生成 LaTeX 报告（嵌入论文）
 hfpclawer verify report eq:maxwell-faraday > appendix_faraday.tex
 
-# 4. 生成 Quarto .qmd（独立 PDF）
-hfpclawer verify report eq:maxwell-faraday --qmd > appendix.qmd
-quarto render appendix.qmd --to pdf
+# 4. 生成 Standalone .tex（Quarto PDF）
+hfpclawer verify report eq:maxwell-faraday --qmd > appendix.tex
+quarto render appendix.tex --to pdf
 ```
 
 ## 可信度等级
