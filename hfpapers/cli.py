@@ -314,6 +314,7 @@ ACTION_DESCRIPTIONS = {
     "data": "source data audit (arxiv_meta DB, paper_store quality)",
     "ops": "operation trail audit (AuditTrail events)",
     "verify": "citation verification (local → S2 → OpenAlex)",
+    "traceability": "full-chain citation traceability (bib → store → notebook → L1/L2/L3)",
 }
 
 VALID_ACTIONS = list(ACTION_DESCRIPTIONS.keys())
@@ -373,6 +374,23 @@ def audit(
         with console.status(f"[dim]Verifying citation: {arg[:80]}...[/dim]"):
             result = check_citation(arg, source=source)
         console.print(format_result(result))
+
+    elif action == "traceability":
+        # ── Full-chain traceability (bib → store → notebook → L1) ──
+        from hfpclawer.audit.traceability import run_traceability, _detect_repo_name
+
+        repo = arg or _detect_repo_name()
+        console.print(f"[cyan]🔍 Running traceability audit for:[/cyan] [bold]{repo}[/bold]")
+
+        with console.status("[dim]Scanning bibliographic references...[/dim]"):
+            report = run_traceability(
+                repo_name=repo,
+                quick=False,
+                use_l2_l3=False,
+            )
+
+        from hfpclawer.audit.report import print_summary
+        print_summary(report)
 
     elif action == "ops":
         # ── Operation trail audit (AuditTrail events) ──
