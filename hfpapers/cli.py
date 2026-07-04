@@ -190,6 +190,43 @@ def download(
 
 
 @app.command()
+def convert_tex(
+    to_wiki: bool = typer.Option(
+        False, "--to-wiki", "-w", help="Sync converted MD to wiki/raw/papers"
+    ),
+    arxiv_id: str = typer.Option(
+        "", "--arxiv-id", "-a", help="Single arXiv ID to convert (default: all pending)"
+    ),
+    tex_dir: str = typer.Option(
+        "", "--tex-dir", "-d",
+        help="Path to tex_src dir with .tar.gz files (default: <repo>/data/tex_src/)"
+    ),
+):
+    """Convert arXiv TeX source → formula-preserving Markdown
+
+    Scans data/tex_src/ for .tar.gz, extracts .tex,
+    tries pandoc (best), falls back to Python regex.
+
+    0 LLM, 0 token — pure rule-based conversion.
+    LaTeX math preserved as $$...$$, citations as [@key].
+    """
+    from pathlib import Path
+    from hfpapers.tex_converter import cli_convert_tex
+
+    tex_path = Path(tex_dir).expanduser().resolve() if tex_dir else None
+
+    with console.status(
+        "[dim]Converting arXiv TeX sources to Markdown..."
+    ) as status:
+        cli_convert_tex(
+            to_wiki=to_wiki,
+            arxiv_id=arxiv_id or None,
+            tex_dir=tex_path,
+        )
+    console.print("[green]✅ TeX→MD conversion complete[/green]")
+
+
+@app.command()
 def convert(
     to_wiki: bool = typer.Option(
         False, "--to-wiki", "-w", help="Sync converted MD to wiki/raw/papers"

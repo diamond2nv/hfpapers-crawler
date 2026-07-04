@@ -5,7 +5,7 @@
 # Version: single source of truth — match pyproject.toml
 # When installed via pip: importlib.metadata takes priority
 # When running editable: hardcoded fallback
-__version__ = "0.6.0"
+__version__ = "0.8.1"
 
 try:
     from importlib.metadata import version as _pkg_version
