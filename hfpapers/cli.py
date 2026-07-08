@@ -808,6 +808,72 @@ def cron(
 
     else:
         console.print(f"[red]❌ Unknown cron action: {action}. Use init|check|run|import[/red]")
+
+@app.command()
+def zotero(
+    action: str = typer.Argument(
+        "list",
+        help="check | list | search | get | tags | children",
+    ),
+    arg: str = typer.Argument(
+        "",
+        help="Item key (for get/children) or search query (for search)",
+    ),
+    limit: int = typer.Option(20, "--limit", "-l", help="Max results"),
+    start: int = typer.Option(0, "--start", help="Offset for pagination"),
+    tag: str = typer.Option("", "--tag", "-t", help="Filter by tag"),
+    item_type: str = typer.Option("", "--item-type", help="Filter by item type"),
+    q: str = typer.Option("", "--q", "-q", help="Quick search query"),
+    collection: str = typer.Option("", "--collection", help="Collection key (for tags)"),
+):
+    """Zotero READ operations via local HTTP API (port 23119)
+
+    Actions:
+      check     — Test Zotero local API connectivity
+      list      — List top-level items
+      search    — Search items by query
+      get       — Get item details by key
+      tags      — List all tags
+      children  — List children (attachments/notes) of an item
+
+    Examples:
+      hfpclawer zotero check
+      hfpclawer zotero list --limit 10
+      hfpclawer zotero list --tag hfpclawer
+      hfpclawer zotero search "neural operator" --limit 5
+      hfpclawer zotero get ABC123
+      hfpclawer zotero tags
+      hfpclawer zotero children ABC123
+    """
+    from hfpclawer.zotero.cli import (
+        cmd_check, cmd_list, cmd_search, cmd_get, cmd_tags, cmd_children,
+    )
+
+    if action == "check":
+        cmd_check()
+    elif action == "list":
+        cmd_list(limit=limit, start=start, tag=tag, item_type=item_type, q=q)
+    elif action == "search":
+        q = arg or q
+        if not q and not tag and not item_type:
+            console.print("[yellow]Provide a search query (arg or --q)[/yellow]")
+            return
+        cmd_search(q=q, limit=limit, tag=tag, item_type=item_type)
+    elif action == "get":
+        if not arg:
+            console.print("[yellow]Provide item key[/yellow]")
+            return
+        cmd_get(arg)
+    elif action == "tags":
+        cmd_tags(collection=collection)
+    elif action == "children":
+        if not arg:
+            console.print("[yellow]Provide item key[/yellow]")
+            return
+        cmd_children(arg)
+    else:
+        console.print(f"[red]❌ Unknown zotero action: {action}[/red]")
+
 @app.command()
 def stats():
     """Search statistics — SearchQueue task completion"""

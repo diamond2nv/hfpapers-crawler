@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""cli_zotero.py — hfpclawer zotero CLI subcommand.
+
+Registers 'hfpclawer zotero {search,list,get,tags,check}' for READ operations
+against Zotero's local HTTP API via pyzotero.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from rich.console import Console
+from rich.table import Table
+
+logger = logging.getLogger("hfpclawer.cli_zotero")
+console = Console()
+
+
+def _get_client(**kwargs):
+    """Lazy import and create ZoteroClient."""
+    from hfpclawer.zotero import ZoteroClient, ZoteroConnectionError
+
+    try:
+        return ZoteroClient(**kwargs)
+    except ZoteroConnectionError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        raise SystemExit(1) from e
+    except ImportError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        raise SystemExit(1) from e
+
+
+def cmd_check(**kwargs) -> None:
+    """Check Zotero local API connectivity."""
+    zc = _get_client()
+    if zc.check_connection():
+        console.print("[green]✅ Zotero local API connected[/green]")
+        # Quick stats
+        try:
+            tags = zc.tags()
+            top_items = zc.top(limit=1)
+            console.print(f"  Tags:  {len(tags)}")
+            console.print(f"  Items: accessible (no total-count from local API)")
+        except Exception:
+            pass
+    else:
+        console.print("[red]❌ Cannot reach Zotero local API (localhost:23119)[/red]")
+        console.print("  Make sure Zotero is running and 'Allow other applications' is enabled.")
+
+
+def cmd_list(
+    limit: int = 20,
+    tag: str = "",
+    item_type: str = "",
+    q: str = "",
+    start: int = 0,
+) -> None:
+    """List top-level items from Zotero."""
+    zc = _get_client()
+    items = zc.top(limit=limit, start=start, q=q, tag=tag, item_type=item_type)
+
+    if not items:
+        console.print("[yellow]No items found[/yellow]")
+        return
+
+    table = Table(title=f"📚 Zotero Items ({len(items)})")
+    table.add_column("Key", style="blue", width=8)
+    table.add_column("Type", style="cyan", width=14)
+    table.add_column("Title", style="white")
+    table.add_column("Tags", style="dim", width=20)
+    table.add_column("Date", style="green", width=10)
+
+    for item in items:
+        data = item.get("data", {})
+        key = data.get("key", item.get("key", "?"))[:8]
+        itype = data.get("itemType", "?")[:14]
+        title = data.get("title", "(no title)")[:60]
+        tags_list = data.get("tags", [])
+        tag_str = ", ".join(t["tag"] for t in tags_list[:3]) if tags_list else ""
+        date = data.get("date", "")[:10]
+        table.add_row(key, itype, title, tag_str, date)
+
+    console.print(table)
+
+    if start + limit < 100:
+        console.print(f"  Page {start // limit + 1} | "
+                       f"Next: hfpclawer zotero list --start {start + limit} --limit {limit}")
+
+
+def cmd_search(
+    q: str,
+    limit: int = 20,
+    tag: str = "",
+    item_type: str = "",
+) -> None:
+    """Search items in Zotero by query string."""
+    zc = _get_client()
+    items = zc.items(limit=limit, q=q, tag=tag, item_type=item_type)
+
+    if not items:
+        console.print(f"[yellow]No items match '{q}'[/yellow]")
+        return
+
+    table = Table(title=f"🔍 Search: '{q}' ({len(items)} results)")
+    table.add_column("Key", style="blue", width=8)
+    table.add_column("Type", style="cyan", width=14)
+    table.add_column("Title", style="white")
+    table.add_column("DOI/URL", style="dim", width=30)
+
+    for item in items:
+        data = item.get("data", {})
+        key = data.get("key", "?")[:8]
+        itype = data.get("itemType", "?")[:14]
+        title = data.get("title", "(no title)")[:55]
+        doi = data.get("DOI", "") or data.get("url", "") or ""
+        doi_short = doi[:30]
+        table.add_row(key, itype, title, doi_short)
+
+    console.print(table)
+
+
+def cmd_get(key: str) -> None:
+    """Get details for a single Zotero item by key."""
+    zc = _get_client()
+    item = zc.get_item(key)
+
+    if not item:
+        console.print(f"[red]❌ Item '{key}' not found[/red]")
+        return
+
+    data = item.get("data", {})
+    meta = item.get("meta", {})
+
+    console.print(f"[bold]📄 Item: {data.get('title', '(no title)')}[/bold]")
+    console.print(f"  Key:      {key}")
+    console.print(f"  Type:     {data.get('itemType', '?')}")
+    console.print(f"  Date:     {data.get('date', '?')}")
+    console.print(f"  DOI:      {data.get('DOI', '—')}")
+    console.print(f"  URL:      {data.get('url', '—')}")
+    console.print(f"  Publisher: {data.get('publicationTitle', data.get('publisher', '—'))}")
+    console.print(f"  Tags:     {', '.join(t['tag'] for t in data.get('tags', []))}")
+    console.print(f"  Version:  {data.get('version', '?')}")
+
+    # Creators
+    creators = data.get("creators", [])
+    if creators:
+        console.print(f"  Authors:  {', '.join(c.get('lastName','?') for c in creators[:5])}")
+        if len(creators) > 5:
+            console.print(f"            ... and {len(creators) - 5} more")
+
+    # Abstract
+    abstract = data.get("abstractNote", "")
+    if abstract:
+        console.print(f"  Abstract: {abstract[:200]}...")
+
+    # Children (attachments, notes)
+    children = zc.get_children(key)
+    attachments = [c for c in children if c.get("data", {}).get("itemType") == "attachment"]
+    notes = [c for c in children if c.get("data", {}).get("itemType") == "note"]
+
+    if attachments:
+        console.print(f"\n  [cyan]📎 Attachments ({len(attachments)}):[/cyan]")
+        for att in attachments:
+            ad = att.get("data", {})
+            title = ad.get("title", "untitled")
+            content_type = ad.get("contentType", "?")
+            path = ad.get("path", ad.get("filename", ""))
+            console.print(f"    - {title} ({content_type})")
+            if path:
+                console.print(f"      path: {path}")
+
+    if notes:
+        console.print(f"\n  [yellow]📝 Notes ({len(notes)}):[/yellow]")
+
+
+def cmd_tags(collection: str = "") -> None:
+    """List all tags in the Zotero library."""
+    zc = _get_client()
+    tags = zc.tags(collection_key=collection)
+
+    if not tags:
+        console.print("[yellow]No tags found[/yellow]")
+        return
+
+    # Local API returns strings; remote API returns dicts
+    if isinstance(tags[0], str):
+        # Local mode: plain tag name strings
+        table = Table(title=f"🏷️  Tags ({len(tags)})")
+        table.add_column("Tag", style="cyan")
+        for t in sorted(tags):
+            table.add_row(t)
+        console.print(table)
+        return
+
+    table = Table(title=f"🏷️  Tags ({len(tags)})")
+    table.add_column("Tag", style="cyan")
+    table.add_column("Items", style="yellow", justify="right")
+
+    for t in sorted(tags, key=lambda x: -x.get("meta", {}).get("numItems", 0)):
+        tag_name = t.get("tag", "?")
+        count = t.get("meta", {}).get("numItems", "?")
+        table.add_row(tag_name, str(count))
+
+    console.print(table)
+
+
+def cmd_children(key: str) -> None:
+    """List children (attachments, notes) for a Zotero item."""
+    zc = _get_client()
+    children = zc.get_children(key)
+
+    if not children:
+        console.print(f"[yellow]No children for {key}[/yellow]")
+        return
+
+    table = Table(title=f"📎 Children of {key} ({len(children)})")
+    table.add_column("Key", style="blue", width=8)
+    table.add_column("Type", style="cyan", width=14)
+    table.add_column("Title", style="white")
+    table.add_column("Content Type", style="dim", width=20)
+
+    for child in children:
+        data = child.get("data", {})
+        ckey = data.get("key", "?")[:8]
+        ctype = data.get("itemType", "?")[:14]
+        title = data.get("title", "(no title)")[:50]
+        content_type = data.get("contentType", data.get("note", "")[:20])
+        table.add_row(ckey, ctype, title, content_type)
+
+    console.print(table)
