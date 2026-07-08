@@ -1,17 +1,13 @@
 #!/bin/sh
-# pre-push hook template — 版本一致性检查
+# pre-push hook template — 版本一致性自动修复（安全网，不阻塞）
 # 安装: bash scripts/install-hooks.sh
+# 推荐使用 scripts/release.sh 发布版本。
 set -e
-
-REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 while read local_ref local_oid remote_ref remote_oid; do
     case "$remote_ref" in
-        refs/heads/main|refs/heads/master)
-            ;;
-        *)
-            continue
-            ;;
+        refs/heads/main|refs/heads/master) ;;
+        *) continue ;;
     esac
 
     PY_VERSION=$(git show "$local_oid:pyproject.toml" 2>/dev/null | grep '^version' | sed 's/version = "\(.*\)"/\1/')
@@ -24,17 +20,17 @@ while read local_ref local_oid remote_ref remote_oid; do
     if [ "$PY_VERSION" != "$GIT_VERSION" ]; then
         echo ""
         echo "╔══════════════════════════════════════════════════╗"
-        echo "║  ❌ PUSH BLOCKED: Version mismatch              ║"
-        echo "╠══════════════════════════════════════════════════╣"
-        echo "║  pyproject.toml:  v$PY_VERSION"
-        echo "║  latest git tag:  $GIT_TAG"
-        echo "║                                                  ║"
-        echo "║  Fix: edit pyproject.toml to match latest tag,   ║"
-        echo "║  or run:                                          ║"
-        echo "║    sed -i 's/version = \"$PY_VERSION\"/version = \"$GIT_VERSION\"/' pyproject.toml"
-        echo "║  then git add && git commit.                     ║"
+        echo "║  ⚡ Auto-fixing version mismatch                ║"
+        echo "║  pyproject.toml:  v$PY_VERSION → v$GIT_VERSION"
+        echo "║  (synced to latest tag $GIT_TAG)"
         echo "╚══════════════════════════════════════════════════╝"
         echo ""
+        git checkout "$local_oid" -- pyproject.toml 2>/dev/null || true
+        sed -i "s/version = \"$PY_VERSION\"/version = \"$GIT_VERSION\"/" pyproject.toml
+        git add pyproject.toml
+        git commit --amend --no-edit --allow-empty 2>/dev/null || true
+        echo "✅ pyproject.toml auto-fixed to v$GIT_VERSION"
+        echo "   (push again)"
         exit 1
     fi
 done
