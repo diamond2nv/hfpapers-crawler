@@ -287,6 +287,7 @@ class PaperRecord:
     has_code: bool = False
     code_url: str = ""
     verified: bool = False  # Cross-verified
+    imported_via: str = ""  # hfpclawer version at import time
     created_at: str = ""
     updated_at: str = ""
 
@@ -347,6 +348,7 @@ class PaperStore:
                     has_code    INTEGER DEFAULT 0,     -- Has code
                     code_url    TEXT DEFAULT '',
                     verified    INTEGER DEFAULT 0,     -- Cross-verified
+                    imported_via TEXT DEFAULT '',      -- hfpclawer version at import
                     created_at  TEXT DEFAULT (datetime('now')),
                     updated_at  TEXT DEFAULT (datetime('now'))
                 );
@@ -384,6 +386,12 @@ class PaperStore:
                     ON papers(created_at DESC);
             """)
 
+            # Migration: add imported_via column for existing DBs
+            try:
+                conn.execute("ALTER TABLE papers ADD COLUMN imported_via TEXT DEFAULT ''")
+            except Exception:
+                pass  # Column already exists — fine
+
     # ─── Paper CRUD ───────────────────────────
 
     def upsert_paper(self, record: PaperRecord) -> int:
@@ -396,7 +404,7 @@ class PaperStore:
                     UPDATE papers SET
                         title=?, abstract=?, year=?, source=?,
                         venue=?, relevance=?, has_code=?, code_url=?,
-                        verified=?, updated_at=datetime('now')
+                        verified=?, imported_via=?, updated_at=datetime('now')
                     WHERE sf_id=?
                 """,
                     (
@@ -409,6 +417,7 @@ class PaperStore:
                         int(record.has_code),
                         record.code_url,
                         int(record.verified),
+                        record.imported_via,
                         record.sf_id,
                     ),
                 )
@@ -422,8 +431,8 @@ class PaperStore:
                     INSERT INTO papers
                         (sf_id, title, abstract, year, source, venue,
                          relevance, has_code, code_url, verified,
-                         created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         imported_via, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         sf_id,
@@ -436,6 +445,7 @@ class PaperStore:
                         int(record.has_code),
                         record.code_url,
                         int(record.verified),
+                        record.imported_via,
                         now,
                         now,
                     ),
@@ -643,6 +653,7 @@ class PaperStore:
             has_code=bool(row["has_code"]),
             code_url=row["code_url"],
             verified=bool(row["verified"]),
+            imported_via=row.get("imported_via", ""),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -893,11 +904,16 @@ def ensure_paper(
     code_url: str = "",
     relevance: int = 0,
     doi: str = "",
+    skip_crossref: bool = False,
+    imported_via: str = "",
 ) -> tuple[int, bool]:
     """Ensure paper exists, returns (sf_id, is_new).
 
     Looks up existing record by arxiv_id, creates if not exists.
-    Then attempts (async/lazy) cross-validation via Crossref.
+    When skip_crossref=True (cron/batch import), skips Crossref API call
+    and defers cross-verification to separate audit script.
+
+    When imported_via is set, records it for audit trail.
     """
     store = get_store()
     existing = None
@@ -942,6 +958,7 @@ def ensure_paper(
         relevance=relevance,
         code_url=code_url,
         has_code=bool(code_url),
+        imported_via=imported_via,
     )
     sf_id = store.upsert_paper(record)
 
@@ -954,7 +971,7 @@ def ensure_paper(
         store.add_identifier(sf_id, "doi", doi, source=source)
 
     # If title is provided, try Crossref validation
-    if title and arxiv_id:
+    if title and arxiv_id and not skip_crossref:
         try:
             cr = get_crossref()
             result = cr.cross_verify(arxiv_id, title)
