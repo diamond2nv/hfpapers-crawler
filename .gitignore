@@ -29,6 +29,9 @@ uv.lock
 .env*
 !.env.template
 
+# Generated media (Manim, etc.)
+media/
+
 # ── System ──
 .DS_Store
 *.swp
