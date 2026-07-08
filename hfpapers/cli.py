@@ -813,7 +813,7 @@ def cron(
 def zotero(
     action: str = typer.Argument(
         "list",
-        help="check | list | search | get | tags | children | push | push-batch",
+        help="check | list | search | get | tags | children | push | push-batch | annotate",
     ),
     arg: str = typer.Argument(
         "",
@@ -835,6 +835,14 @@ def zotero(
         True, "--dedup/--no-dedup", "-d",
         help="Skip if paper already exists in Zotero (default: True)",
     ),
+    key: str = typer.Option("", "--key", "-k", help="Zotero item key (for annotate)"),
+    fmt: str = typer.Option(
+        "markdown", "--fmt", "--format",
+        help="Output format (markdown or json, for annotate)",
+    ),
+    output: str = typer.Option("", "--output", "-o", help="Save to file (for annotate)"),
+    color_hex: str = typer.Option("", "--color-hex", help="Filter by hex color (for annotate)"),
+    color_name: str = typer.Option("", "--color-name", help="Filter by color name (for annotate)"),
 ):
     """Zotero operations via local API (read) and Connector protocol (write)
 
@@ -866,7 +874,7 @@ def zotero(
     """
     from hfpclawer.zotero.cli import (
         cmd_check, cmd_list, cmd_search, cmd_get, cmd_tags, cmd_children,
-        cmd_push, cmd_push_batch,
+        cmd_push, cmd_push_batch, cmd_annotate,
     )
 
     if action == "check":
@@ -906,6 +914,16 @@ def zotero(
         source_filter = arg or "cron:"
         limit_value = limit
         cmd_push_batch(source_filter=source_filter, limit=limit_value, dry_run=dry_run, dedup=dedup)
+    elif action in ("annotate", "ann"):
+        # Extract PDF annotations
+        cmd_annotate(
+            arxiv_id=arg or aid,
+            zotero_key=key,
+            fmt=fmt,
+            output=output,
+            color_hex=color_hex,
+            color_name=color_name,
+        )
     else:
         console.print(f"[red]❌ Unknown zotero action: {action}[/red]")
 

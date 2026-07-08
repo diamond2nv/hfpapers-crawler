@@ -9,6 +9,7 @@ against Zotero's local HTTP API via pyzotero.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -487,6 +488,74 @@ def cmd_push_batch(
         console.print(f"\n[bold]Batch complete: {pushed} pushed, "
                        f"{dedup_skipped} dedup-skipped, "
                        f"{skipped} skipped, {errors} errors[/bold]")
+
+
+def cmd_annotate(
+    arxiv_id: str = "",
+    zotero_key: str = "",
+    fmt: str = "markdown",
+    output: str = "",
+    color_hex: str = "",
+    color_name: str = "",
+) -> None:
+    """Extract PDF annotations (highlights/underlines) from a Zotero paper.
+
+    Reads the PDF via its local file path (from Zotero API), parses
+    annotations with PyMuPDF, and renders as Markdown or JSON.
+
+    Args:
+        arxiv_id: arXiv ID to look up (e.g., "1905.01522").
+        zotero_key: Direct Zotero item key (e.g., "XVLZEDC4").
+        fmt: Output format: "markdown" (default) or "json".
+        output: Write to file instead of stdout.
+        color_hex: Only show annotations with this hex color (e.g., "#ffd400").
+        color_name: Only show annotations with this color name (case-insensitive).
+    """
+    from hfpclawer.zotero.annotations import (
+        get_pdf_annotations,
+        format_markdown,
+        format_json,
+        color_filter,
+    )
+
+    if not arxiv_id and not zotero_key:
+        console.print("[yellow]Provide --aid or --key[/yellow]")
+        return
+
+    with console.status("[dim]Resolving paper and extracting annotations...[/dim]"):
+        result = get_pdf_annotations(arxiv_id=arxiv_id, zotero_key=zotero_key)
+
+    if "error" in result:
+        console.print(f"[red]❌ {result['error']}[/red]")
+        return
+
+    anns = result["annotations"]
+    title = result.get("title", "")
+    parent_key = result.get("parent_key", "")
+
+    # Apply color filter
+    if color_hex or color_name:
+        anns = color_filter(anns, color_hex=color_hex, color_name=color_name)
+
+    if fmt == "json":
+        content = format_json(anns)
+    else:
+        content = format_markdown(anns, title=title, parent_key=parent_key)
+
+    if not anns:
+        console.print(f"[yellow]📄 {title}[/yellow]")
+        console.print("[yellow]No annotations found in the PDF.[/yellow]")
+        console.print("  Open the PDF in Zotero and add highlights first.")
+        if output:
+            Path(output).write_text(content, encoding="utf-8")
+            console.print(f"  [dim]Wrote to: {output}[/dim]")
+        return
+
+    if output:
+        Path(output).write_text(content, encoding="utf-8")
+        console.print(f"[green]✅ {len(anns)} annotation(s) saved to {output}[/green]")
+    else:
+        console.print(content)
 
 
 def _print_creators_preview(item: dict) -> None:
