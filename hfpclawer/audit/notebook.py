@@ -8,7 +8,6 @@ Scans for arXiv IDs and DOIs in notebook markdown/code cells.
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
 from hfpclawer.audit.store import normalise_arxiv_id
 

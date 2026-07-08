@@ -16,8 +16,8 @@ Usage:
     from hfpclawer.verify.compare import compare_latex, normalize_latex
 
     result = compare_latex(
-        r"\frac{\mu_0 I}{2\pi d}",
-        r"\frac{I \mu_0}{2 d \pi}",
+        r"\frac{\\mu_0 I}{2\\pi d}",
+        r"\frac{I \\mu_0}{2 d \\pi}",
     )
     # ComparisonResult(passed=True, method="algebraic", rel_error=0.0)
 """

@@ -16,11 +16,9 @@ hfpclawer-audit-verify.py — 异步交叉审核 + 撤稿检测
 """
 
 import argparse
-import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
 
 # ── Config ────────────────────────────────
 
@@ -30,8 +28,7 @@ HFPCLAWER_ROOT = os.path.expanduser(
 os.chdir(HFPCLAWER_ROOT)
 sys.path.insert(0, ".")
 
-from hfpapers.paper_store import get_store, get_crossref
-from hfpapers import __version__ as HFPCLAWER_VERSION
+from hfpapers.paper_store import get_crossref, get_store
 
 
 def batch_verify(store, cr, since: str = "", retraction_only: bool = False) -> dict:

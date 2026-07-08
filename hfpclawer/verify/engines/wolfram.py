@@ -154,7 +154,6 @@ def latex_to_wolfram_code(latex: str) -> str:
     Raises:
         ValueError if LaTeX parsing fails
     """
-    import sympy as sp
     from sympy.parsing.latex import parse_latex
     from sympy.printing.mathematica import mathematica_code
 

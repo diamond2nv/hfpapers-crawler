@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger("hfpclawer.verify.consistency")
 
@@ -225,7 +224,6 @@ def sympy_to_wolfram(expr, use_export_string: bool = False) -> tuple[str, dict]:
     Returns:
         (wolfram_code_str, rename_map)
     """
-    import sympy as sp
     from sympy.printing.mathematica import mathematica_code
 
     # 1. Sanitize symbol names for Wolfram compatibility

@@ -10,7 +10,7 @@ import os
 import re
 from typing import Optional
 
-from hfpclawer.audit.similarity import exact_match, normalize_title, title_similarity
+from hfpclawer.audit.similarity import exact_match, title_similarity
 
 logger = logging.getLogger("hfpclawer.audit.l1_local")
 

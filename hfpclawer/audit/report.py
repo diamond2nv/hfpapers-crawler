@@ -7,7 +7,6 @@ Produces standardized JSON audit reports with summary stats and cross-reference 
 
 import json
 import logging
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -126,7 +125,7 @@ def print_summary(report: dict) -> None:
     print(f"  📓 In notebooks:    {s.get('in_notebooks', 0)}")
     print(f"  ❌ No identifier:   {s.get('no_identifier', 0)}")
     if matrix:
-        print(f"  ── Cross-ref matrix ──")
+        print("  ── Cross-ref matrix ──")
         for m in matrix:
             print(f"    {m['label']}: {m['count']}")
     print(f"{'='*60}")

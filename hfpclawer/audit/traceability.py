@@ -7,15 +7,14 @@ Port of coc-inverse-agent scripts/citation_traceability.py.
 """
 
 import logging
-import time
 from pathlib import Path
 from typing import Any, Optional
 
 from hfpclawer.audit import bib as audit_bib
-from hfpclawer.audit import store as audit_store
 from hfpclawer.audit import notebook as audit_notebook
 from hfpclawer.audit import report as audit_report
-from hfpclawer.audit.l1_local import check_citation_local, ARXIV_ID_RE
+from hfpclawer.audit import store as audit_store
+from hfpclawer.audit.l1_local import check_citation_local
 from hfpclawer.audit.l2_s2 import S2Client
 from hfpclawer.audit.l3_openalex import OAClient
 

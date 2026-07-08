@@ -824,14 +824,14 @@ class CrossrefClient:
         if not results:
             return None
 
-        from hfpapers.evolved import HFPapersCrawler
+        from hfpapers.search_queue import _title_similarity
 
         best = None
         best_sim = 0.0
 
         for r in results:
             # Title similarity
-            sim = HFPapersCrawler._title_similarity(title, r["title"])
+            sim = _title_similarity(title, r["title"])
             if sim > best_sim:
                 best_sim = sim
                 best = r

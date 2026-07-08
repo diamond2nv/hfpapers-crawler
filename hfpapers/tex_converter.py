@@ -17,9 +17,7 @@ Usage:
     count = convert_tex_sources(to_wiki=True)
 """
 
-import gzip
 import logging
-import os
 import re
 import shutil
 import subprocess

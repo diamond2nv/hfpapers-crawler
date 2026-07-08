@@ -243,7 +243,9 @@ class VerificationPipeline:
                 sympy_result = sp.simplify(expr)
 
             from hfpclawer.verify.engines.wolfram import (
-                _normalize_expr, wl_to_sympy, latex_to_wolfram_code,
+                _normalize_expr,
+                latex_to_wolfram_code,
+                wl_to_sympy,
             )
 
             sym_norm = _normalize_expr(sympy_result)
@@ -340,7 +342,6 @@ class VerificationPipeline:
             )
 
         try:
-            import numpy as np
             import sympy as sp
             from sympy.parsing.latex import parse_latex
 

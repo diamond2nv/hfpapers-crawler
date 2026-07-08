@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 """Tests for FormulaRegistry (verify/registry.py)."""
 
-import json
-import os
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,7 +13,6 @@ from hfpclawer.verify.registry import (
     FormulaEntry,
     FormulaRegistry,
 )
-
 
 # ════════════════════════════════════════════
 # FormulaEntry tests

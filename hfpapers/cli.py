@@ -50,6 +50,7 @@ app = typer.Typer(name="hfpclawer", help="HF Papers crawler + Wiki integration")
 
 # Mount verify subcommand
 from hfpapers.verify_cli import verify_app
+
 app.add_typer(verify_app, name="verify")
 logger = logging.getLogger("hfpclawer")
 console = Console()
@@ -211,6 +212,7 @@ def convert_tex(
     LaTeX math preserved as $$...$$, citations as [@key].
     """
     from pathlib import Path
+
     from hfpapers.tex_converter import cli_convert_tex
 
     tex_path = Path(tex_dir).expanduser().resolve() if tex_dir else None
@@ -352,6 +354,7 @@ ACTION_DESCRIPTIONS = {
     "ops": "operation trail audit (AuditTrail events)",
     "verify": "citation verification (local → S2 → OpenAlex)",
     "traceability": "full-chain citation traceability (bib → store → notebook → L1/L2/L3)",
+    "cron-verify": "batch Crossref verify + retraction check for cron-imported papers",
 }
 
 VALID_ACTIONS = list(ACTION_DESCRIPTIONS.keys())
@@ -414,7 +417,7 @@ def audit(
 
     elif action == "traceability":
         # ── Full-chain traceability (bib → store → notebook → L1) ──
-        from hfpclawer.audit.traceability import run_traceability, _detect_repo_name
+        from hfpclawer.audit.traceability import _detect_repo_name, run_traceability
 
         repo = arg or _detect_repo_name()
         console.print(f"[cyan]🔍 Running traceability audit for:[/cyan] [bold]{repo}[/bold]")
@@ -522,6 +525,51 @@ def audit(
             console.print(
                 f"[red]❌ Unknown ops sub-action: {sub}. Use stats|events|batch|paper[/red]"
             )
+
+    elif action == "cron-verify":
+        # ── Batch cron import verification ──
+        from hfpapers.paper_store import get_crossref, get_store
+        from hfpclawer.audit.cron_verify import batch_verify, format_report, format_report_json
+
+        since = arg if arg else ""
+        retraction_only = False
+        force_all = False
+        verbose = False
+        output_json = False
+        # Parse extra options from arg if prefixed
+        if arg.startswith("--"):
+            parts = arg.split()
+            for p in parts:
+                if p == "--json":
+                    output_json = True
+                elif p == "--retraction-only":
+                    retraction_only = True
+                elif p == "--all":
+                    force_all = True
+                elif p == "--verbose":
+                    verbose = True
+                elif p.startswith("--since="):
+                    since = p.split("=", 1)[1]
+            since = "" if since.startswith("--") else since
+
+        store = get_store()
+        cr = get_crossref()
+        t0 = time.time()
+        with console.status("[dim]Running cron batch verify..."):
+            stats = batch_verify(
+                store, cr,
+                since=since,
+                retraction_only=retraction_only,
+                force_all=force_all,
+                verbose=verbose,
+            )
+        elapsed = time.time() - t0
+        if output_json:
+            console.print(format_report_json(stats, elapsed))
+        else:
+            console.print(format_report(stats, elapsed))
+        if stats.retractions:
+            console.print("[yellow]⚠️  Retractions detected — review above[/yellow]")
 
     elif action in ("stats", "events", "batch", "paper"):
         # Shorthand: allow without "ops" prefix for legacy compat
@@ -669,6 +717,97 @@ def info(arxiv_id: str):
     console.print_json(data=p)
 
 
+@app.command()
+def cron(
+    action: str = typer.Argument(
+        "run",
+        help="init | check | run | import",
+    ),
+    arg: str = typer.Argument(
+        "",
+        help="For init: query string / keywords / --from-config path. For import: source (candidates|jsonl)",
+    ),
+    name: str = typer.Option(
+        "my-domain", "--name", "-n",
+        help="Domain name (for cron init)",
+    ),
+    query: str = typer.Option(
+        "", "--query", "-q",
+        help="arXiv query string (e.g. 'cat:cs.AI+AND+abs:neural+operator')",
+    ),
+    keywords: str = typer.Option(
+        "", "--keywords", "-k",
+        help="Comma-separated keywords (auto-converts to arXiv query)",
+    ),
+    from_config: str = typer.Option(
+        "", "--from-config",
+        help="Path to existing hfpclawer config YAML",
+    ),
+    data_dir: str = typer.Option(
+        "", "--data-dir", "-d",
+        help="Custom data directory (default: ~/.hfpclawer/data/)",
+    ),
+    path: str = typer.Option(
+        "", "--path", "-p",
+        help="Path to file (for import)",
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f",
+        help="Force overwrite (for init)",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j",
+        help="JSON output (for no_agent cron mode)",
+    ),
+):
+    """Cron automation for periodic paper fetch + paper_store import
+
+    Actions:
+      init      — Initialize ~/.hfpclawer/ config + scripts
+      check     — Show cron configuration status
+      run       — Execute cron pipeline (search → import)
+      import    — Import papers from candidates/jsonl into paper_store
+
+    Examples:
+      hfpclawer cron init --name gsnv --query "cat:physics.ins-det+AND+abs:MFL"
+      hfpclawer cron init --keywords "neural operator,physics-informed" --name nn-pde
+      hfpclawer cron check
+      hfpclawer cron run
+      hfpclawer cron run --json
+      hfpclawer cron import candidates
+      hfpclawer cron import jsonl --path ~/papers.jsonl
+    """
+    from hfpclawer.cli_cron import cron_check, cron_init, cron_run
+    from hfpclawer.cli_cron import cron_import as _cron_import
+
+    if action == "init":
+        # Support: arg as query shorthand, or --query/--keywords
+        q = arg if arg and not arg.startswith("--") else query
+        kw = keywords
+        fc = from_config
+        if arg and arg.startswith("--"):
+            fc = arg
+        result = cron_init(
+            name=name, query=q, keywords=kw,
+            from_config=fc, data_dir=data_dir, force=force,
+        )
+        console.print(result)
+
+    elif action == "check":
+        result = cron_check()
+        console.print(result)
+
+    elif action == "run":
+        result = cron_run(json_output=json_output)
+        console.print(result)
+
+    elif action == "import":
+        source = arg or "candidates"
+        result = _cron_import(source=source, path=path)
+        console.print(result)
+
+    else:
+        console.print(f"[red]❌ Unknown cron action: {action}. Use init|check|run|import[/red]")
 @app.command()
 def stats():
     """Search statistics — SearchQueue task completion"""

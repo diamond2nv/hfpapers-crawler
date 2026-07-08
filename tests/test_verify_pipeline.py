@@ -2,17 +2,15 @@
 # -*- coding: utf-8 -*-
 """End-to-end test: FormulaRegistry → VerificationPipeline → Wolfram CAS cross-val."""
 
-import json
-import os
 import tempfile
 from pathlib import Path
 
 import pytest
-
-from hfpclawer.verify.registry import FormulaEntry, FormulaRegistry
-from hfpclawer.verify.pipeline import VerificationPipeline
-from hfpclawer.verify.engines.wolfram import wl_to_sympy, _normalize_expr
 from sympy.parsing.latex import parse_latex
+
+from hfpclawer.verify.engines.wolfram import _normalize_expr, wl_to_sympy
+from hfpclawer.verify.pipeline import VerificationPipeline
+from hfpclawer.verify.registry import FormulaEntry, FormulaRegistry
 
 
 @pytest.fixture
@@ -111,7 +109,8 @@ class TestPipelineCASCrossValidation:
     def test_wl_to_sympy_integration(self):
         """Full roundtrip: LaTeX → SymPy → Wolfram → SymPy → compare."""
         from hfpclawer.verify.engines.wolfram import (
-            WolframEngineClient, latex_to_wolfram_code,
+            WolframEngineClient,
+            latex_to_wolfram_code,
         )
         client = WolframEngineClient(timeout=15)
         if not client.check_available():

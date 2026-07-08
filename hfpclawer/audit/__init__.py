@@ -23,15 +23,15 @@ Quick start:
     print(report["summary"])
 """
 
-from hfpclawer.audit.traceability import run_traceability, cli_run
-from hfpclawer.audit.bib import parse_bib, verify_bib_entry, BibEntry, BibVerification
-from hfpclawer.audit.store import load_jsonl_store, check_in_stores
-from hfpclawer.audit.notebook import extract_notebook_citations, scan_notebook_dirs
-from hfpclawer.audit.report import generate_report, write_report, print_summary
+from hfpclawer.audit.bib import BibEntry, BibVerification, parse_bib, verify_bib_entry
 from hfpclawer.audit.l1_local import check_citation_local, find_arxiv_db
 from hfpclawer.audit.l2_s2 import S2Client
 from hfpclawer.audit.l3_openalex import OAClient
-from hfpclawer.audit.similarity import normalize_title, title_similarity, exact_match
+from hfpclawer.audit.notebook import extract_notebook_citations, scan_notebook_dirs
+from hfpclawer.audit.report import generate_report, print_summary, write_report
+from hfpclawer.audit.similarity import exact_match, normalize_title, title_similarity
+from hfpclawer.audit.store import check_in_stores, load_jsonl_store
+from hfpclawer.audit.traceability import cli_run, run_traceability
 
 __all__ = [
     "run_traceability", "cli_run",

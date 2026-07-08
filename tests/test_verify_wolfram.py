@@ -2,18 +2,17 @@
 # -*- coding: utf-8 -*-
 """Tests for hfpclawer.verify.engines.wolfram — wl_to_sympy, CASEquivalenceProver."""
 
-import sympy as sp
 import pytest
+import sympy as sp
 
 from hfpclawer.verify.engines.wolfram import (
-    wl_to_sympy,
     CASEquivalenceProver,
     _normalize_expr,
     latex_to_wolfram_code,
     sanitize_name,
     to_wolfram_number,
+    wl_to_sympy,
 )
-
 
 # ════════════════════════════════════════════
 # wl_to_sympy tests
