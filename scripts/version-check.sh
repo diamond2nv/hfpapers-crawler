@@ -10,8 +10,6 @@
 # 用法:
 #   bash scripts/version-check.sh        # 检查当前工作树
 #   bash scripts/version-check.sh --fix  # 自动修复 pyproject.toml 对齐 tag
-#
-# 替代: 旧 pre-push hook（已移除，release.sh 才是正确路径）
 # =============================================================================
 set -e
 

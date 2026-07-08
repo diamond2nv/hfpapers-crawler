@@ -1,0 +1,44 @@
+#!/bin/sh
+# =============================================================================
+# pre-push hook — 版本一致性检测门禁（只检测，不修复）
+#
+# 模式: detect → echo guidance → block
+# 修复: 用 release.sh 处理（版本对齐算 hotfix）
+#
+# 安装: cp scripts/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# =============================================================================
+set -e
+
+while read local_ref local_oid remote_ref remote_oid; do
+    case "$remote_ref" in
+        refs/heads/main|refs/heads/master) ;;
+        *) continue ;;
+    esac
+
+    PY_VERSION=$(git show "$local_oid:pyproject.toml" 2>/dev/null | grep '^version' | sed 's/version = "\(.*\)"/\1/')
+    [ -z "$PY_VERSION" ] && continue
+
+    GIT_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+    [ -z "$GIT_TAG" ] && continue
+    GIT_VERSION="${GIT_TAG#v}"
+
+    if [ "$PY_VERSION" != "$GIT_VERSION" ]; then
+        echo ""
+        echo "╔══════════════════════════════════════════════════╗"
+        echo "║  ⚡ Version mismatch detected!"
+        echo "║"
+        echo "║  pyproject.toml:  v$PY_VERSION"
+        echo "║  latest tag:      $GIT_TAG"
+        echo "║"
+        echo "║  → Version alignment counts as a hotfix."
+        echo "║  → Use:  bash scripts/release.sh ${PY_VERSION} --push"
+        echo "║"
+        echo "║  This ensures pyproject.toml + __init__.py + tag"
+        echo "║  stay in sync without force-pushing old tags."
+        echo "╚══════════════════════════════════════════════════╝"
+        echo ""
+        exit 1
+    fi
+done
+
+exit 0
