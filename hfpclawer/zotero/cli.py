@@ -902,6 +902,23 @@ def _push_after_attach(
         console.print("  [dim]The metadata was saved; PDF can be attached manually from local storage.[/dim]")
         return
 
+    # Step 1.5: audit check — only attach PDF for verified papers
+    arxiv_id = paper.get("arxiv_id") or resolved_id or ""
+    is_verified = False
+    try:
+        from hfpapers.paper_store import get_store
+        store = get_store()
+        rec = store.get_paper_by_identifier("arxiv", arxiv_id)
+        if rec:
+            is_verified = bool(getattr(rec, "verified", False))
+    except Exception:
+        pass  # Audit check failure is non-blocking — proceed anyway
+
+    if not is_verified:
+        console.print(f"  [yellow]⏭️  PDF skipped: {arxiv_id} not yet audited (verified=0)[/yellow]")
+        console.print("  [dim]Run 'hfpclawer audit data' to verify, then push again with --with-pdf.[/dim]")
+        return
+
     # Step 2: resolve PDF path
     # Search order: paper_store pdf_dir, resolved_id.pdf in data/pdfs, generic ~/hfpclawer/data/pdfs/
     pdf_candidates = []
