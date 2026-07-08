@@ -642,6 +642,9 @@ class PaperStore:
 
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> PaperRecord:
+        # sqlite3.Row in Python <3.12 lacks .get(); use keys() check instead
+        row_keys = row.keys()
+        imported_via = row["imported_via"] if "imported_via" in row_keys else ""
         return PaperRecord(
             sf_id=row["sf_id"],
             title=row["title"],
@@ -653,7 +656,7 @@ class PaperStore:
             has_code=bool(row["has_code"]),
             code_url=row["code_url"],
             verified=bool(row["verified"]),
-            imported_via=row.get("imported_via", ""),
+            imported_via=imported_via,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

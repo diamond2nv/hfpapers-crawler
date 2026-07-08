@@ -813,28 +813,38 @@ def cron(
 def zotero(
     action: str = typer.Argument(
         "list",
-        help="check | list | search | get | tags | children",
+        help="check | list | search | get | tags | children | push | push-batch",
     ),
     arg: str = typer.Argument(
         "",
-        help="Item key (for get/children) or search query (for search)",
+        help="Item key (for get/children), search query (for search), "
+             "arxiv_id (for push), or source filter (for push-batch)",
     ),
     limit: int = typer.Option(20, "--limit", "-l", help="Max results"),
     start: int = typer.Option(0, "--start", help="Offset for pagination"),
-    tag: str = typer.Option("", "--tag", "-t", help="Filter by tag"),
+    tag: str = typer.Option("", "--tag", "-t", help="Filter by tag (or extra tags for push)"),
     item_type: str = typer.Option("", "--item-type", help="Filter by item type"),
     q: str = typer.Option("", "--q", "-q", help="Quick search query"),
     collection: str = typer.Option("", "--collection", help="Collection key (for tags)"),
+    aid: str = typer.Option("", "--aid", "-a", help="arXiv ID (for push)"),
+    title: str = typer.Option("", "--title", help="Paper title (for push)"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", "-n", help="Show what would be pushed without sending"
+    ),
 ):
-    """Zotero READ operations via local HTTP API (port 23119)
+    """Zotero operations via local API (read) and Connector protocol (write)
 
-    Actions:
+    READ actions (local API, port 23119/api/):
       check     — Test Zotero local API connectivity
       list      — List top-level items
       search    — Search items by query
       get       — Get item details by key
       tags      — List all tags
       children  — List children (attachments/notes) of an item
+
+    WRITE actions (Connector protocol, port 23119/connector/):
+      push      — Push a paper from paper_store (or direct) to Zotero
+      push-batch — Batch push all un-pushed papers from a source domain
 
     Examples:
       hfpclawer zotero check
@@ -844,9 +854,15 @@ def zotero(
       hfpclawer zotero get ABC123
       hfpclawer zotero tags
       hfpclawer zotero children ABC123
+      hfpclawer zotero push 2501.01934           # From paper_store
+      hfpclawer zotero push --aid 2501.01934 --dry-run  # Preview
+      hfpclawer zotero push --title "My Paper" --tag "my-project"
+      hfpclawer zotero push-batch cron:coc        # Batch push cron:coc papers
+      hfpclawer zotero push-batch --limit 5 --dry-run
     """
     from hfpclawer.zotero.cli import (
         cmd_check, cmd_list, cmd_search, cmd_get, cmd_tags, cmd_children,
+        cmd_push, cmd_push_batch,
     )
 
     if action == "check":
@@ -871,6 +887,20 @@ def zotero(
             console.print("[yellow]Provide item key[/yellow]")
             return
         cmd_children(arg)
+    elif action == "push":
+        # Push single paper: use arg as arxiv_id, or explicit options
+        cmd_push(
+            arxiv_id=arg,
+            aid=aid,
+            title=title,
+            tag=tag,
+            dry_run=dry_run,
+        )
+    elif action == "push-batch":
+        # Batch push: optional source filter
+        source_filter = arg or "cron:"
+        limit_value = limit
+        cmd_push_batch(source_filter=source_filter, limit=limit_value, dry_run=dry_run)
     else:
         console.print(f"[red]❌ Unknown zotero action: {action}[/red]")
 
