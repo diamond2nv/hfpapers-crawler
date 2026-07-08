@@ -849,6 +849,9 @@ def zotero(
     list_formats: bool = typer.Option(
         False, "--list-formats", help="List available export formats"
     ),
+    raw: bool = typer.Option(
+        False, "--raw", help="Show raw HTML notes (for note command)"
+    ),
 ):
     """Zotero operations via local API (read) and Connector protocol (write)
 
@@ -880,7 +883,7 @@ def zotero(
     """
     from hfpclawer.zotero.cli import (
         cmd_check, cmd_list, cmd_search, cmd_get, cmd_tags, cmd_children,
-        cmd_push, cmd_push_batch, cmd_annotate, cmd_export,
+        cmd_push, cmd_push_batch, cmd_annotate, cmd_export, cmd_note,
     )
 
     if action == "check":
@@ -939,6 +942,14 @@ def zotero(
             export_all=export_all,
             fmt=fmt if not list_formats else "list-formats",
             output=output,
+        )
+    elif action == "note":
+        # Read notes
+        cmd_note(
+            arxiv_id=arg or aid,
+            zotero_key=key,
+            output=output,
+            raw=raw,
         )
     else:
         console.print(f"[red]❌ Unknown zotero action: {action}[/red]")

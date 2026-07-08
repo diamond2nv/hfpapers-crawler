@@ -707,6 +707,142 @@ def cmd_export(
         console.print("  [dim]Use --output <file> to save.[/dim]")
 
 
+def cmd_note(
+    arxiv_id: str = "",
+    zotero_key: str = "",
+    output: str = "",
+    raw: bool = False,
+) -> None:
+    """Read notes attached to a Zotero paper.
+
+    Notes are child items with itemType='note'. The note content
+    is stored as HTML by Zotero's rich text editor.
+
+    Args:
+        arxiv_id: arXiv ID to look up.
+        zotero_key: Direct Zotero item key.
+        output: Write to file instead of stdout.
+        raw: Show raw HTML instead of rendered text.
+    """
+    import urllib.request
+    import json
+
+    # Resolve to parent key
+    parent_key = ""
+    title = ""
+
+    if arxiv_id:
+        from hfpclawer.zotero import ZoteroClient
+        zc = ZoteroClient()
+        parent_key = zc.is_arxiv_in_zotero(arxiv_id)
+        if not parent_key:
+            console.print(f"[red]❌ arXiv {arxiv_id} not found in Zotero[/red]")
+            return
+    elif zotero_key:
+        parent_key = zotero_key
+        try:
+            item = _api_get_single(parent_key)
+            if "error" in item:
+                console.print(f"[red]❌ {item['error']}[/red]")
+                return
+            title = item.get("title", "")
+        except Exception as e:
+            console.print(f"[red]❌ Zotero error: {e}[/red]")
+            return
+    else:
+        console.print("[yellow]Provide --aid or --key[/yellow]")
+        return
+
+    # Get item title if not already fetched
+    if not title:
+        try:
+            item = _api_get_single(parent_key)
+            title = item.get("title", "")
+        except Exception:
+            title = ""
+
+    # Fetch children
+    try:
+        url = f"http://localhost:23119/api/users/0/items/{parent_key}/children"
+        with urllib.request.urlopen(url, timeout=15) as resp:
+            children = json.loads(resp.read().decode())
+    except Exception as e:
+        console.print(f"[red]❌ Cannot fetch notes: {e}[/red]")
+        return
+
+    # Filter notes
+    notes = [c for c in children if c.get("data", {}).get("itemType") == "note"]
+
+    if not notes:
+        console.print(f"[yellow]📄 {title or parent_key}[/yellow]")
+        console.print("[yellow]No notes attached to this paper.[/yellow]")
+        return
+
+    # Build output
+    lines: list[str] = []
+    if title:
+        lines.append(f"📋 Notes for: {title}")
+    else:
+        lines.append(f"📋 Notes for: {parent_key}")
+    lines.append("")
+
+    for i, note in enumerate(notes, 1):
+        nd = note.get("data", {})
+        nkey = nd.get("key", "?")
+        html_content = nd.get("note", "")
+
+        lines.append(f"─── Note {i} [{nkey}] ───")
+
+        if raw:
+            lines.append(html_content)
+        else:
+            # Strip HTML tags for readable display
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html_content, "html.parser")
+                text = soup.get_text(separator="\n", strip=True)
+                lines.append(text)
+            except ImportError:
+                # Fallback: basic tag stripping
+                import re
+                text = re.sub(r"<[^>]+>", "", html_content)
+                text = re.sub(r"\n{3,}", "\n\n", text)
+                lines.append(text.strip())
+
+        lines.append("")
+
+    content = "\n".join(lines)
+
+    if output:
+        Path(output).write_text(content, encoding="utf-8")
+        console.print(f"[green]✅ {len(notes)} note(s) saved to {output}[/green]")
+    else:
+        console.print(content)
+
+
+def _api_get_single(key: str) -> dict:
+    """Fetch a single Zotero item by key, return its data dict."""
+    import urllib.request
+    import urllib.error
+    import json
+
+    url = f"http://localhost:23119/api/users/0/items/{key}"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            item = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"error": f"Zotero key '{key}' not found"}
+        return {"error": f"HTTP {e.code}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+    data = item.get("data", {})
+    if not data:
+        return {"error": f"Item '{key}' not found"}
+    return dict(data)
+
+
 def _print_creators_preview(item: dict) -> None:
     """Print creator info for dry-run display."""
     creators = item.get("creators", [])
