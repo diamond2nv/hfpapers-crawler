@@ -242,6 +242,7 @@ def cmd_push(
     source: str = "cli",
     tag: str = "",
     dry_run: bool = False,
+    dedup: bool = True,
 ) -> None:
     """Push a paper to Zotero via Connector protocol (POST /connector/saveItems).
 
@@ -256,6 +257,7 @@ def cmd_push(
         source: Source tag (e.g., 'cron:coc', 'cli').
         tag: Additional Zotero tags (comma-separated).
         dry_run: Print what would be sent without actually POSTing.
+        dedup: Skip if paper already exists in Zotero (default: True).
     """
     from hfpclawer.zotero.connector import (
         ZoteroConnector,
@@ -321,6 +323,29 @@ def cmd_push(
         console.print("\n[yellow]Dry run mode — no data sent to Zotero[/yellow]")
         return
 
+    # Dedup check — skip if paper already exists in Zotero
+    dedup_key = resolved_id or doi or ""
+    if dedup and dedup_key:
+        try:
+            from hfpclawer.zotero import ZoteroClient
+            zc = ZoteroClient()
+            if dedup_key.startswith("2") and "." in dedup_key:
+                # Looks like an arXiv ID
+                existing = zc.is_arxiv_in_zotero(dedup_key)
+            elif dedup_key.startswith("10."):
+                # Looks like a DOI
+                existing = zc.search_by_doi(dedup_key)
+                existing = existing.get("data", {}).get("key") if existing else None
+            else:
+                existing = zc.is_arxiv_in_zotero(dedup_key)
+
+            if existing:
+                console.print(f"[yellow]⏭️ Already in Zotero (key={existing})[/yellow]")
+                console.print(f"  Check: hfpclawer zotero get {existing}")
+                return
+        except Exception:
+            pass  # Dedup failure is non-blocking — proceed anyway
+
     # POST to Zotero
     uri = paper.get("url", "") or f"https://arxiv.org/abs/{resolved_id or ''}"
     console.print(f"[dim]Sending to Zotero via /connector/saveItems...[/dim]")
@@ -351,6 +376,7 @@ def cmd_push_batch(
     source_filter: str = "cron:",
     limit: int = 10,
     dry_run: bool = False,
+    dedup: bool = True,
 ) -> None:
     """Batch push un-pushed papers from paper_store to Zotero.
 
@@ -361,6 +387,7 @@ def cmd_push_batch(
         source_filter: Only push papers with this source prefix (default: "cron:")
         limit: Max papers to push in one batch (default: 10).
         dry_run: Just show what would be pushed.
+        dedup: Skip papers already in Zotero (default: True).
     """
     from hfpclawer.zotero.connector import ZoteroConnector, ConnectorError
     try:
@@ -383,19 +410,20 @@ def cmd_push_batch(
         console.print(f"[yellow]No papers match source filter '{source_filter}'[/yellow]")
         return
 
-    # Filter: only push those not yet in Zotero (check by searching for hfpclawer tag)
+    # Filter: skip papers already in Zotero (dedup by arXiv ID in extra field)
     from hfpclawer.zotero import ZoteroClient
     zc = ZoteroClient()
     pushed = 0
     skipped = 0
     errors = 0
+    dedup_skipped = 0
 
     console.print(f"[bold]Batch push: {len(rows)} candidates[/bold]")
 
     for row in rows:
         sf_id = row["sf_id"]
         title = (row["title"] or "")[:60]
-        source = row.get("source", "unknown")
+        source = row["source"] or "unknown"
 
         # Get arxiv_id
         ids = store.get_identifiers(sf_id)
@@ -406,6 +434,18 @@ def cmd_push_batch(
             logger.debug("Skipping sf_id=%s: no arxiv_id", sf_id)
             skipped += 1
             continue
+
+        # Dedup check — skip if already in Zotero
+        if dedup:
+            try:
+                existing_key = zc.is_arxiv_in_zotero(arxiv_id)
+                if existing_key:
+                    dedup_skipped += 1
+                    if dry_run:
+                        console.print(f"  [dim]⏭️ [{arxiv_id}] {title} (already in Zotero)[/dim]")
+                    continue
+            except Exception:
+                pass  # Dedup failure is non-blocking
 
         if dry_run:
             console.print(f"  📄 [{source}] {arxiv_id} {title}")
@@ -440,10 +480,13 @@ def cmd_push_batch(
             console.print(f"  [red]❌[/red] [{arxiv_id}] Connector unreachable")
 
     if dry_run:
-        console.print(f"\n[yellow]Dry run: {len(rows)} papers ready to push[/yellow]")
+        console.print(f"\n[yellow]Dry run: {len(rows)} candidates"
+                       f" ({dedup_skipped} dedup-skipped)[/yellow]")
         console.print("  Use without --dry-run to actually push.")
     else:
-        console.print(f"\n[bold]Batch complete: {pushed} pushed, {skipped} skipped, {errors} errors[/bold]")
+        console.print(f"\n[bold]Batch complete: {pushed} pushed, "
+                       f"{dedup_skipped} dedup-skipped, "
+                       f"{skipped} skipped, {errors} errors[/bold]")
 
 
 def _print_creators_preview(item: dict) -> None:

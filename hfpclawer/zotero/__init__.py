@@ -50,6 +50,7 @@ class ZoteroClient:
         self._library_id = library_id
         self._timeout = timeout
         self._zot: Optional[_PyZotero] = None
+        self._arxiv_lookup: Optional[dict[str, str]] = None
 
     def _connect(self) -> _PyZotero:
         """Lazy connection to Zotero local API."""
@@ -237,7 +238,10 @@ class ZoteroClient:
             return None
 
     def search_by_doi(self, doi: str) -> Optional[dict]:
-        """Search for an item by DOI using Zotero's quicksearch.
+        """Search for an item by DOI using item enumeration.
+
+        Scans all items' `extra` and `DOI` fields for the given DOI.
+        More reliable than quick-search `q` which doesn't index extra.
 
         Args:
             doi: DOI string (e.g., '10.1038/s41586-024-07123-5')
@@ -245,16 +249,122 @@ class ZoteroClient:
         Returns:
             First matching item dict, or None
         """
-        items = self.items(q=doi, limit=5)
+        items = self._fetch_all_items()
+        doi_lower = doi.lower()
         for item in items:
-            item_doi = item.get("data", {}).get("DOI", "")
-            if item_doi and doi.lower() in item_doi.lower():
+            data = item.get("data", {})
+            item_doi = data.get("DOI", "")
+            if item_doi and doi_lower in item_doi.lower():
                 return item
-            # Also check extra field
-            extra = item.get("data", {}).get("extra", "")
+            extra = data.get("extra", "")
             if doi in extra:
                 return item
         return None
+
+    # ── Dedup / Search by arXiv ID ──────────────
+
+    def _fetch_all_items(self) -> list[dict]:
+        """Fetch all items from Zotero via local HTTP API.
+
+        Returns raw item dicts (no pagination needed for local API
+        with a generous limit).
+        """
+        import urllib.request
+        import json
+
+        url = "http://localhost:23119/api/users/0/items?limit=5000"
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                return json.loads(resp.read().decode())
+        except Exception:
+            return []
+
+    def _build_arxiv_lookup(self) -> dict[str, str]:
+        """Build a dict of arxiv_id -> Zotero item key from all items.
+
+        Scans the `extra` field and `url` field of every item.
+        Returns a dict like {'2606.26294': '48NK3A83', ...}.
+
+        Result is cached across calls within the same ZoteroClient instance.
+        Call clear_lookup_cache() to force a refresh.
+        """
+        if self._arxiv_lookup is not None:
+            return self._arxiv_lookup
+
+        items = self._fetch_all_items()
+        self._arxiv_lookup = {}
+        for item in items:
+            data = item.get("data", {})
+            key = data.get("key", item.get("key", ""))
+            extra = data.get("extra", "")
+            url_field = data.get("url", "")
+
+            # Check extra field for 'arXiv: XXXX.XXXXX'
+            for line in extra.split("\n"):
+                line = line.strip()
+                for prefix in ("arXiv:", "arxiv:"):
+                    if line.startswith(prefix):
+                        aid = line[len(prefix):].strip()
+                        if aid and "." in aid:
+                            self._arxiv_lookup[aid] = key
+
+            # Also check URL field for arxiv.org/abs/XXXX.XXXXX
+            if "arxiv.org/abs/" in url_field:
+                aid = url_field.split("arxiv.org/abs/")[-1]
+                # Strip version suffix (v1, v2, etc.) and query params
+                if "v" in aid and aid.split("v")[-1].isdigit():
+                    aid = aid.rsplit("v", 1)[0]
+                aid = aid.split("?")[0].split("#")[0]
+                if aid and "." in aid:
+                    self._arxiv_lookup.setdefault(aid, key)
+
+        return self._arxiv_lookup
+
+    def clear_lookup_cache(self) -> None:
+        """Force a refresh of the arXiv lookup on the next dedup check."""
+        self._arxiv_lookup = None
+
+    def search_by_arxiv_id(
+        self,
+        arxiv_id: str,
+        limit: int = 5,
+    ) -> list[dict]:
+        """Search Zotero items by arXiv ID using item enumeration.
+
+        Scans all items' `extra` and `url` fields for the given arXiv ID.
+        This is the most reliable method since Zotero's quick search API
+        does not index the `extra` field.
+
+        Args:
+            arxiv_id: arXiv ID (e.g., "2606.26294")
+            limit: Max items to return (default: 5).
+
+        Returns:
+            List of matching item dicts (empty if not found).
+        """
+        lookup = self._build_arxiv_lookup()
+        target_key = lookup.get(arxiv_id)
+        if not target_key:
+            return []
+
+        # Fetch the matching item by key
+        item = self.get_item(target_key)
+        return [item] if item else []
+
+    def is_arxiv_in_zotero(self, arxiv_id: str) -> Optional[str]:
+        """Check if an arXiv paper already exists in Zotero.
+
+        Built a lookup table from all items' extra fields.
+        Efficient for libraries up to ~10,000 items.
+
+        Args:
+            arxiv_id: arXiv ID (e.g., "2606.26294")
+
+        Returns:
+            The Zotero item key if found, None otherwise.
+        """
+        lookup = self._build_arxiv_lookup()
+        return lookup.get(arxiv_id)
 
     # ── Utility ──────────────────────────────────
 

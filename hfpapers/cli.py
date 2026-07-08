@@ -831,6 +831,10 @@ def zotero(
     dry_run: bool = typer.Option(
         False, "--dry-run", "-n", help="Show what would be pushed without sending"
     ),
+    dedup: bool = typer.Option(
+        True, "--dedup/--no-dedup", "-d",
+        help="Skip if paper already exists in Zotero (default: True)",
+    ),
 ):
     """Zotero operations via local API (read) and Connector protocol (write)
 
@@ -895,12 +899,13 @@ def zotero(
             title=title,
             tag=tag,
             dry_run=dry_run,
+            dedup=dedup,
         )
     elif action == "push-batch":
         # Batch push: optional source filter
         source_filter = arg or "cron:"
         limit_value = limit
-        cmd_push_batch(source_filter=source_filter, limit=limit_value, dry_run=dry_run)
+        cmd_push_batch(source_filter=source_filter, limit=limit_value, dry_run=dry_run, dedup=dedup)
     else:
         console.print(f"[red]❌ Unknown zotero action: {action}[/red]")
 

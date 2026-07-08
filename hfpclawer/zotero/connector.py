@@ -228,6 +228,7 @@ class ZoteroConnector:
         arxiv_id: str,
         paper_store_lookup: Any = None,
         session_id: Optional[str] = None,
+        dedup: bool = True,
     ) -> dict[str, Any]:
         """Push a paper from paper_store to Zotero.
 
@@ -239,10 +240,26 @@ class ZoteroConnector:
             paper_store_lookup: Callable(arxiv_id) -> dict or None.
                                 If None, uses hfpapers.paper_store.ensure_paper.
             session_id: Optional session ID override.
+            dedup: If True (default), skip if paper already exists in Zotero.
 
         Returns:
             Result dict from save_items().
         """
+        # Dedup check — Zotero READ only, safe during sync
+        if dedup:
+            try:
+                from hfpclawer.zotero import ZoteroClient
+                zc = ZoteroClient()
+                existing_key = zc.is_arxiv_in_zotero(arxiv_id)
+                if existing_key:
+                    return {
+                        "status": 304,
+                        "error": f"Already in Zotero (key={existing_key})",
+                        "skipped": True,
+                    }
+            except Exception as e:
+                logger.debug("Dedup check failed (proceeding anyway): %s", e)
+
         # Resolve paper data
         if paper_store_lookup is not None:
             paper = paper_store_lookup(arxiv_id)
