@@ -1047,3 +1047,267 @@ def _mark_pushed_after_save(store, sf_id: int, arxiv_id: str, doi: str, console)
         console.print(f"  [dim]  ✓ zotero_pushed_at recorded[/dim]")
     except Exception as e:
         logger.warning("Failed to mark zotero_pushed for sf_id=%s: %s", sf_id, e)
+
+
+# ════════════════════════════════════════════════════════════
+# cmd_ingest — Zotero 本地 PDF → hfpclawer paper_store → wiki/raw
+# ════════════════════════════════════════════════════════════
+
+def cmd_ingest(
+    arxiv_id: str,
+    output: str = "",
+    no_wiki: bool = False,
+    verbose: bool = False,
+) -> None:
+    """Ingest a paper from Zotero's local PDF into paper_store + wiki/raw.
+
+    Pipeline:
+      1. Resolve arXiv ID → Zotero item → local PDF path
+      2. Copy PDF to hfpclawer's pdfs/ directory
+      3. Convert PDF → Markdown (pymupdf4llm)
+      4. Ingest metadata into paper_store (sqllite)
+      5. Write wiki/raw/papers/{arxiv_id}.md with frontmatter + annotations
+
+    Args:
+        arxiv_id: arXiv ID to ingest
+        output: Override output path for wiki raw file
+        no_wiki: Skip wiki/raw output (only paper_store + PDF + MD)
+        verbose: Print each step
+    """
+    import json
+    import shutil
+    import ssl
+    import urllib.request
+    import urllib.error
+    from datetime import datetime, timezone
+    from hashlib import sha256
+
+    # ── Step 0: normalize arXiv ID ──
+    aid = arxiv_id.strip().rstrip("/").split("abs/")[-1].split("arXiv:")[-1].strip()
+    console.print(f"\n[bold]📥 Ingesting {aid}[/bold]\n")
+
+    # ── Step 1: resolve PDF path from Zotero ──
+    console.print("[dim] 1/6 Resolving PDF in Zotero...[/dim]")
+    from hfpclawer.zotero.annotations import resolve_pdf_path
+
+    info = resolve_pdf_path(arxiv_id=aid)
+    if "error" in info:
+        console.print(f"[red]❌ {info['error']}[/red]")
+        return
+
+    zotero_pdf = info["pdf_path"]
+    title = info.get("title", "")
+    parent_key = info.get("parent_key", "")
+    console.print(f"  ✓ Source: {zotero_pdf}")
+    if title:
+        console.print(f"  ✓ Title: {title}")
+    console.print(f"  ✓ Zotero key: {parent_key}")
+
+    pdf_size = Path(zotero_pdf).stat().st_size
+    console.print(f"  ✓ PDF size: {pdf_size // 1024} KB")
+
+    # ── Step 2: copy PDF to hfpclawer's data dir ──
+    console.print("[dim] 2/6 Copying PDF to hfpclawer storage...[/dim]")
+    pdf_dir: Path
+    cfg_get = lambda k, d=None: d  # fallback if config unavailable
+    try:
+        from hfpapers.config import get as _cfg_get
+        cfg_get = _cfg_get
+
+        base = Path(_cfg_get("paths.data_dir", "data")).expanduser().resolve()
+        pdf_dir = Path(_cfg_get("paths.pdf_dir", str(base / "pdfs"))).expanduser().resolve()
+        if not pdf_dir.is_absolute():
+            import hfpclawer as _hfp
+            pdf_dir = Path(_hfp.__file__).parent.parent / pdf_dir
+    except Exception:
+        pdf_dir = Path("data/pdfs").resolve()
+
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    pdf_target = pdf_dir / f"{aid}.pdf"
+    if pdf_target.exists() and pdf_target.stat().st_size == pdf_size:
+        console.print(f"  ✓ Already exists (same size): {pdf_target}")
+    else:
+        shutil.copy2(zotero_pdf, str(pdf_target))
+        console.print(f"  ✓ Copied → {pdf_target}")
+
+    # ── Step 2b: fetch metadata from arXiv API ──
+    console.print("[dim]   Fetching arXiv metadata...[/dim]")
+    arxiv_title = title
+    arxiv_authors = ""
+    arxiv_abstract = ""
+    arxiv_categories = ""
+    try:
+        from xml.etree import ElementTree as ET
+        url = f"http://export.arxiv.org/api/query?id_list={aid}&max_results=1"
+        ctx = ssl._create_unverified_context()
+        req = urllib.request.Request(url, headers={"User-Agent": "hfpclawer/0.9"})
+        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+            raw_xml = resp.read()
+        root = ET.fromstring(raw_xml)
+        ns = {"a": "http://www.w3.org/2005/Atom"}
+        entry = root.find("a:entry", ns)
+        if entry is not None:
+            title_el = entry.find("a:title", ns)
+            if title_el is not None and title_el.text:
+                arxiv_title = " ".join(title_el.text.split())
+            # Authors
+            authors = []
+            for au in entry.findall("a:author", ns):
+                name_el = au.find("a:name", ns)
+                if name_el is not None and name_el.text:
+                    authors.append(name_el.text)
+            arxiv_authors = ", ".join(authors)
+            # Abstract
+            abs_el = entry.find("a:summary", ns)
+            if abs_el is not None and abs_el.text:
+                arxiv_abstract = " ".join(abs_el.text.split())
+            # Categories
+            cats = []
+            for cat in entry.findall("a:category", ns):
+                term = cat.get("term", "")
+                if term:
+                    cats.append(term)
+            arxiv_categories = ", ".join(cats)
+        console.print(f"  ✓ Title: {arxiv_title[:80]}...")
+        if arxiv_authors:
+            console.print(f"  ✓ Authors: {arxiv_authors[:80]}...")
+    except Exception as e:
+        if verbose:
+            console.print(f"  [yellow]⚠️  arXiv meta: {e}[/yellow]")
+
+    # ── Step 3: convert PDF → Markdown ──
+    console.print("[dim] 3/6 Converting PDF → Markdown...[/dim]")
+    md_text = ""
+    md_ok = False
+    md_target: Path | None = None
+    try:
+        import pymupdf4llm
+
+        raw_md = pymupdf4llm.to_markdown(str(zotero_pdf))
+        if isinstance(raw_md, list):
+            md_text = "\n\n".join(p.get("text", "") for p in raw_md if isinstance(p, dict))
+        else:
+            md_text = str(raw_md)
+
+        try:
+            _mdd = Path(cfg_get("paths.md_dir", "mds")).expanduser().resolve()
+        except Exception:
+            _mdd = Path("data/mds").resolve()
+        md_target = _mdd / f"{aid}.md"
+        md_target.parent.mkdir(parents=True, exist_ok=True)
+        md_target.write_text(md_text, encoding="utf-8")
+        md_ok = True
+        console.print(f"  ✓ MD saved: {md_target} ({len(md_text)} chars)")
+    except Exception as e:
+        console.print(f"  [yellow]⚠️  MD conversion skipped: {e}[/yellow]")
+
+    # ── Step 4: ingest into paper_store ──
+    console.print("[dim] 4/6 Writing to paper_store...[/dim]")
+    sf_id = None
+    try:
+        from hfpapers.paper_store import ensure_paper
+
+        sf_id, is_new = ensure_paper(
+            arxiv_id=aid,
+            title=arxiv_title,
+            abstract=arxiv_abstract,
+            venue=arxiv_categories.split(",")[0].strip() if arxiv_categories else "",
+            source="zotero-ingest",
+        )
+        status_str = "🆕 new" if is_new else "♻️ existing"
+        console.print(f"  ✓ sf_id={sf_id} ({status_str})")
+    except Exception as e:
+        console.print(f"  [yellow]⚠️  paper_store write: {e}[/yellow]")
+
+    # ── Step 5: extract annotations from PDF ──
+    console.print("[dim] 5/6 Extracting PDF annotations...[/dim]")
+    annotations_md = ""
+    try:
+        from hfpclawer.zotero.annotations import extract_pdf_annotations, format_markdown
+
+        anns = extract_pdf_annotations(zotero_pdf)
+        if anns:
+            annotations_md = format_markdown(anns, title=arxiv_title, parent_key=parent_key)
+            console.print(f"  ✓ {len(anns)} annotations extracted")
+        else:
+            console.print("  - No annotations found")
+    except Exception as e:
+        if verbose:
+            console.print(f"  [yellow]⚠️  Annotations: {e}[/yellow]")
+
+    # ── Step 6: write wiki/raw/papers/{aid}.md ──
+    wiki_path: Path | None = None
+    if not no_wiki:
+        console.print("[dim] 6/6 Writing wiki/raw paper note...[/dim]")
+
+        # Compute SHA256 of PDF
+        pdf_sha = sha256(pdf_target.read_bytes()).hexdigest() if pdf_target.exists() else ""
+
+        # Build wiki frontmatter + body
+        wiki_lines = []
+        wiki_lines.append("---")
+        wiki_lines.append(f"source_url: https://arxiv.org/abs/{aid}")
+        wiki_lines.append(f"ingested: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}")
+        wiki_lines.append(f"sha256: {pdf_sha}")
+        if arxiv_categories:
+            wiki_lines.append(f"categories: [{arxiv_categories}]")
+        wiki_lines.append("---")
+        wiki_lines.append("")
+        wiki_lines.append(f"# {arxiv_title}")
+        wiki_lines.append("")
+        if arxiv_authors:
+            wiki_lines.append(f"**Authors:** {arxiv_authors}")
+        wiki_lines.append(f"**arXiv:** [{aid}](https://arxiv.org/abs/{aid})")
+        if arxiv_categories:
+            wiki_lines.append(f"**Subjects:** {arxiv_categories}")
+        wiki_lines.append("")
+        wiki_lines.append(f"**Zotero key:** `{parent_key}`")
+        wiki_lines.append("")
+
+        # Add abstract if available
+        if arxiv_abstract:
+            wiki_lines.append("## Abstract")
+            wiki_lines.append("")
+            wiki_lines.append(arxiv_abstract[:2000])
+            wiki_lines.append("")
+
+        # Placeholder for analysis notes
+        wiki_lines.append("## Notes")
+        wiki_lines.append("")
+        wiki_lines.append("*[AI analysis goes here]*")
+        wiki_lines.append("")
+
+        # Add annotations
+        if annotations_md:
+            wiki_lines.append("---")
+            wiki_lines.append("")
+            wiki_lines.append(annotations_md)
+
+        wiki_content = "\n".join(wiki_lines)
+
+        # Determine output path
+        if output:
+            wiki_path = Path(output)
+        else:
+            wiki_path = Path.home() / "wiki" / "raw" / "papers" / f"{aid}.md"
+        wiki_path.parent.mkdir(parents=True, exist_ok=True)
+        wiki_path.write_text(wiki_content, encoding="utf-8")
+        console.print(f"  ✓ Wiki note → {wiki_path} ({len(wiki_content)} chars)")
+
+    # ── Summary ──
+    console.print("\n[bold green]✅ Ingest complete[/bold green]")
+    if sf_id:
+        console.print(f"  paper_store:  sf_id={sf_id}")
+    console.print(f"  PDF:          {pdf_target}")
+    if md_ok and md_target:
+        console.print(f"  Markdown:     {md_target}")
+    if wiki_path:
+        console.print(f"  Wiki note:    {wiki_path}")
+    if annotations_md:
+        console.print(f"  Annotations:  {len(anns)} items")
+    console.print(f"  Zotero key:   {parent_key}")
+    console.print(f"  Title:        {arxiv_title[:80]}...")
+    console.print(f"  Authors:      {arxiv_authors[:80]}...")
+
+    # Offer to open in browser
+    console.print(f"\n[dim]🔗 https://arxiv.org/abs/{aid}[/dim]")

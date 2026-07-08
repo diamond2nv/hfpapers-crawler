@@ -856,6 +856,12 @@ def zotero(
     raw: bool = typer.Option(
         False, "--raw", help="Show raw HTML notes (for note command)"
     ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Verbose output (for ingest)"
+    ),
+    no_wiki: bool = typer.Option(
+        False, "--no-wiki", help="Skip wiki/raw output (for ingest)"
+    ),
 ):
     """Zotero operations via local API (read) and Connector protocol (write)
 
@@ -871,6 +877,9 @@ def zotero(
       push      — Push a paper from paper_store (or direct) to Zotero
       push-batch — Batch push all un-pushed papers from a source domain
 
+    INGEST action:
+      ingest    — Zotero local PDF → paper_store + wiki/raw + annotations
+
     Examples:
       hfpclawer zotero check
       hfpclawer zotero list --limit 10
@@ -884,10 +893,12 @@ def zotero(
       hfpclawer zotero push --title "My Paper" --tag "my-project"
       hfpclawer zotero push-batch cron:coc        # Batch push cron:coc papers
       hfpclawer zotero push-batch --limit 5 --dry-run
+      hfpclawer zotero ingest 2501.01934          # Zotero PDF → wiki/raw
     """
     from hfpclawer.zotero.cli import (
         cmd_check, cmd_list, cmd_search, cmd_get, cmd_tags, cmd_children,
         cmd_push, cmd_push_batch, cmd_annotate, cmd_export, cmd_note,
+        cmd_ingest,
     )
 
     if action == "check":
@@ -955,6 +966,14 @@ def zotero(
             zotero_key=key,
             output=output,
             raw=raw,
+        )
+    elif action == "ingest":
+        # Zotero PDF → paper_store + wiki/raw
+        cmd_ingest(
+            arxiv_id=arg or aid,
+            output=output,
+            no_wiki=no_wiki,
+            verbose=verbose,
         )
     else:
         console.print(f"[red]❌ Unknown zotero action: {action}[/red]")

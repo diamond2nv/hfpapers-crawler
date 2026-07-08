@@ -41,6 +41,7 @@ dependencies = [
     "lxml>=4.9",
     "typer>=0.9",
     "psutil>=5.8",
+    "pymupdf4llm>=1.28.0",
 ]
 
 [project.urls]
