@@ -835,6 +835,10 @@ def zotero(
         True, "--dedup/--no-dedup", "-d",
         help="Skip if paper already exists in Zotero (default: True)",
     ),
+    with_pdf: bool = typer.Option(
+        False, "--with-pdf", "-p",
+        help="Also attach local PDF file to the Zotero item",
+    ),
     key: str = typer.Option("", "--key", "-k", help="Zotero item key (for annotate)"),
     fmt: str = typer.Option(
         "markdown", "--fmt", "--format",
@@ -917,6 +921,7 @@ def zotero(
             tag=tag,
             dry_run=dry_run,
             dedup=dedup,
+            with_pdf=with_pdf,
         )
     elif action == "push-batch":
         # Batch push: optional source filter

@@ -244,6 +244,7 @@ def cmd_push(
     tag: str = "",
     dry_run: bool = False,
     dedup: bool = True,
+    with_pdf: bool = False,
 ) -> None:
     """Push a paper to Zotero via Connector protocol (POST /connector/saveItems).
 
@@ -259,6 +260,7 @@ def cmd_push(
         tag: Additional Zotero tags (comma-separated).
         dry_run: Print what would be sent without actually POSTing.
         dedup: Skip if paper already exists in Zotero (default: True).
+        with_pdf: Also attach the local PDF file (searched in paper_store's pdf_dir).
     """
     from hfpclawer.zotero.connector import (
         ZoteroConnector,
@@ -360,7 +362,14 @@ def cmd_push(
             console.print(f"  Session:  {result['session_id'][:24]}...")
             console.print(f"  Title:    {item['title'][:60]}")
             console.print(f"  Tags:     {', '.join(t['tag'] for t in item['tags'])}")
-            console.print(f"\n[dim]Check with: hfpclawer zotero search \"{item['title'][:30]}\"[/dim]")
+
+            # ── PDF attachment ──────────────────────────────
+            if with_pdf:
+                _push_after_attach(
+                    conn, item, paper, result, resolved_id, console,
+                )
+            else:
+                console.print(f"\n[dim]Check with: hfpclawer zotero search \"{item['title'][:30]}\"[/dim]")
         else:
             console.print(f"[red]❌ Push failed (HTTP {result.get('status')})[/red]")
             if result.get("error"):
@@ -851,6 +860,106 @@ def _print_creators_preview(item: dict) -> None:
         console.print(f"  Authors:  {'; '.join(names)}")
         if len(creators) > 3:
             console.print(f"            ... and {len(creators)-3} more")
+
+
+def _push_after_attach(
+    conn,
+    item,
+    paper,
+    save_result,
+    resolved_id: str,
+    console: Console,
+) -> None:
+    """After metadata push, attach PDF via saveAttachment."""
+    from hfpclawer.zotero.connector import ConnectorError
+    import os
+
+    session_id = save_result["session_id"]
+
+    # Step 1: get recognized item key
+    try:
+        rec = conn.get_recognized_item(session_id)
+    except ConnectorError as e:
+        console.print(f"  [yellow]⚠️  Cannot check recognized item: {e}[/yellow]")
+        return
+
+    parent_key = None
+    if rec and isinstance(rec, dict):
+        parent_key = rec.get("itemID") or rec.get("key") or rec.get("data", {}).get("key", "")
+    if not parent_key:
+        # Fallback: poll once more after a short wait
+        import time
+        time.sleep(2)
+        try:
+            rec = conn.get_recognized_item(session_id)
+            if rec and isinstance(rec, dict):
+                parent_key = rec.get("itemID") or rec.get("key") or rec.get("data", {}).get("key", "")
+        except ConnectorError:
+            pass
+
+    if not parent_key:
+        console.print("  [yellow]⚠️  Could not get Zotero item key for PDF attachment[/yellow]")
+        console.print("  [dim]The metadata was saved; PDF can be attached manually from local storage.[/dim]")
+        return
+
+    # Step 2: resolve PDF path
+    # Search order: paper_store pdf_dir, resolved_id.pdf in data/pdfs, generic ~/hfpclawer/data/pdfs/
+    pdf_candidates = []
+    arxiv_id = paper.get("arxiv_id") or resolved_id or ""
+
+    # From paper_store config
+    try:
+        from hfpapers.config import get as cfg_get
+        base = cfg_get("data_dir") or "data"
+        pdf_dir = cfg_get("paths.pdf_dir") or f"{base}/pdfs"
+        pdf_dir = os.path.expanduser(pdf_dir)
+        if not os.path.isabs(pdf_dir):
+            # Try relative to repo root
+            import hfpclawer
+            hf_dir = os.path.dirname(os.path.dirname(hfpclawer.__file__))
+            pdf_dir = os.path.join(hf_dir, pdf_dir)
+        pdf_candidates.append(os.path.join(pdf_dir, f"{arxiv_id}.pdf"))
+    except Exception:
+        pass
+
+    # Fallback paths
+    pdf_candidates.extend([
+        os.path.expanduser(f"~/hfpclawer/data/pdfs/{arxiv_id}.pdf"),
+        os.path.expanduser(f"~/Documents/Gitlab/Agentic4Sci/hfpapers-crawler/data/pdfs/{arxiv_id}.pdf"),
+    ])
+
+    pdf_path = None
+    for cand in pdf_candidates:
+        if os.path.isfile(cand):
+            pdf_path = cand
+            break
+
+    if not pdf_path:
+        console.print(f"  [yellow]⚠️  No local PDF found for {arxiv_id}[/yellow]")
+        console.print("  [dim]The metadata was saved; PDF will sync via WebDAV.[/dim]")
+        return
+
+    # Step 3: attach PDF
+    console.print(f"  [dim]Attaching PDF: {os.path.basename(pdf_path)} ({os.path.getsize(pdf_path)//1024} KB)...[/dim]")
+    try:
+        att_result = conn.save_attachment(
+            session_id=session_id,
+            parent_item_key=parent_key,
+            pdf_path=pdf_path,
+            title=f"{item.get('title', 'PDF')[:100]}",
+            url=paper.get("url", ""),
+        )
+        if att_result.get("status", 0) in (200, 201):
+            console.print(f"  [green]✅ PDF attached! (key={parent_key})[/green]")
+        else:
+            console.print(f"  [yellow]⚠️  PDF attach: HTTP {att_result.get('status')} "
+                          f"{att_result.get('error', '')}[/yellow]")
+    except FileNotFoundError as e:
+        console.print(f"  [red]❌ PDF not found: {e}[/red]")
+    except ConnectorError as e:
+        console.print(f"  [red]❌ Connector error: {e}[/red]")
+    except Exception as e:
+        console.print(f"  [red]❌ Unexpected: {e}[/red]")
 
 
 def _paper_to_zotero_item_simple(paper: dict) -> dict:

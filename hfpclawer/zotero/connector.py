@@ -133,6 +133,103 @@ class ZoteroConnector:
             payload.update(metadata)
         return self._request("saveSingleFile", payload, session_id)
 
+    def save_attachment(
+        self,
+        session_id: str,
+        parent_item_key: str,
+        pdf_path: str,
+        title: str = "",
+        url: str = "",
+    ) -> dict[str, Any]:
+        """Attach a PDF file to an existing Zotero item via /connector/saveAttachment.
+
+        POSTs raw PDF bytes with X-Metadata header describing the parent item.
+        Call this AFTER a successful save_items() — the parent item must already
+        exist in Zotero.
+
+        Args:
+            session_id: Session ID from the save_items() call.
+            parent_item_key: Zotero item key of the parent (from getRecognizedItem).
+            pdf_path: Absolute path to the PDF file on disk.
+            title: Optional attachment title (defaults to PDF filename).
+            url: Optional source URL for the attachment.
+
+        Returns:
+            dict with:
+              - "status": 201 on success
+              - "session_id": the session ID used
+              - "error": error message if failed
+
+        Raises:
+            ConnectorError: If Zotero is unreachable.
+            FileNotFoundError: If pdf_path doesn't exist.
+        """
+        import os
+        import json as _json
+
+        if not os.path.isfile(pdf_path):
+            raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
+        # Build X-Metadata header
+        metadata = {
+            "sessionID": session_id,
+            "parentItemID": parent_item_key,
+            "title": title or os.path.basename(pdf_path),
+        }
+        if url:
+            metadata["url"] = url
+
+        # Read PDF bytes
+        with open(pdf_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        target_url = f"{self._url}/saveAttachment"
+        headers = {
+            "Content-Type": "application/octet-stream",
+            "X-Metadata": _json.dumps(metadata, ensure_ascii=False),
+        }
+
+        req = urllib.request.Request(
+            target_url, data=pdf_bytes, headers=headers, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                status = resp.status
+                resp_body = resp.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            status = e.code
+            resp_body = e.read().decode("utf-8") if e.fp else ""
+        except urllib.error.URLError as e:
+            raise ConnectorError(
+                f"Cannot reach Zotero at {target_url}: {e.reason}. "
+                "Ensure Zotero is running."
+            ) from e
+
+        result: dict[str, Any] = {
+            "status": status,
+            "session_id": session_id,
+        }
+        if resp_body:
+            try:
+                result["response"] = _json.loads(resp_body)
+            except _json.JSONDecodeError:
+                result["response_text"] = resp_body
+
+        if 200 <= status < 300:
+            logger.info(
+                "saveAttachment session=%s parent=%s status=%d size=%d",
+                session_id[:8], parent_item_key, status, len(pdf_bytes),
+            )
+        else:
+            error_msg = result.get("response", {}).get("error", resp_body[:200])
+            logger.warning(
+                "saveAttachment session=%s failed: %d %s",
+                session_id[:8], status, error_msg,
+            )
+            result["error"] = str(error_msg)
+
+        return result
+
     def get_recognized_item(self, session_id: str) -> Optional[dict]:
         """Check the top-level item created in a save session.
 
