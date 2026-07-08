@@ -843,6 +843,12 @@ def zotero(
     output: str = typer.Option("", "--output", "-o", help="Save to file (for annotate)"),
     color_hex: str = typer.Option("", "--color-hex", help="Filter by hex color (for annotate)"),
     color_name: str = typer.Option("", "--color-name", help="Filter by color name (for annotate)"),
+    export_all: bool = typer.Option(
+        False, "--all", help="Export entire library (for export)"
+    ),
+    list_formats: bool = typer.Option(
+        False, "--list-formats", help="List available export formats"
+    ),
 ):
     """Zotero operations via local API (read) and Connector protocol (write)
 
@@ -874,7 +880,7 @@ def zotero(
     """
     from hfpclawer.zotero.cli import (
         cmd_check, cmd_list, cmd_search, cmd_get, cmd_tags, cmd_children,
-        cmd_push, cmd_push_batch, cmd_annotate,
+        cmd_push, cmd_push_batch, cmd_annotate, cmd_export,
     )
 
     if action == "check":
@@ -923,6 +929,16 @@ def zotero(
             output=output,
             color_hex=color_hex,
             color_name=color_name,
+        )
+    elif action == "export":
+        # Export references
+        cmd_export(
+            arxiv_id=arg or aid,
+            zotero_key=key,
+            collection_key=collection,
+            export_all=export_all,
+            fmt=fmt if not list_formats else "list-formats",
+            output=output,
         )
     else:
         console.print(f"[red]❌ Unknown zotero action: {action}[/red]")

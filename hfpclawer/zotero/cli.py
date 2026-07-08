@@ -558,6 +558,155 @@ def cmd_annotate(
         console.print(content)
 
 
+# ── Supported export formats ─────────────────────
+EXPORT_FORMATS = {
+    "bibtex": "BibTeX (.bib)",
+    "biblatex": "BibLaTeX (.bib)",
+    "ris": "RIS (.ris)",
+    "csljson": "CSL JSON (.json)",
+    "csv": "CSV (.csv)",
+    "mods": "MODS XML (.xml)",
+    "tei": "TEI XML (.xml)",
+    "rdf_zotero": "Zotero RDF (.rdf)",
+    "rdf_dc": "Dublin Core RDF (.rdf)",
+    "rdf_bibliontology": "Bibliontology RDF (.rdf)",
+    "coins": "COinS",
+    "refer": "Refer",
+    "bookmarks": "Bookmarks",
+    "wikipedia": "Wikipedia Citation",
+}
+
+
+def cmd_export(
+    arxiv_id: str = "",
+    zotero_key: str = "",
+    collection_key: str = "",
+    export_all: bool = False,
+    fmt: str = "biblatex",
+    output: str = "",
+) -> None:
+    """Export references from Zotero in bibliographic format.
+
+    Uses Zotero's native export translators via the local API
+    (GET /items?format=...). No Better BibTeX plugin required.
+
+    Args:
+        arxiv_id: arXiv ID to export a single paper.
+        zotero_key: Zotero item key to export.
+        collection_key: Export all items in a collection.
+        export_all: Export the entire Zotero library.
+        fmt: Export format (default: biblatex). See --list-formats.
+        output: Write to file instead of stdout.
+
+    Formats:
+        bibtex, biblatex, ris, csljson, csv, mods, tei,
+        rdf_zotero, rdf_dc, rdf_bibliontology, coins, refer,
+        bookmarks, wikipedia
+    """
+    import urllib.request
+    import urllib.error
+    import json
+    import urllib.parse
+
+    # Validate format
+    if fmt not in EXPORT_FORMATS and fmt != "list-formats":
+        console.print(f"[red]❌ Unknown format: '{fmt}'[/red]")
+        console.print(f"  Available: {', '.join(EXPORT_FORMATS.keys())}")
+        return
+
+    if fmt == "list-formats":
+        console.print("[bold]Available export formats:[/bold]")
+        for name, desc in sorted(EXPORT_FORMATS.items()):
+            console.print(f"  {name:20s} {desc}")
+        return
+
+    # Build API URL
+    if arxiv_id:
+        # Resolve to Zotero key
+        from hfpclawer.zotero import ZoteroClient
+        zc = ZoteroClient()
+        parent_key = zc.is_arxiv_in_zotero(arxiv_id)
+        if not parent_key:
+            console.print(f"[red]❌ arXiv {arxiv_id} not found in Zotero[/red]")
+            return
+        api_path = f"/items/{parent_key}?format={fmt}"
+
+    elif zotero_key:
+        # Verify key exists
+        try:
+            api_path = f"/items/{zotero_key}?format={fmt}"
+            test_url = f"http://localhost:23119/api/users/0/items/{zotero_key}"
+            with urllib.request.urlopen(test_url, timeout=10) as resp:
+                json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                console.print(f"[red]❌ Zotero key '{zotero_key}' not found[/red]")
+            else:
+                console.print(f"[red]❌ Zotero API error: HTTP {e.code}[/red]")
+            return
+        except Exception as e:
+            console.print("[red]❌ Zotero is not running[/red]")
+            return
+        api_path = f"/items/{zotero_key}?format={fmt}"
+
+    elif collection_key:
+        api_path = f"/collections/{collection_key}/items?format={fmt}"
+
+    elif export_all:
+        api_path = f"/items?format={fmt}&limit=5000"
+
+    else:
+        console.print(
+            "[yellow]Specify a paper (--aid, --key), "
+            "--collection, or --all[/yellow]"
+        )
+        return
+
+    # Fetch
+    url = f"http://localhost:23119/api/users/0{api_path}"
+    console.print(f"[dim]Fetching: {url[:80]}...[/dim]")
+
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            content = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        console.print(f"[red]❌ Export failed: HTTP {e.code}[/red]")
+        return
+    except Exception as e:
+        console.print(f"[red]❌ Export failed: {e}[/red]")
+        return
+
+    if not content.strip():
+        console.print("[yellow]No results to export.[/yellow]")
+        return
+
+    # Output
+    if output:
+        Path(output).write_text(content, encoding="utf-8")
+        console.print(f"[green]✅ Exported to {output} ({len(content)} bytes)[/green]")
+    else:
+        # Display with rich syntax highlighting for known formats
+        if fmt in ("bibtex", "biblatex"):
+            from rich.syntax import Syntax
+            syntax = Syntax(content, "bibtex", theme="ansi_dark")
+            console.print(syntax)
+        elif fmt == "csljson":
+            import json as _json
+            try:
+                parsed = _json.loads(content)
+                console.print_json(data=parsed if isinstance(parsed, dict) else parsed[0] if parsed else {})
+            except Exception:
+                console.print(content)
+        elif fmt == "ris":
+            from rich.syntax import Syntax
+            syntax = Syntax(content[:2000], "text", theme="ansi_dark")
+            console.print(syntax)
+        else:
+            console.print(content[:2000])
+        console.print(f"\n[dim]{len(content)} bytes | format: {fmt}[/dim]")
+        console.print("  [dim]Use --output <file> to save.[/dim]")
+
+
 def _print_creators_preview(item: dict) -> None:
     """Print creator info for dry-run display."""
     creators = item.get("creators", [])
