@@ -1,0 +1,42 @@
+#!/bin/sh
+# pre-push hook template — 版本一致性检查
+# 安装: bash scripts/install-hooks.sh
+set -e
+
+REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+
+while read local_ref local_oid remote_ref remote_oid; do
+    case "$remote_ref" in
+        refs/heads/main|refs/heads/master)
+            ;;
+        *)
+            continue
+            ;;
+    esac
+
+    PY_VERSION=$(git show "$local_oid:pyproject.toml" 2>/dev/null | grep '^version' | sed 's/version = "\(.*\)"/\1/')
+    [ -z "$PY_VERSION" ] && continue
+
+    GIT_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+    [ -z "$GIT_TAG" ] && continue
+    GIT_VERSION="${GIT_TAG#v}"
+
+    if [ "$PY_VERSION" != "$GIT_VERSION" ]; then
+        echo ""
+        echo "╔══════════════════════════════════════════════════╗"
+        echo "║  ❌ PUSH BLOCKED: Version mismatch              ║"
+        echo "╠══════════════════════════════════════════════════╣"
+        echo "║  pyproject.toml:  v$PY_VERSION"
+        echo "║  latest git tag:  $GIT_TAG"
+        echo "║                                                  ║"
+        echo "║  Fix: edit pyproject.toml to match latest tag,   ║"
+        echo "║  or run:                                          ║"
+        echo "║    sed -i 's/version = \"$PY_VERSION\"/version = \"$GIT_VERSION\"/' pyproject.toml"
+        echo "║  then git add && git commit.                     ║"
+        echo "╚══════════════════════════════════════════════════╝"
+        echo ""
+        exit 1
+    fi
+done
+
+exit 0
