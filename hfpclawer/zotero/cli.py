@@ -407,11 +407,12 @@ def cmd_push_batch(
         console.print(f"[red]❌ Cannot access paper_store: {e}[/red]")
         return
 
-    # Get candidates from paper_store
+    # Get candidates from paper_store (exclude already-pushed)
     with store._conn() as conn:
         rows = conn.execute(
             """SELECT p.sf_id, p.title, p.source FROM papers p
                WHERE p.source LIKE ?1
+               AND p.zotero_pushed_at = ''
                ORDER BY p.created_at DESC LIMIT ?2""",
             (f"{source_filter}%", limit),
         ).fetchall()
@@ -482,6 +483,8 @@ def cmd_push_batch(
             if result.get("status") == 201:
                 pushed += 1
                 console.print(f"  [green]✅[/green] [{arxiv_id}] {title}")
+                # Write-back verification & mark pushed
+                _mark_pushed_after_save(store, sf_id, arxiv_id, doi, console)
             else:
                 errors += 1
                 console.print(f"  [red]❌[/red] [{arxiv_id}] {result.get('error', '?')}")
@@ -902,7 +905,7 @@ def _push_after_attach(
         console.print("  [dim]The metadata was saved; PDF can be attached manually from local storage.[/dim]")
         return
 
-    # Step 1.5: audit check — only attach PDF for verified papers
+    # Step 1.5: audit check — only attach PDF for content-verified papers (audit_level >= 2)
     arxiv_id = paper.get("arxiv_id") or resolved_id or ""
     is_verified = False
     try:
@@ -910,13 +913,14 @@ def _push_after_attach(
         store = get_store()
         rec = store.get_paper_by_identifier("arxiv", arxiv_id)
         if rec:
-            is_verified = bool(getattr(rec, "verified", False))
+            # audit_level >= 2 means content verified (PDF downloaded + extractable)
+            is_verified = rec.audit_level >= 2
     except Exception:
-        pass  # Audit check failure is non-blocking — proceed anyway
+        pass  # Audit check failure is non-blocking
 
     if not is_verified:
-        console.print(f"  [yellow]⏭️  PDF skipped: {arxiv_id} not yet audited (verified=0)[/yellow]")
-        console.print("  [dim]Run 'hfpclawer audit data' to verify, then push again with --with-pdf.[/dim]")
+        console.print(f"  [yellow]⏭️  PDF skipped: {arxiv_id} audit_level < 2 (need content verification)[/yellow]")
+        console.print("  [dim]PDF must be downloaded and validated before push. Run 'hfpclawer download' first.[/dim]")
         return
 
     # Step 2: resolve PDF path
@@ -968,6 +972,17 @@ def _push_after_attach(
         )
         if att_result.get("status", 0) in (200, 201):
             console.print(f"  [green]✅ PDF attached! (key={parent_key})[/green]")
+            # Bump audit level to 2 (content verified) + mark zotero pushed
+            try:
+                from hfpapers.paper_store import get_store
+                s = get_store()
+                rec = s.get_paper_by_identifier("arxiv", arxiv_id)
+                if rec:
+                    s.set_audit_level(rec.sf_id, 2)
+                    s.mark_zotero_pushed(rec.sf_id)
+                    console.print(f"  [dim]  ✓ audit_level=2, zotero_pushed recorded[/dim]")
+            except Exception as e:
+                logger.debug("audit_level promotion failed: %s", e)
         else:
             console.print(f"  [yellow]⚠️  PDF attach: HTTP {att_result.get('status')} "
                           f"{att_result.get('error', '')}[/yellow]")
@@ -983,3 +998,52 @@ def _paper_to_zotero_item_simple(paper: dict) -> dict:
     """Minimal paper-to-Zotero conversion for batch push (avoids full connector import)."""
     from hfpclawer.zotero.connector import paper_to_zotero_item
     return paper_to_zotero_item(paper)
+
+
+def _mark_pushed_after_save(store, sf_id: int, arxiv_id: str, doi: str, console) -> None:
+    """Write-back verification + mark zotero_pushed_at after successful save.
+
+    Three-step confirmation:
+      1. Wait briefly for Zotero async processing
+      2. Poll Zotero local API to verify the item exists
+      3. Mark in paper_store
+    """
+    import time
+
+    # Step 1: wait for Zotero async processing
+    time.sleep(2)
+
+    # Step 2: write-back verification — poll Zotero local API
+    verified = False
+    for attempt in range(3):
+        try:
+            from hfpclawer.zotero import ZoteroClient
+            zc = ZoteroClient()
+            if arxiv_id:
+                existing = zc.is_arxiv_in_zotero(arxiv_id)
+                if existing:
+                    verified = True
+                    break
+            if doi and not verified:
+                from hfpclawer.zotero import ZoteroClient
+                zc2 = ZoteroClient()
+                match = zc2.search_by_doi(doi)
+                if match and match.get("data", {}).get("key"):
+                    verified = True
+                    break
+        except Exception:
+            pass
+        if attempt < 2:
+            time.sleep(3)
+
+    if not verified:
+        console.print(f"  [yellow]⚠️  Write-back: {arxiv_id} not confirmed in Zotero (async delay?)[/yellow]")
+        console.print("  [dim]Will retry on next push-batch run.[/dim]")
+        return
+
+    # Step 3: mark pushed in paper_store (idempotency guard)
+    try:
+        store.mark_zotero_pushed(sf_id)
+        console.print(f"  [dim]  ✓ zotero_pushed_at recorded[/dim]")
+    except Exception as e:
+        logger.warning("Failed to mark zotero_pushed for sf_id=%s: %s", sf_id, e)

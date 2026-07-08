@@ -283,13 +283,18 @@ class PaperRecord:
     year: int = 0
     source: str = ""  # First discovered source
     venue: str = ""  # Venue full name
-    relevance: int = 0  # Relevance 0-100
+    relevance: int = 0  # Relevance 0-100; 0 = unscored (check relevance_set_at)
     has_code: bool = False
     code_url: str = ""
-    verified: bool = False  # Cross-verified
+    verified: bool = False  # Cross-verified (legacy, kept for backward compat)
     imported_via: str = ""  # hfpclawer version at import time
     created_at: str = ""
     updated_at: str = ""
+    # ── Audit pipeline v2 (added v0.9.9) ──────────────────────
+    audit_level: int = 0     # 0=unaudited, 1=metadata_ok, 2=content_ok, 3=human_approved
+    audit_level_at: str = "" # Timestamp of last audit level change
+    zotero_pushed_at: str = ""  # '' = never pushed, else ISO timestamp
+    relevance_set_at: str = ""  # '' = not yet scored, else ISO timestamp means relevance IS authoritative
 
 
 @dataclass
@@ -391,6 +396,18 @@ class PaperStore:
                 conn.execute("ALTER TABLE papers ADD COLUMN imported_via TEXT DEFAULT ''")
             except Exception:
                 pass  # Column already exists — fine
+
+            # Migration v2: audit pipeline columns (v0.9.9+)
+            for col_sql in [
+                "ALTER TABLE papers ADD COLUMN audit_level INTEGER DEFAULT 0",
+                "ALTER TABLE papers ADD COLUMN audit_level_at TEXT DEFAULT ''",
+                "ALTER TABLE papers ADD COLUMN zotero_pushed_at TEXT DEFAULT ''",
+                "ALTER TABLE papers ADD COLUMN relevance_set_at TEXT DEFAULT ''",
+            ]:
+                try:
+                    conn.execute(col_sql)
+                except Exception:
+                    pass  # Already exists
 
     # ─── Paper CRUD ───────────────────────────
 
@@ -632,12 +649,21 @@ class PaperStore:
             id_types = conn.execute(
                 "SELECT id_type, COUNT(*) FROM identifiers GROUP BY id_type"
             ).fetchall()
+            # Audit pipeline stats
+            audit_dist = conn.execute(
+                "SELECT audit_level, COUNT(*) FROM papers GROUP BY audit_level ORDER BY audit_level"
+            ).fetchall()
+            zotero_pushed = conn.execute(
+                "SELECT COUNT(*) FROM papers WHERE zotero_pushed_at != ''"
+            ).fetchone()[0]
             return {
                 "papers_total": total,
                 "papers_verified": verified,
                 "papers_with_code": with_code,
                 "identifiers_total": id_count,
                 "identifiers_by_type": dict(id_types),
+                "audit_levels": dict(audit_dist),
+                "zotero_pushed": zotero_pushed,
             }
 
     @staticmethod
@@ -659,6 +685,11 @@ class PaperStore:
             imported_via=imported_via,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            # New v0.9.9 fields (guard for pre-migration DBs)
+            audit_level=row["audit_level"] if "audit_level" in row_keys else 0,
+            audit_level_at=row["audit_level_at"] if "audit_level_at" in row_keys else "",
+            zotero_pushed_at=row["zotero_pushed_at"] if "zotero_pushed_at" in row_keys else "",
+            relevance_set_at=row["relevance_set_at"] if "relevance_set_at" in row_keys else "",
         )
 
     # ─── Identifier Management ──────────────────────────
@@ -724,10 +755,12 @@ class PaperStore:
     # ─── Cross validation ────────────────────────────
 
     def verify_paper(self, sf_id: int) -> bool:
-        """Check if paper has ≥2 identifiers from different sources, mark as verified"""
+        """Check if paper has ≥2 identifiers from different sources, mark audit_level=1"""
         ids = self.get_identifiers(sf_id)
         types = set(i.id_type for i in ids)
         if len(types) >= 2:
+            self.set_audit_level(sf_id, 1)
+            # Also keep legacy verified field for backward compat
             with self._lock, self._conn() as conn:
                 conn.execute(
                     "UPDATE papers SET verified=1, updated_at=datetime('now') WHERE sf_id=?",
@@ -735,6 +768,58 @@ class PaperStore:
                 )
             return True
         return False
+
+    # ─── Audit Pipeline v2 (v0.9.9+) ──────────────────────
+
+    def set_audit_level(self, sf_id: int, level: int) -> None:
+        """Set a paper's audit level with timestamp.
+
+        Levels:
+          0 = unaudited (default)
+          1 = metadata verified (≥2 identifiers cross-validated)
+          2 = content verified (PDF downloaded + text extractable)
+          3 = human approved (manual review passed)
+
+        Also writes an audit event to audit.db.
+        """
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                """UPDATE papers SET
+                    audit_level=?, audit_level_at=?, updated_at=datetime('now')
+                WHERE sf_id=?""",
+                (level, now, sf_id),
+            )
+        # Write audit event
+        try:
+            from hfpapers.logger import get_audit
+            audit = get_audit()
+            audit.record(
+                arxiv_id=str(sf_id),
+                event=f"audit_level_{level}",
+                meta={"sf_id": sf_id, "level": level},
+            )
+        except Exception:
+            pass
+
+    def get_audit_level(self, sf_id: int) -> int:
+        """Get current audit level for a paper. Returns 0 if not found."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT audit_level FROM papers WHERE sf_id=?", (sf_id,)
+            ).fetchone()
+            if row:
+                return int(row["audit_level"])
+            return 0
+
+    def mark_zotero_pushed(self, sf_id: int) -> None:
+        """Record that a paper has been successfully pushed to Zotero."""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                "UPDATE papers SET zotero_pushed_at=?, updated_at=datetime('now') WHERE sf_id=?",
+                (now, sf_id),
+            )
 
 
 # ─── Crossref Client ─────────────────────────
