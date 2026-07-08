@@ -876,7 +876,7 @@ class CrossrefClient:
             return []
 
     def doi_to_details(self, doi: str) -> Optional[dict]:
-        """DOI → paper details (with manually extracted arXiv ID)"""
+        """DOI → paper details (with manually extracted arXiv ID + ORCIDs)"""
         try:
             resp = self.session.get(
                 f"{self.BASE}/works/{doi}",
@@ -887,6 +887,8 @@ class CrossrefClient:
             data = resp.json()
             item = data.get("message", {})
             arxiv = self._extract_arxiv_from_item(item)
+            authors = item.get("author", [])
+            orcids = self._extract_orcids(authors)
             return {
                 "doi": doi,
                 "title": (item.get("title") or [""])[0],
@@ -894,13 +896,97 @@ class CrossrefClient:
                 "venue": (item.get("container-title") or [""])[0],
                 "year": self._extract_year(item),
                 "authors": json.dumps(
-                    [f"{a.get('given', '')} {a.get('family', '')}" for a in item.get("author", [])],
+                    [f"{a.get('given', '')} {a.get('family', '')}" for a in authors],
                     ensure_ascii=False,
                 ),
+                "orcids": orcids,
             }
         except Exception as e:
             logger.warning(f"[Crossref] doi_to_details failed: {e}")
             return None
+
+    def arxiv_to_details(self, arxiv_id: str) -> Optional[dict]:
+        """arXiv ID → paper details via CrossRef relation filter.
+
+        Queries CrossRef for works linked to the given arXiv ID via
+        relation type isIdenticalTo / isPreprintOf.
+
+        Returns same dict shape as doi_to_details():
+          {doi, title, arxiv_id, venue, year, authors, orcids}
+        """
+        try:
+            resp = self.session.get(
+                f"{self.BASE}/works",
+                params={
+                    "filter": (
+                        "relation.type:isIdenticalTo,"
+                        f"relation.id:https://arxiv.org/abs/{arxiv_id}"
+                    ),
+                    "rows": 1,
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            items = data.get("message", {}).get("items", [])
+            if not items:
+                # Fallback: try isPreprintOf (for papers that may not use isIdenticalTo)
+                resp2 = self.session.get(
+                    f"{self.BASE}/works",
+                    params={
+                        "filter": (
+                            "relation.type:isPreprintOf,"
+                            f"relation.id:https://arxiv.org/abs/{arxiv_id}"
+                        ),
+                        "rows": 1,
+                    },
+                    timeout=15,
+                )
+                if resp2.status_code == 200:
+                    data2 = resp2.json()
+                    items = data2.get("message", {}).get("items", [])
+            if not items:
+                return None
+
+            item = items[0]
+            doi = item.get("DOI", "")
+            if not doi:
+                return None
+
+            authors = item.get("author", [])
+            orcids = self._extract_orcids(authors)
+            return {
+                "doi": doi,
+                "title": (item.get("title") or [""])[0],
+                "arxiv_id": arxiv_id,
+                "venue": (item.get("container-title") or [""])[0],
+                "year": self._extract_year(item),
+                "authors": json.dumps(
+                    [f"{a.get('given', '')} {a.get('family', '')}" for a in authors],
+                    ensure_ascii=False,
+                ),
+                "orcids": orcids,
+            }
+        except Exception as e:
+            logger.debug(f"[Crossref] arxiv_to_details({arxiv_id}) failed: {e}")
+            return None
+
+    @staticmethod
+    def _extract_orcids(authors: list[dict]) -> dict:
+        """Extract ORCID IDs from Crossref author list.
+
+        Returns dict mapping '{firstName} {lastName}' → 'https://orcid.org/XXXX-...'
+        Only includes authors who have a non-empty ORCID field.
+        """
+        orcids = {}
+        for a in authors:
+            orcid = a.get("ORCID", "").strip()
+            if orcid:
+                name = f"{a.get('given', '').strip()} {a.get('family', '').strip()}".strip()
+                if name:
+                    orcids[name] = orcid
+        return orcids
 
     def cross_verify(self, arxiv_id: str, title: str) -> Optional[dict]:
         """Cross validation: arXiv ID + title → DOI

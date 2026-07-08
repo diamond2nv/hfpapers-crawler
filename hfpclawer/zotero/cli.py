@@ -1175,6 +1175,29 @@ def cmd_ingest(
         if verbose:
             console.print(f"  [yellow]⚠️  arXiv meta: {e}[/yellow]")
 
+    # ── Step 2c: CrossRef lookup (DOI + ORCID) ──
+    console.print("[dim]   CrossRef DOI + ORCID lookup...[/dim]")
+    crossref_doi = ""
+    crossref_orcids: dict[str, str] = {}
+    try:
+        from hfpapers.paper_store import get_crossref
+
+        cr = get_crossref()
+        cr_info = cr.arxiv_to_details(aid)
+        if cr_info and cr_info.get("doi"):
+            crossref_doi = cr_info["doi"]
+            crossref_orcids = cr_info.get("orcids", {})
+            console.print(f"  ✓ DOI: {crossref_doi}")
+            if crossref_orcids:
+                for name, orcid in crossref_orcids.items():
+                    console.print(f"  ✓ ORCID {name}: {orcid}")
+            if cr_info.get("venue"):
+                arxiv_categories = arxiv_categories or cr_info["venue"]
+        else:
+            console.print("  - No CrossRef match for this arXiv ID")
+    except Exception as e:
+        console.print(f"  [yellow]⚠️  CrossRef: {e}[/yellow]")
+
     # ── Step 3: convert PDF → Markdown ──
     console.print("[dim] 3/6 Converting PDF → Markdown...[/dim]")
     md_text = ""
@@ -1211,6 +1234,7 @@ def cmd_ingest(
             arxiv_id=aid,
             title=arxiv_title,
             abstract=arxiv_abstract,
+            doi=crossref_doi,
             venue=arxiv_categories.split(",")[0].strip() if arxiv_categories else "",
             source="zotero-ingest",
         )
@@ -1262,6 +1286,12 @@ def cmd_ingest(
             wiki_lines.append(f"**Subjects:** {arxiv_categories}")
         wiki_lines.append("")
         wiki_lines.append(f"**Zotero key:** `{parent_key}`")
+        if crossref_doi:
+            wiki_lines.append(f"**DOI:** [{crossref_doi}](https://doi.org/{crossref_doi})")
+        if crossref_orcids:
+            wiki_lines.append("**ORCIDs:**")
+            for name, orcid in crossref_orcids.items():
+                wiki_lines.append(f"  - {name}: [{orcid}]({orcid})")
         wiki_lines.append("")
 
         # Add abstract if available
@@ -1305,6 +1335,11 @@ def cmd_ingest(
         console.print(f"  Wiki note:    {wiki_path}")
     if annotations_md:
         console.print(f"  Annotations:  {len(anns)} items")
+    if crossref_doi:
+        console.print(f"  DOI:          {crossref_doi}")
+    if crossref_orcids:
+        for name, orcid in crossref_orcids.items():
+            console.print(f"  ORCID:        {name} → {orcid}")
     console.print(f"  Zotero key:   {parent_key}")
     console.print(f"  Title:        {arxiv_title[:80]}...")
     console.print(f"  Authors:      {arxiv_authors[:80]}...")
