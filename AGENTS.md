@@ -20,6 +20,18 @@ working on this project. It describes the project structure, key patterns, pitfa
 └── .gitignore
 ```
 
+## Repo Standards
+
+| PEP | Rule | How |
+|-----|------|-----|
+| 621 | **Version source** | `pyproject.toml` only; `__init__.py` reads via `importlib.metadata`/`tomllib` |
+| 660 | **Editable install** | `pip install -e .` must work (has `[build-system]`) |
+| 8 | **Code style** | ruff (100 chars, double quotes); 100% English in .py |
+| — | **.gitignore** | Must cover: `__pycache__/ *.egg-info/ dist/ build/ .venv/ .env` |
+| — | **Version mgmt** | `bash scripts/release.sh VERSION --push`; alignment=hotfix, no force tag |
+
+> Templates and installer: `~/.hermes/skills/software-development/version-management/`
+
 ## Core Architecture
 
 ### 3-Tier Storage

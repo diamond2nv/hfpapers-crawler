@@ -15,7 +15,7 @@ while read local_ref local_oid remote_ref remote_oid; do
         *) continue ;;
     esac
 
-    PY_VERSION=$(git show "$local_oid:pyproject.toml" 2>/dev/null | grep '^version' | sed 's/version = "\(.*\)"/\1/')
+    PY_VERSION=$(git show "$local_oid:pyproject.toml" 2>/dev/null | grep '^version' | sed 's/^version = "\([^"]*\)".*/\1/')
     [ -z "$PY_VERSION" ] && continue
 
     GIT_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)

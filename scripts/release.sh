@@ -60,7 +60,7 @@ echo ""
 
 if [ "$DRY_RUN" = false ]; then
     # ---- 1. Sync pyproject.toml (唯一版本源) ----
-    sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+    sed -i "s/^version = \"[^\"]*\".*/version = \"$VERSION\"/" pyproject.toml
     echo "✅ pyproject.toml → v$VERSION"
 
     # ---- 2. Commit ----

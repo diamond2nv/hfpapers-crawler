@@ -15,7 +15,7 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-PY_VERSION=$(grep '^version' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+PY_VERSION=$(grep '^version' pyproject.toml | sed 's/^version = "\([^"]*\)".*/\1/')
 GIT_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
 GIT_VERSION="${GIT_TAG#v}"
 
