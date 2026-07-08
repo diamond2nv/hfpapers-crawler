@@ -49,3 +49,5 @@ media/
 htmlcov/
 .coverage
 .pytest_cache/
+# Downloaded paper PDFs (large, generated)
+raw_pdfs/

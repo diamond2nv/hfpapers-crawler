@@ -209,7 +209,7 @@ class ArxivApiSearcher(BaseSearcher):
         arxiv_id_re = re.compile(r"(\d{4}\.\d{4,5})(?:v\d+)?")
         try:
             resp = requests.get(
-                "http://export.arxiv.org/api/query",
+                "https://export.arxiv.org/api/query",
                 params={
                     "search_query": f"all:{query}",
                     "max_results": limit,

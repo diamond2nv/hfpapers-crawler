@@ -16,7 +16,7 @@ search:
       enable: true
     arxiv:
       api_base: "https://export.arxiv.org/api/query"
-      search_prefix: "http://export.arxiv.org/api/query?search_query="
+      search_prefix: "https://export.arxiv.org/api/query?search_query="
       delay_sec: 3.0
       results_per_query: 50
       enable: false              # Fallback
@@ -50,11 +50,13 @@ search:
     - "hf_cli"
     - "pwc_api"
     - "openreview"
+    - "arxiv_api"        # AI4Math: arXiv API for math/theorem-proving papers
     # - "arxiv_api"  # Fallback, disabled by default
 
   # Search dimensions
   max_per_dim: 30               # Max results per dimension (after multi-source dedup)
   queries:
+    # ═══ PDE / Neural Operator (original) ═══
     - query: "PDE neural operator"
       category: neural-operator
       weight: 2
@@ -116,6 +118,108 @@ search:
     - query: "operator transformer"
       category: neural-operator
       weight: 1
+    # ═══ AI4Math: Theorem Proving & Formal Verification ═══
+    - query: "neural theorem proving"
+      category: ai4math
+      weight: 2
+    - query: "Lean 4 formal mathematics"
+      category: ai4math
+      weight: 2
+    - query: "AI automated theorem proving"
+      category: ai4math
+      weight: 1
+    - query: "LLM mathematical reasoning"
+      category: ai4math
+      weight: 1
+    - query: "formal verification machine learning"
+      category: ai4math
+      weight: 1
+    - query: "proof assistant AI agent"
+      category: ai4math
+      weight: 1
+    - query: "OProver agentic proving"
+      category: ai4math
+      weight: 2
+    - query: "Rethlas Archon Anderson conjecture"
+      category: ai4math
+      weight: 2
+    - query: "PackingStar kissing number"
+      category: ai4math
+      weight: 1
+    - query: "Intern-S1-MO OREAL-H"
+      category: ai4math
+      weight: 2
+    - query: "AlphaProof Nexus"
+      category: ai4math
+      weight: 2
+    - query: "FrontierMath Epoch benchmark"
+      category: ai4math
+      weight: 1
+    - query: "automatic proof synthesis"
+      category: ai4math
+      weight: 1
+    - query: "gram matrix completion sphere packing"
+      category: ai4math
+      weight: 1
+    # ═══ Hydrogen Storage + Fiber Optic Sensing + Neural Operator ═══
+    - query: "hydrogen storage fiber optic sensing monitoring"
+      category: pde-application
+      weight: 3
+    - query: "FBG hydrogen tank structural health monitoring"
+      category: pde-application
+      weight: 3
+    - query: "distributed acoustic sensing tank monitoring"
+      category: pde-application
+      weight: 2
+    - query: "DAS DTS hydrogen leak detection"
+      category: pde-application
+      weight: 3
+    - query: "neural operator inverse problem PDE sensing"
+      category: pde-application
+      weight: 3
+    - query: "FNO DeepONet structural health monitoring"
+      category: pde-application
+      weight: 2
+    - query: "fiber Bragg grating hydrogen pressure"
+      category: pde-application
+      weight: 2
+    - query: "BOTDA Brillouin temperature strain tank"
+      category: pde-application
+      weight: 2
+    - query: "digital twin hydrogen storage neural operator"
+      category: pde-application
+      weight: 2
+    - query: "\"hydrogen refueling\" monitoring sensor"
+      category: pde-application
+      weight: 2
+    - query: "machine learning hydrogen leak detection"
+      category: pde-application
+      weight: 2
+    - query: "physics-informed neural network tank monitoring"
+      category: pde-application
+      weight: 2
+    - query: "\"hydrogen embrittlement\" fiber optic"
+      category: pde-application
+      weight: 1
+    - query: "COMSOL hydrogen storage tank simulation"
+      category: pde-application
+      weight: 2
+    # ═══ AI4Math: Quantum Cryptography & Post-Quantum ═══
+    - query: "Apple CoreCrypto Isabelle"
+      category: quantum-crypto
+      weight: 2
+    - query: "PQClean post-quantum cryptography"
+      category: quantum-crypto
+      weight: 2
+    - query: "ML-KEM ML-DSA formal verification"
+      category: quantum-crypto
+      weight: 2
+    - query: "post-quantum cryptographic implementation"
+      category: quantum-crypto
+      weight: 1
+    - query: "NIST PQC formal proof"
+      category: quantum-crypto
+      weight: 1
 
 # ===== 2. Keyword Whitelist / Blacklist =====
 keywords:
@@ -136,6 +240,38 @@ keywords:
     - "pde solver"
     - "foundation model"
     - "function space"
+    # AI4Math: Theorem Proving
+    - "theorem proving"
+    - "formal mathematics"
+    - "lean 4"
+    - "proof assistant"
+    - "automated reasoning"
+    - "neural theorem"
+    - "agentic proving"
+    - "mathematical reasoning"
+    - "proof synthesis"
+    - "formally verify"
+    - "Isabelle HOL"
+    - "CoreCrypto"
+    - "PQClean"
+    - "post-quantum cryptography"
+    - "kissing number"
+    - "sphere packing"
+    # PDE Application keywords
+    - "hydrogen storage"
+    - "fiber optic sensing"
+    - "fiber Bragg grating"
+    - "distributed acoustic sensing"
+    - "structural health monitoring"
+    - "hydrogen leak detection"
+    - "inverse problem"
+    - "digital twin"
+    - "BOTDA"
+    - "Brillouin"
+    - "FBG"
+    - "DAS"
+    - "DTS"
+    - "Φ-OTDR"
 
   include_medium:
     - "simulation"
@@ -147,6 +283,13 @@ keywords:
     - "multiscale"
     - "mesh"
     - "discretization-invariant"
+    # AI4Math: medium-weight terms
+    - "formal proof"
+    - "automated deduction"
+    - "interactive theorem"
+    - "Mathlib"
+    - "Gram matrix"
+    - "dimension packing"
 
   include_low:
     - "weather"
@@ -158,7 +301,6 @@ keywords:
 
   # Blacklist — hit skips
   exclude:
-    - "quantum"
     - "qml"
     - "qubit"
     - "string theory"
