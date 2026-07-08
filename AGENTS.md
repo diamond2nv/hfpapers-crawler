@@ -146,8 +146,6 @@ Exceptions (Chinese allowed):
 
 ### PyPI Package Release Checklist
 
-Before tagging a release:
-
 ```bash
 # 1. Format & lint
 ruff format .
@@ -159,20 +157,20 @@ pyright .
 # 3. Test
 python -m pytest tests/ -v
 
-# 4. Verify version alignment
-grep __version__ hfpapers/__init__.py  # e.g. '0.3.1'
-grep ^version pyproject.toml           # Must match
-
-# 5. Build + verify
+# 4. Build + verify
 python -m build
 twine check dist/*
 
-# 6. Tag
-git tag v0.3.1
-git push --tags
+# 5. Release (sync toml → __init__ → commit → tag → push)
+bash scripts/release.sh 0.9.12 --push
 
-# 7. Publish
+# 6. Publish
 twine upload dist/*
+```
+
+> ⚠️ **版本管理变迁**: 旧版使用 pre-push hook + install-hooks.sh 在 push 前检查。
+> 2026-07-08 重构为 `scripts/release.sh` 单入口，pre-push hook 和 install-hooks.sh 已移除。
+> 所有版本发布必须走 `bash scripts/release.sh VERSION`，避免两文件脱节。
 ```
 
 ### Testing Before Release

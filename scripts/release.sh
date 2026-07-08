@@ -1,96 +1,117 @@
-#!/bin/bash
-# release.sh — 发布新版本：同步 pyproject.toml → commit → tag → push
+#!/bin/sh
+# =============================================================================
+# release.sh — 统一发布入口
+#
+# 职责: 一条命令完成版本发布: sync → commit → tag → [push] [install]
+# 替代: 旧 pre-push hook + install-hooks.sh + 手动步骤
 #
 # 用法:
-#   bash scripts/release.sh 0.9.12      # 发布 v0.9.12
-#   bash scripts/release.sh minor       # bump minor: 0.9.11 → 0.10.0
-#   bash scripts/release.sh patch       # bump patch: 0.9.11 → 0.9.12
-#   bash scripts/release.sh             # 自动 bump patch
+#   bash scripts/release.sh 0.9.12              # commit + tag 仅本地
+#   bash scripts/release.sh 0.9.12 --push       # + 推送到 origin
+#   bash scripts/release.sh 0.9.12 --push --install  # + pip install -e .
+#   bash scripts/release.sh 0.9.12 --install    # + 仅本地安装
+#   bash scripts/release.sh 0.9.12 --dry-run    # 试运行，不实际修改
 #
-# 设计原理: 单一入口点保证 pyproject.toml 版本与 git tag 永远一致。
-# 不再手动 git tag v0.x.y —— 全部走此脚本。
+# 依赖: git, sed, pip (仅 --install)
+# =============================================================================
 set -e
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO_DIR"
+DRY_RUN=false
 
-# ── 获取当前版本 ──────────────────────────────
-CUR_VERSION=$(grep '^version' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-echo "Current version: v$CUR_VERSION"
-
-# ── 解析新版本 ────────────────────────────────
-NEW_VERSION=""
-case "${1:-auto}" in
-    auto|patch)
-        # v0.9.11 → v0.9.12
-        NEW_VERSION=$(echo "$CUR_VERSION" | awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}')
-        ;;
-    minor)
-        # v0.9.11 → v0.10.0
-        NEW_VERSION=$(echo "$CUR_VERSION" | awk -F. '{printf "%d.%d.0", $1, $2+1}')
-        ;;
-    major)
-        # v0.9.11 → v1.0.0  (但目前版本号规则 0.x.y，不适用)
-        echo "❌ Major bump (v1.0.0+) is outside current 0.x.y convention."
-        exit 1
-        ;;
-    *)
-        # 显式版本号
-        NEW_VERSION="$1"
-        ;;
-esac
-
-# 验证版本号格式
-if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-    echo "❌ Invalid version format: '$NEW_VERSION' (expected x.y.z)"
+VERSION="$1"
+[ -z "$VERSION" ] && {
+    echo "Usage: bash scripts/release.sh VERSION [--push] [--install] [--dry-run]"
+    echo "  VERSION must be semver (e.g. 0.9.12)"
     exit 1
-fi
-
-# ── 检查是否有未提交变更 ─────────────────────
-if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-    echo "⚠️  Uncommitted changes detected. Commit or stash first."
-    echo "   Status:"
-    git status --short
+}
+echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || {
+    echo "❌ VERSION must be semver (e.g. 0.9.12), got: $VERSION"
     exit 1
-fi
+}
+shift
 
-echo "New version:     v$NEW_VERSION"
+# 切换到项目根目录
+cd "$(dirname "$0")/.."
 
-# ── 步骤 1: 更新 pyproject.toml ───────────────
-sed -i "s/version = \"$CUR_VERSION\"/version = \"$NEW_VERSION\"/" pyproject.toml
-echo "✅ pyproject.toml updated: $CUR_VERSION → $NEW_VERSION"
+# 确保工作树干净（保护未提交的修改）
+[ -z "$(git status --porcelain pyproject.toml hfpapers/__init__.py 2>/dev/null)" ] || {
+    echo "⚠️  pyproject.toml or hfpapers/__init__.py has uncommitted changes."
+    echo "   Commit or stash them first, then retry."
+    exit 1
+}
 
-# ── 步骤 2: commit ───────────────────────────
-git add pyproject.toml
-git commit -m "v$NEW_VERSION: bump version for release"
-echo "✅ Committed"
+# 解析 flags
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        --push|--install) ;;  # handled later
+        *) echo "⚠️  Unknown flag: $arg (ignored)" ;;
+    esac
+done
 
-# ── 步骤 3: tag ──────────────────────────────
-git tag "v$NEW_VERSION"
-echo "✅ Tagged: v$NEW_VERSION"
-
-# ── 步骤 4: push ─────────────────────────────
 echo ""
-echo "Ready to push:"
-echo "  git push origin main:master"
-echo "  git push origin v$NEW_VERSION"
+echo "╔══════════════════════════════════════╗"
+echo "║  Release v$VERSION"
+[ "$DRY_RUN" = true ] && echo "║  [DRY RUN — no changes will be made]"
+echo "╚══════════════════════════════════════╝"
 echo ""
-echo "Push now? [Y/n]"
-read -r answer
-if [ "$answer" != "n" ] && [ "$answer" != "N" ]; then
-    git push origin main:master 2>&1 | tail -1
-    git push origin "v$NEW_VERSION" 2>&1 | tail -1
-    echo "✅ Pushed v$NEW_VERSION"
+
+if [ "$DRY_RUN" = false ]; then
+    # ---- 1. Sync pyproject.toml ----
+    sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+    echo "✅ pyproject.toml → v$VERSION"
+
+    # ---- 2. Sync __init__.py (hardcoded fallback) ----
+    sed -i "s/^__version__ = \".*\"/__version__ = \"$VERSION\"/" hfpapers/__init__.py
+    echo "✅ hfpapers/__init__.py → v$VERSION"
+
+    # ---- 3. Commit ----
+    git add pyproject.toml hfpapers/__init__.py
+    git commit -m "v$VERSION: release"
+    echo "✅ Committed v$VERSION ($(git rev-parse --short HEAD))"
+
+    # ---- 4. Tag ----
+    git tag "v$VERSION"
+    echo "✅ Tagged v$VERSION"
+
+    # ---- 5. Optional actions ----
+    PUSHED=false
+    INSTALLED=false
+
+    for arg in "$@"; do
+        case "$arg" in
+            --push)
+                git push origin main --tags
+                PUSHED=true
+                ;;
+            --install)
+                pip install -e . --quiet
+                INSTALLED=true
+                ;;
+        esac
+    done
 else
-    echo "Push deferred. Run manually."
+    echo "[DRY-RUN] Would sync pyproject.toml → v$VERSION"
+    echo "[DRY-RUN] Would sync __init__.py → v$VERSION"
+    echo "[DRY-RUN] Would commit + tag v$VERSION"
+
+    for arg in "$@"; do
+        case "$arg" in
+            --push)     echo "[DRY-RUN] Would git push origin main --tags" ;;
+            --install)  echo "[DRY-RUN] Would pip install -e ." ;;
+        esac
+    done
 fi
 
-# ── 步骤 5: rebuild + reinstall (可选) ────────
 echo ""
-echo "Rebuild and reinstall? [y/N]"
-read -r answer
-if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
-    python3 -m build --no-isolation 2>&1 | tail -1
-    pip3 install "dist/hfpclawer-$NEW_VERSION-py3-none-any.whl" --force-reinstall 2>&1 | tail -3
-    echo "✅ Reinstalled v$NEW_VERSION"
+echo "╔══════════════════════════════════════╗"
+echo "║  🎉 Release v$VERSION done!          ║"
+if [ "$DRY_RUN" = false ]; then
+    [ "$PUSHED" = true ] && echo "║  📤 Pushed to origin"
+    [ "$INSTALLED" = true ] && echo "║  📦 Installed locally"
+    echo "║  🔖 Tag: v$VERSION"
+    echo "║  📍 Commit: $(git rev-parse --short HEAD)"
+else
+    echo "║  🏁 DRY RUN — nothing was modified  ║"
 fi
+echo "╚══════════════════════════════════════╝"
