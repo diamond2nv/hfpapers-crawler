@@ -1018,6 +1018,27 @@ def stats():
 
 
 @app.command()
+def graph(
+    action: str = typer.Argument("stats", help="build | stats | export"),
+    arg: str = typer.Argument("", help="Output path or format"),
+    limit: int = typer.Option(200, "--limit", "-l", help="Max Zotero items"),
+    force: bool = typer.Option(False, "--force", "-f", help="Rebuild from scratch"),
+    fmt: str = typer.Option("jsonl", "--format", help="Export format: jsonl | graphml"),
+):
+    """Knowledge graph operations (v0.10.0)."""
+    from hfpclawer.graph_cli import cmd_build, cmd_stats, cmd_export
+
+    if action == "build":
+        cmd_build(limit=limit, force=force)
+    elif action == "stats":
+        cmd_stats()
+    elif action == "export":
+        cmd_export(fmt=fmt, output=arg or "", limit=limit)
+    else:
+        console.print(f"[red]❌ Unknown graph action: {action}. Use build | stats | export.[/red]")
+
+
+@app.command()
 def config():
     """View current configuration"""
     cfg = load_config()

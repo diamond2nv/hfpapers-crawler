@@ -45,6 +45,7 @@ dependencies = [
     "pyzotero>=1.13.2",
     "spacy>=3.8.0",
     "click>=8.4.2",
+    "networkx>=3.0",
 ]
 
 [project.urls]
@@ -66,6 +67,9 @@ nlp-full = [
     "hfpclawer[nlp]",
     "wordcloud>=1.9",
     "matplotlib>=3.5",
+]
+graph = [
+    "networkx>=3.0",
 ]
 pdf = [
     "pymupdf4llm",
