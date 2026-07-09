@@ -89,20 +89,30 @@ class PaperRecord:
 
 # ─── Semantic Scholar API ────────────────────────────
 
-def _s2_get(path: str, params: dict | None = None, retries: int = 2) -> dict:
-    """GET Semantic Scholar API with retry."""
+def _s2_get(path: str, params: dict | None = None, retries: int = 3) -> dict:
+    """GET Semantic Scholar API with retry and 429 backoff."""
     url = f"{SEMANTIC_SCHOLAR_API}{path}"
     for attempt in range(retries + 1):
         try:
-            req = urllib.request.Request(url, headers=S2_HEADERS)
             if params:
                 qs = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
                 url_full = f"{url}?{qs}"
             else:
                 url_full = url
-            with urllib.request.urlopen(urllib.request.Request(url_full, headers=S2_HEADERS), timeout=15) as resp:
+            req = urllib.request.Request(url_full, headers=S2_HEADERS)
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 return json.loads(resp.read().decode())
-        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                wait = 5 * (2 ** attempt)  # 5, 10, 20s
+                logger.warning("  S2 429 rate limited, waiting %ds (attempt %d/%d)...", wait, attempt + 1, retries)
+                time.sleep(wait)
+                continue
+            if attempt < retries:
+                time.sleep(2 ** attempt)
+                continue
+            return {"error": str(e)}
+        except (urllib.error.URLError, OSError) as e:
             if attempt < retries:
                 time.sleep(2 ** attempt)
                 continue
@@ -409,6 +419,14 @@ def audit_researcher(
 def print_summary(records: list[PaperRecord], researcher: Researcher) -> None:
     """Print a structured summary for one researcher."""
     total = len(records)
+    if total == 0:
+        print("")
+        print("─" * 60)
+        print(f"📊 {researcher.name_cn} ({researcher.name_en}) — 审计摘要")
+        print("─" * 60)
+        print(f"  论文总数:      0 (S2 无数据或 API 限流)")
+        print("")
+        return
     in_zotero = sum(1 for r in records if r.in_zotero)
     has_pdf = sum(1 for r in records if r.has_pdf)
     has_notes = sum(1 for r in records if r.has_notes)

@@ -42,6 +42,7 @@ dependencies = [
     "typer>=0.9",
     "psutil>=5.8",
     "pymupdf4llm>=1.28.0",
+    "pyzotero>=1.13.2",
 ]
 
 [project.urls]

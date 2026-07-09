@@ -30,3 +30,12 @@ researchers:
     since_year: 2018
     max_papers: 100
     keywords: []
+
+  - name_cn: "陈向东"
+    name_en: "Xiangdong Chen"
+    affiliation: "University of Science and Technology of China"
+    google_scholar_id: "Tc_TEu8AAAAJ"
+    orcid: ""                      # 未公开
+    since_year: 2018
+    max_papers: 100
+    keywords: []
