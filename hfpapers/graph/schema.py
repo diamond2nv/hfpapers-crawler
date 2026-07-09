@@ -35,6 +35,8 @@ class EdgeType(Enum):
     CO_AUTHOR = auto()
     AFFILIATED_WITH = auto()
     LOCATED_IN = auto()
+    CITES = auto()         # paper:A → CITES → paper:B  (A cites B as reference)
+    CITED_BY = auto()      # paper:A → CITED_BY → paper:B (A is cited by B)
 
 
 # ── Node style mapping (for visualization) ─────────────────────
@@ -57,6 +59,8 @@ EDGE_STYLE = {
     EdgeType.CO_AUTHOR:      {"color": "#60a5fa", "width": 1.5, "label": "co_author"},
     EdgeType.AFFILIATED_WITH:{"color": "#c084fc", "width": 1.2, "label": "affiliated_with"},
     EdgeType.LOCATED_IN:     {"color": "#fb923c", "width": 1,   "label": "located_in"},
+    EdgeType.CITES:          {"color": "#999",    "width": 0.5, "label": "cites"},
+    EdgeType.CITED_BY:       {"color": "#999",    "width": 0.5, "label": "cited_by"},
 }
 
 

@@ -26,6 +26,124 @@ logger = logging.getLogger("hfpapers.graph.viz.nxviz")
 DEFAULT_CIRCOS = "~/data/kg/circos.png"
 
 
+def render_citation_network(
+    G: "nx.Graph",  # noqa: N802
+    output: Optional[str] = None,
+    figsize: tuple[int, int] = (16, 12),
+    dpi: int = 150,
+) -> Optional[str]:
+    """Render a citation network graph with spring layout.
+
+    Shows PAPER nodes with CITES edges. Node size proportional to
+    citation count (in-degree of CITES edges).
+
+    Args:
+        G: Subgraph containing PAPER + CITES edges.
+        output: Output image path (default: ~/data/kg/citation.png).
+        figsize: Matplotlib figure size.
+        dpi: Output DPI.
+
+    Returns:
+        Path to saved image, or None on failure.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import networkx as nx
+        import numpy as np
+    except ImportError:
+        logger.warning("matplotlib not available — skipping citation plot")
+        return None
+
+    from hfpapers.graph.schema import EdgeType
+
+    path = Path(output or "~/data/kg/citation.png").expanduser()
+
+    # Filter to largest connected component
+    if nx.number_connected_components(G) > 1:
+        largest_cc = max(nx.connected_components(G), key=len)
+        G = G.subgraph(largest_cc).copy()
+
+    if G.number_of_nodes() < 3:
+        logger.warning("Too few nodes (%d) for citation plot", G.number_of_nodes())
+        return None
+
+    # Spring layout (k inversely proportional to sqrt(n) for readability)
+    k = 2.0 / np.sqrt(G.number_of_nodes())
+    pos = nx.spring_layout(G, k=k, iterations=50, seed=42)
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Compute node sizes based on CITES in-degree
+    in_degrees = {}
+    for _, _, d in G.edges(data=True):
+        et = d.get("type")
+        et_name = getattr(et, "name", str(et)) if not isinstance(et, str) else str(et)
+        # Count incoming CITES as citation count
+        pass
+
+    # Count CITED_BY in-degree
+    cites_in = {}
+    for u, v, d in G.edges(data=True):
+        et = d.get("type")
+        et_name = getattr(et, "name", str(et)) if not isinstance(et, str) else str(et)
+        if et_name == "CITES":
+            cites_in[v] = cites_in.get(v, 0) + 1
+
+    max_cites = max(cites_in.values()) if cites_in else 1
+    node_sizes = []
+    node_colors = []
+    for n in G.nodes():
+        ci = cites_in.get(n, 0)
+        size = 20 + 80 * (ci / max_cites) if max_cites > 0 else 30
+        node_sizes.append(size)
+        # Color: more citations = darker
+        intensity = 0.3 + 0.5 * (ci / max_cites) if max_cites > 0 else 0.3
+        node_colors.append((intensity, 0.6, 0.8, 0.8))  # blueish
+
+    # Draw CITES edges as thin arrows
+    cites_edges = []
+    non_cites_edges = []
+    for u, v, d in G.edges(data=True):
+        et = d.get("type")
+        et_name = getattr(et, "name", str(et)) if not isinstance(et, str) else str(et)
+        if et_name == "CITES":
+            cites_edges.append((u, v))
+        else:
+            non_cites_edges.append((u, v))
+
+    nx.draw_networkx_edges(G, pos, edgelist=cites_edges, ax=ax,
+                           alpha=0.15, edge_color="#888", width=0.3)
+    if non_cites_edges:
+        nx.draw_networkx_edges(G, pos, edgelist=non_cites_edges, ax=ax,
+                               alpha=0.08, edge_color="#aaa", width=0.2)
+
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=node_sizes,
+                           node_color=node_colors, edgecolors="white",
+                           linewidths=0.3)
+
+    # Label top-cited papers
+    top_cited = sorted(cites_in.items(), key=lambda x: x[1], reverse=True)[:20]
+    labels = {}
+    for nid, _ in top_cited:
+        label = G.nodes[nid].get("label", nid)
+        # Truncate long labels
+        labels[nid] = label[:40] if len(label) > 40 else label
+    nx.draw_networkx_labels(G, pos, labels, ax=ax, font_size=5, alpha=0.7)
+
+    ax.set_title(f"Citation Network — {G.number_of_nodes()} papers, "
+                 f"{G.number_of_edges()} edges", fontsize=12)
+    ax.axis("off")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(str(path), dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+
+    logger.info("Citation network saved: %d nodes → %s", G.number_of_nodes(), path)
+    return str(path)
+
+
 def render_circos(
     G: "nx.Graph",  # noqa: N802
     output: Optional[str] = None,
