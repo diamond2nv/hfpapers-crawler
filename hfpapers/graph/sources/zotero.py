@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
 
 from hfpapers.graph.schema import (
-    NodeType, EdgeType,
-    node_id, person_node_id, paper_node_id,
+    EdgeType,
+    NodeType,
+    node_id,
+    paper_node_id,
+    person_node_id,
 )
 
 logger = logging.getLogger("hfpapers.graph.zotero")

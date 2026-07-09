@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import pickle
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,12 +19,19 @@ from typing import Optional
 
 import networkx as nx
 
+from hfpapers.graph import analyze
 from hfpapers.graph.schema import (
-    NodeType, EdgeType, KG_VERSION, NODE_STYLE, EDGE_STYLE,
-    node_id, person_node_id, paper_node_id,
+    EDGE_STYLE,
+    KG_VERSION,
+    NODE_STYLE,
+    EdgeType,
+    NodeType,
+    node_id,
+    paper_node_id,
+    person_node_id,
 )
-from hfpapers.graph.sources.zotero import parse_zotero_item
 from hfpapers.graph.sources.wiki import parse_wiki_people
+from hfpapers.graph.sources.zotero import parse_zotero_item
 
 logger = logging.getLogger("hfpapers.graph")
 
@@ -31,6 +39,7 @@ logger = logging.getLogger("hfpapers.graph")
 # ── Build marker ───────────────────────────────────────────────
 
 BUILD_MARKER = "~/.hermes/graph_build_marker.json"
+GRAPH_CACHE = "~/.hermes/graph_cache.pkl"
 
 
 def _last_build_time() -> float:
@@ -68,7 +77,6 @@ class GraphBuilder:
     def __init__(self):
         self.G: nx.Graph = nx.Graph()
         self._wiki_persons: dict[str, dict] = {}
-        self._person_authority_map: dict[str, str] = {}  # zotero_id → wiki_id
 
     # ── Build ──────────────────────────────────────────────────
 
@@ -129,7 +137,54 @@ class GraphBuilder:
             "Graph built: %d nodes, %d edges in %.1fs",
             stats["n_nodes"], stats["n_edges"], elapsed,
         )
+
+        # Auto-save to cache
+        self.save()
         return self.G
+
+    # ── Persistence ────────────────────────────────────────────
+
+    def save(self, path: str = "") -> str:
+        """Save the graph as pickle for fast reload.
+
+        Args:
+            path: Optional file path. Defaults to GRAPH_CACHE.
+
+        Returns:
+            Path to the written file.
+        """
+        path = path or GRAPH_CACHE
+        path_obj = Path(path).expanduser()
+        path_obj.parent.mkdir(parents=True, exist_ok=True)
+        with open(path_obj, "wb") as f:
+            pickle.dump(self.G, f)
+        logger.info("Graph saved (%d nodes, %d edges) → %s",
+                     self.G.number_of_nodes(), self.G.number_of_edges(), path_obj)
+        return str(path_obj)
+
+    @staticmethod
+    def load(path: str = "") -> "nx.Graph | None":
+        """Load a pickled graph from cache.
+
+        Args:
+            path: Optional file path. Defaults to GRAPH_CACHE.
+
+        Returns:
+            NetworkX Graph, or None if cache doesn't exist.
+        """
+        path = path or GRAPH_CACHE
+        path_obj = Path(path).expanduser()
+        if not path_obj.exists():
+            return None
+        try:
+            with open(path_obj, "rb") as f:
+                G = pickle.load(f)
+            logger.info("Graph loaded (%d nodes, %d edges) from %s",
+                         G.number_of_nodes(), G.number_of_edges(), path_obj)
+            return G
+        except Exception as e:
+            logger.warning("Failed to load graph cache: %s", e)
+            return None
 
     def _build_from_zotero(self, client, limit: int):
         """Fetch Zotero items and add to graph."""
@@ -189,13 +244,16 @@ class GraphBuilder:
             return
 
         style = NODE_STYLE.get(ntype, {})
+        # Pop label from attrs to avoid double-pass with **attrs
+        safe_attrs = dict(attrs)
+        label = safe_attrs.pop("label", nid)
         self.G.add_node(
             nid,
             type=ntype,
-            label=attrs.get("label", nid),
+            label=label,
             color=style.get("color", "#888"),
             size=style.get("size", 8),
-            **attrs,
+            **safe_attrs,
         )
 
     def _derive_coauthor_edges(self):
@@ -233,23 +291,62 @@ class GraphBuilder:
         logger.debug("Derived %d CO_AUTHOR edges", len(coauthor_edges))
 
     def _apply_wiki_authority(self):
-        """Override Zotero-derived person node attrs with wiki ground truth."""
+        """Log potential fuzzy matches between Zotero and wiki persons."""
+        wiki_names = {
+            (w.get("last_name", "").lower(), w.get("first_name", "")[:2].lower())
+            for w in self._wiki_persons.values()
+        }
+        if not wiki_names:
+            return
+        unmatched = 0
         for node, data in self.G.nodes(data=True):
             if data.get("type") != NodeType.PERSON:
                 continue
             if data.get("is_wiki_known"):
-                continue  # Already a wiki person
-
-            # Try to find a matching wiki person by last_name
+                continue
             last = (data.get("last_name") or "").lower()
-            first = (data.get("first_name") or "").lower()
-            for wpid, wattrs in self._wiki_persons.items():
-                wlast = (wattrs.get("last_name") or "").lower()
-                wfirst = (wattrs.get("first_name") or "").lower()
-                if last == wlast and (not first or not wfirst or first[:2] == wfirst[:2]):
-                    # Merge: redirect this Zotero node to wiki node
-                    self._person_authority_map[node] = wpid
-                    break
+            first = (data.get("first_name") or "")[:2].lower()
+            if (last, first) in wiki_names:
+                unmatched += 1
+
+        if unmatched:
+            logger.debug("%d Zotero persons with potential wiki matches (same name, different ID)", unmatched)
+
+    # ── Analyze bridge methods ─────────────────────────────────
+
+    def person_ego(self, person_id: str, depth: int = 1) -> nx.Graph | None:
+        """Get ego network around a person node."""
+        try:
+            return analyze.ego_network(self.G, person_id, depth)
+        except KeyError:
+            return None
+
+    def communities(self) -> list[set[str]]:
+        """Detect communities in the graph."""
+        return analyze.louvain_communities(self.G)
+
+    def shortest_path(self, source: str, target: str) -> list[str]:
+        """Find shortest path between two nodes."""
+        return analyze.shortest_path(self.G, source, target)
+
+    def top_nodes(self, metric: str = "degree", top_n: int = 20) -> dict[str, float]:
+        """Get top nodes by centrality metric.
+
+        Args:
+            metric: ``degree``, ``betweenness``, or ``pagerank``.
+            top_n: Number of results.
+
+        Returns:
+            Dict of node_id → score, sorted descending.
+        """
+        if metric == "degree":
+            return dict(list(analyze.degree_centrality(self.G).items())[:top_n])
+        elif metric == "betweenness":
+            return analyze.betweenness_centrality(self.G, top_n)
+        elif metric == "pagerank":
+            return analyze.pagerank(self.G, top_n)
+        else:
+            raise ValueError(f"Unknown metric: {metric} (use degree/betweenness/pagerank)")
 
     # ── Stats ──────────────────────────────────────────────────
 

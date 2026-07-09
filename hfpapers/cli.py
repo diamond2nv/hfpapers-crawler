@@ -1019,14 +1019,17 @@ def stats():
 
 @app.command()
 def graph(
-    action: str = typer.Argument("stats", help="build | stats | export"),
-    arg: str = typer.Argument("", help="Output path or format"),
-    limit: int = typer.Option(200, "--limit", "-l", help="Max Zotero items"),
-    force: bool = typer.Option(False, "--force", "-f", help="Rebuild from scratch"),
+    action: str = typer.Argument("stats", help="build | stats | export | person | community | path"),
+    arg: str = typer.Argument("", help="Person node ID (for person) / source node (for path)"),
+    arg2: str = typer.Argument("", help="Target node ID (for path)"),
+    limit: int = typer.Option(200, "--limit", "-l", help="Max Zotero items (build)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Rebuild from scratch (build)"),
     fmt: str = typer.Option("jsonl", "--format", help="Export format: jsonl | graphml"),
+    depth: int = typer.Option(1, "--depth", "-d", help="Ego network depth (person)"),
+    top_n: int = typer.Option(20, "--top", "-t", help="Top N results (community/person)"),
 ):
-    """Knowledge graph operations (v0.10.0)."""
-    from hfpclawer.graph_cli import cmd_build, cmd_stats, cmd_export
+    """Knowledge graph operations (v0.10.1)."""
+    from hfpclawer.graph_cli import cmd_build, cmd_stats, cmd_export, cmd_person, cmd_community, cmd_path
 
     if action == "build":
         cmd_build(limit=limit, force=force)
@@ -1034,8 +1037,15 @@ def graph(
         cmd_stats()
     elif action == "export":
         cmd_export(fmt=fmt, output=arg or "", limit=limit)
+    elif action == "person":
+        cmd_person(arg, depth=depth, top_n=top_n)
+    elif action == "community":
+        cmd_community(min_size=arg, top_n=top_n)
+    elif action == "path":
+        cmd_path(arg, arg2)
     else:
-        console.print(f"[red]❌ Unknown graph action: {action}. Use build | stats | export.[/red]")
+        console.print(f"[red]❌ Unknown graph action: {action}. "
+                      f"Use build | stats | export | person | community | path.[/red]")
 
 
 @app.command()

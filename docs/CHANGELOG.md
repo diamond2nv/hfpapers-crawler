@@ -1,3 +1,13 @@
+## [2026-06-12] feat | v0.10.1 — graph: persist, analyze, CLI person/community/path
+- **A** `hfpapers/graph/analyze.py` — Centrality (degree/betweenness/PageRank), Louvain communities, ego network, shortest path. PageRank falls back to degree centrality when scipy unavailable
+- **M** `hfpapers/graph/__init__.py` — Graph pickle persistence (`save()`/`load()`), auto-cache after build. Dead code cleanup (`_person_authority_map` removed). Fix: `_add_node` double `label` keyword crash
+- **M** `hfpclawer/graph_cli.py` — `cmd_person()`, `cmd_community()`, `cmd_path()` with Rich output. Cache-first loading for stats/export
+- **M** `hfpapers/cli.py` — `graph` command extended with `person`, `community`, `path` actions
+
+## [2026-06-12] feat | v0.10.0 — knowledge graph layer
+- **A** `hfpapers/graph/` — Graph module: schema (NodeType/EdgeType, PERSON/PAPER/BOOK/JOURNAL/TOPIC), sources (Zotero items → nodes/edges with innovation_tags, wiki/people/ → PERSON ground truth), GraphBuilder with stats/export (JSONL for hedge, GraphML for Gephi)
+- **A** `hfpclawer/graph_cli.py` — CLI: `hfpclawer graph {build, stats, export}`
+
 # CHANGELOG
 
 > Append-only changelog for hfpapers-crawler. English only (PEP8 internationalization).

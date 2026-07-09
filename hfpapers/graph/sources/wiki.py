@@ -12,9 +12,8 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
-from hfpapers.graph.schema import NodeType, person_node_id, node_id
+from hfpapers.graph.schema import person_node_id
 
 logger = logging.getLogger("hfpapers.graph.wiki")
 
