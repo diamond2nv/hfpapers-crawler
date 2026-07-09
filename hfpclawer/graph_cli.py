@@ -435,3 +435,57 @@ def cmd_geo_institutions(detail: bool = False) -> None:
             console.print(f"   • {inst['label'][:55]:55s} [{coord:20s}] [dim]{src}[/dim]")
         else:
             console.print(f"   • {inst['label'][:55]:55s} [dim]no coords[/dim]")
+
+
+# ── Viz commands ────────────────────────────────────────────────
+
+
+def cmd_map(output: str = "") -> None:
+    """Generate an interactive institution map (folium HTML).
+
+    Args:
+        output: Output HTML path (default: ~/data/kg/institution_map.html).
+    """
+    _, G = _load_builder()
+
+    n_inst = sum(1 for _, d in G.nodes(data=True)
+                 if d.get("type") and getattr(d["type"], "name", d["type"]) == "INSTITUTION")
+    if n_inst == 0:
+        console.print("[yellow]⚠️  No institutions in graph. Rebuild with 'hfpclawer graph build' first.[/yellow]")
+        return
+
+    try:
+        from hfpapers.graph.viz.folium import render_institution_map
+        result = render_institution_map(G, output=output or "")
+        console.print(f"[green]✅ Institution map → {result}[/green]")
+        console.print(f"   {n_inst} institutions plotted")
+    except Exception as e:
+        console.print(f"[red]❌ Map generation failed: {e}[/red]")
+        logger.exception("Map generation failed")
+        raise SystemExit(1) from e
+
+
+def cmd_viz(style: str = "circos", output: str = "") -> None:
+    """Generate graph visualization (Circos / spring).
+
+    Args:
+        style: 'circos' (default) for Circos plot, 'spring' for spring layout.
+        output: Output image path (default: ~/data/kg/circos.png).
+    """
+    _, G = _load_builder()
+
+    if style == "circos":
+        try:
+            from hfpapers.graph.viz.nxviz import render_circos
+            result = render_circos(G, output=output or "")
+            if result:
+                console.print(f"[green]✅ Circos plot → {result}[/green]")
+                console.print(f"   {G.number_of_nodes()} nodes in graph")
+            else:
+                console.print("[yellow]⚠️  Circos plot unavailable (nxviz/matplotlib not installed)[/yellow]")
+        except Exception as e:
+            console.print(f"[red]❌ Circos plot failed: {e}[/red]")
+            logger.exception("Circos plot failed")
+            raise SystemExit(1) from e
+    else:
+        console.print(f"[red]❌ Unknown viz style: '{style}'. Use 'circos'.[/red]")

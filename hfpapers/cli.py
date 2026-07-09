@@ -1035,6 +1035,7 @@ def graph(
     """
     from hfpclawer.graph_cli import cmd_build, cmd_stats, cmd_export, cmd_person, cmd_community, cmd_path
     from hfpclawer.graph_cli import cmd_geo_stats, cmd_geo_institutions
+    from hfpclawer.graph_cli import cmd_map, cmd_viz
 
     if action == "build":
         cmd_build(limit=limit, force=force)
@@ -1048,6 +1049,10 @@ def graph(
         cmd_community(min_size=arg, top_n=top_n)
     elif action == "path":
         cmd_path(arg, arg2)
+    elif action == "map":
+        cmd_map(output=arg or "")
+    elif action == "viz":
+        cmd_viz(style=arg or "circos", output=arg2 or "")
     elif action == "geo":
         sub = arg.strip().lower()
         if sub == "stats":
