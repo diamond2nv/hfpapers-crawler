@@ -1,7 +1,7 @@
 # hfpclawer v0.10.x Roadmap — Knowledge Graph Layer
 
 > Academic knowledge graph connecting people, papers, journals, institutions, and geography.
-> Target version: v0.10.0 (next major iteration after v0.9.x NLP)
+> Active development: v0.10.0–v0.10.4. v0.11.x planning moved to wiki.
 
 ---
 
@@ -70,40 +70,67 @@ linear search           community detection
 | `config.yaml` | `graph.geo` section (enabled, cache_path, use_api) |
 | `pyproject.toml` | `geopy>=2.4` added to `[graph]` optional deps |
 
-### Phase 5 — Geo Visualization & nxviz (v0.10.4) 🔜
+### Phase 5 — Geo Visualization & Circos (v0.10.4) ✅
 
 | Module | Deliverable | Dependencies |
 |:-------|:------------|:-------------|
 | `hfpapers/graph/viz/folium.py` | Interactive institution map (MarkerCluster, popup metadata) | `folium` |
-| `hfpapers/graph/viz/nxviz.py` | Circos/Arc plots for co-authorship | `nxviz` |
+| `hfpapers/graph/viz/nxviz.py` | Circos plots for co-authorship (matplotlib polar) | `matplotlib` |
 | CLI: `hfpclawer graph map` | Generate `institution_map.html` | `folium` |
-| CLI: `hfpclawer graph viz --style circos` | Circos co-authorship visualization | `nxviz` |
+| CLI: `hfpclawer graph viz --style circos` | Circos co-authorship visualization | `matplotlib` |
 
-### Phase 6 — OWL/RDF Export (v0.11.0) 🔜
+### Enhancement — Institution Abbreviation & Label Fix (v0.10.4+) ✅
 
-| Module | Deliverable | Dependencies |
-|:-------|:------------|:-------------|
-| `hfpapers/graph/owl/schema.ttl` | OWL class/property definitions (Turtle) | `rdflib` |
-| `hfpapers/graph/owl/export.py` | Serialize graph as RDF/Turtle using rdflib | `rdflib>=7.0` |
-| `hfpapers/graph/owl/sparql.py` | SPARQL query interface | `rdflib` |
-| CLI: `hfpclawer graph export --format ttl` | → `kg.ttl` Turtle serialization |
-| CLI: `hfpclawer graph sparql "SELECT..."` | SPARQL query results |
+| Fix | Description |
+|:----|:------------|
+| `institutions.py` | `INST_ABBREV` dict + `abbrev` node attribute for Chinese universities (USTC, PKU, etc.) |
+| `nxviz.py` | Angle-aware label placement, `clip_on=False`, polar ylim expansion for long labels |
+| `graph_cli.py` | Fix `output=""` overriding default path |
 
-### Phase 7 — OWL Reasoning & Consistency (v0.11.1) 🔜
+---
 
-| Module | Deliverable | Dependencies |
-|:-------|:------------|:-------------|
-| `hfpapers/graph/owl/reason.py` | owlready2 consistency check + class hierarchy + transitive closure | `owlready2>=0.51` + Java |
-| CLI: `hfpclawer graph consistency` | OWL consistency report |
-| CLI: `hfpclawer graph infer` | Run reasoner, print inferred relations |
+## Design Review Record
 
-### Phase 8 — Enhanced Community Detection (v0.11.x)
+### Decision: Rule Engine for Literature Discovery & Curation
 
-| Feature | Description |
-|:--------|:------------|
-| Girvan-Newman community detection | Edge-betweenness based (complement to Louvain) |
-| Geo-community clustering | Cluster researchers by institution proximity |
-| Cross-community bridge analysis | Find researchers connecting different geographic regions |
+**Reviewed:** 2026-07-09
+**Conclusion:** Not needed. Declined and signed off.
+
+**Reasoning:**
+The current `config.yaml`-based pipeline (search.queries + keywords + classification thresholds)
+already functions as a declarative rule system appropriate for this project's scale:
+
+| Current approach | Why it's sufficient |
+|-----------------|-------------------|
+| `search.queries` (40+ dimensions) | Covers discovery breadth; bottleneck is query coverage, not filter expressiveness |
+| `keywords.include_high/med/low` + scoring | Linear keyword scoring handles all current filtering needs without AND/OR/NOT nesting |
+| `classification.threshold_pass=30` | Simple pass/fail line works because the decision is binary (store or skip), not multi-class |
+| `exclude` blacklist | Single negation check is enough; no complex exclusion patterns needed |
+
+A full rule engine (business-rules, durable_rules, json-rules-engine) would add:
+- New DSL to learn
+- Rule priority/conflict resolution complexity
+- ~200+ extra lines for zero improvement over current ~30-line `RelevanceDetector`
+
+**Improvement path:** If conditional post-processing is ever needed (e.g. "if score≥60 AND has_code → high_priority"),
+add a 5-line `post_rules` section in `RelevanceDetector`, not a rule engine.
+
+*Reviewed and signed off by lishen, 2026-07-09.*
+
+---
+
+## v0.11.x and Beyond
+
+Future planning moved to wiki:
+→ [wiki: `concepts/hfpclawer-v0.11x-plan.md`](https://192.168.0.25:11443/doku.php?id=concepts:hfpclawer-v0.11x-plan)
+(Local copy: `~/wiki/concepts/hfpclawer-v0.11x-plan.md`)
+
+Topics covered in the wiki page:
+- OWL/RDF Export (was Phase 6)
+- OWL Reasoning & Consistency (was Phase 7)
+- Enhanced Community Detection (was Phase 8)
+- DSL-based rule system exploration (superseded by this review)
+- Cross-repo integration with hedge Subgraph B+C
 
 ---
 
@@ -114,7 +141,7 @@ linear search           community detection
 | Core | `networkx>=3.0` | BSD | Graph data structure, algorithms, I/O |
 | Export | `pydot>=3.0` | MIT | DOT language → Graphviz rendering |
 | Viz | `plotly>=5.18` | MIT | Interactive HTML visualization |
-| Viz | `nxviz>=0.7` | MIT | Circos plot for co-authorship |
+| Viz | `matplotlib>=3.8` | PSF | Circos plot for co-authorship |
 | System | `graphviz` (apt) | EPL 1.0 | pydot rendering backend |
 | Persistence | GraphML / SQLite | — | Graph serialization |
 
@@ -129,7 +156,7 @@ linear search           community detection
 | `PERSON` | Name | wiki_page, orcid, affiliation, research_interests | Zotero creators + wiki/people/ |
 | `PAPER` | arXiv ID / DOI | title, year, abstract | Zotero items + paper_store |
 | `JOURNAL` | Name | issn | Zotero item.publicationTitle |
-| `INSTITUTION` | Name | city, country, ror_id | Zotero creator.affiliation |
+| `INSTITUTION` | Name | city, country, ror_id, abbrev | Zotero creator.affiliation |
 | `CITY` | Name | country, lat, lng | Geocoded from institution |
 | `COUNTRY` | Name | code | ISO 3166-1 alpha-2 |
 | `TOPIC` | Keyword | — | innovation_tags from extra field |
@@ -167,12 +194,12 @@ hfpclawer graph community                      # Louvain communities
 hfpclawer graph path "Person A" "Person B"     # Shortest collaboration path
 
 # Visualize
-hfpclawer graph viz                            # → graph_network.html (Plotly)
-hfpclawer graph viz --output my_graph.html     # Custom output path
-hfpclawer graph viz --circos                   # Circos plot (nxviz)
+hfpclawer graph viz                            # → circos.png
+hfpclawer graph map                            # → institution_map.html
+hfpclawer graph viz --output my_circos.png     # Custom output path
 
 # Export
-hfpclawer graph export --format dot            # → graph.dot
+hfpclawer graph export --format jsonl          # → Subgraph A JSONL
 hfpclawer graph export --format gexf           # → graph.gexf (Gephi)
 hfpclawer graph export --format png            # → graph.png (via pydot)
 ```
@@ -200,15 +227,15 @@ hfpclawer graph export --format png            # → graph.png (via pydot)
  │  1. dedup by arxiv_id / doi / person_name + affiliation     │
  │  2. add edges (author_of, published_in, affiliated_with)     │
  │  3. derive co_author edges from shared papers                │
- │  4. assign node attributes (type, label, color, size)       │
- │  5. persist: save GraphML / SQLite / pickle / JSONL          │
+ │  4. assign node attributes (type, label, color, size, abbrev)│
+ │  5. persist: save pickle / JSONL                             │
  └─────────────────────────┬───────────────────────────────────┘
                            │
            ┌───────┼───────┼───────┐───────┐
            │       │       │       │       │
            ▼       ▼       ▼       ▼       ▼
-        Plotly   pydot   nxviz   analysis  JSONL
-        (HTML)   (PNG)  (circos) (stats)  (→ hedge Subgraph B)
+        Plotly   pydot   Circos  analysis  JSONL
+        (HTML)   (PNG)   (.png)  (stats)  (→ hedge Subgraph B)
 ```
 
 ---
@@ -223,8 +250,9 @@ graph = [
 graph-viz = [
     "hfpclawer[graph]",
     "plotly>=5.18",
-    "nxviz>=0.7",
+    "matplotlib>=3.8",
     "pydot>=3.0",
+    "folium>=0.16",
 ]
 ```
 
@@ -259,7 +287,6 @@ JSONL (one JSON object per line) with two record types:
 - `{"type":"edge","source":"...","target":"...","edge_type":"AUTHOR_OF","attrs":{...}}`
 
 Bridge edge `ABOUT_TOPIC` (PAPER → TOPIC) connects Subgraph A to Subgraph B.
-Full schema in `docs/plans/knowledge-graph-v0.10.md#cross-repo-coordination-jsonl-exchange-protocol`.
 
 ### Commands
 

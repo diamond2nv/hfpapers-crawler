@@ -28,7 +28,7 @@ DEFAULT_CIRCOS = "~/data/kg/circos.png"
 
 def render_circos(
     G: "nx.Graph",  # noqa: N802
-    output: str = DEFAULT_CIRCOS,
+    output: Optional[str] = None,
     group_by: str = "country",
     sort_by: str = "label",
     figsize: tuple[int, int] = (12, 12),
@@ -42,6 +42,7 @@ def render_circos(
     Args:
         G: Knowledge graph.
         output: Output image path (PNG or SVG via extension).
+                Defaults to ~/data/kg/circos.png when None or empty.
         group_by: Node attribute to color by.
         sort_by: Node attribute to sort within groups.
         figsize: Matplotlib figure size.
@@ -58,6 +59,7 @@ def render_circos(
         logger.warning("matplotlib not available — skipping circular plot")
         return None
 
+    path = Path(output or DEFAULT_CIRCOS).expanduser()
     sub = _build_person_institution_subgraph(G, group_by)
     if sub.number_of_nodes() < 3:
         logger.warning("Too few nodes (%d) for a circular plot", sub.number_of_nodes())
@@ -69,7 +71,6 @@ def render_circos(
                  f"{sub.number_of_edges()} edges", fontsize=14, y=1.02)
     plt.tight_layout()
 
-    path = Path(output).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(path), dpi=dpi, bbox_inches="tight")
     plt.close(fig)
@@ -118,16 +119,32 @@ def _circular_layout(G: "nx.Graph", ax, group_by: str = "type") -> None:  # noqa
         nt = G.nodes[nid].get("type", "")
         tname = getattr(nt, "name", nt) if not isinstance(nt, str) else nt
         c = type_colors.get(tname, "#888888")
-        label = G.nodes[nid].get("label", nid)[:20]
+        label = G.nodes[nid].get("label", nid)
+        if tname == "INSTITUTION":
+            label = G.nodes[nid].get("abbrev", label)
         size = 100 if tname == "INSTITUTION" else 40
         ax.scatter(a, r, s=size, color=c, edgecolors="white",
                    linewidth=0.3, zorder=5, alpha=0.9)
-        fontsize = 7 if tname == "INSTITUTION" else 4
-        ax.annotate(label, (a, r), textcoords="offset points",
-                    xytext=(0, 6), fontsize=fontsize, ha="center",
-                    alpha=0.8, fontfamily="sans-serif")
 
-    ax.set_ylim(0, 1.3)
+        # Angle-aware text placement — push labels outward to avoid clipping
+        label_r = 1.1  # place labels beyond the node ring
+        fontsize = 8 if tname == "INSTITUTION" else 4
+        cos_a = np.cos(a)
+        if cos_a < 0:
+            # Left half: right-align, offset left
+            ha, dx = "right", (-8, 0)
+        elif cos_a > 0:
+            # Right half: left-align, offset right
+            ha, dx = "left", (8, 0)
+        else:
+            ha, dx = "center", (0, 8)
+        ax.annotate(label, (a, label_r), textcoords="offset points",
+                    xytext=dx, fontsize=fontsize, ha=ha,
+                    va="center", alpha=0.8,
+                    fontfamily="sans-serif",
+                    clip_on=False)
+
+    ax.set_ylim(0, 1.4)
     ax.set_yticks([])
     ax.set_xticks([])
     ax.set_frame_on(False)

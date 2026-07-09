@@ -528,6 +528,44 @@ def _city_node_id(city: str, country: str) -> str:
     return node_id(NodeType.CITY, key)
 
 
+# ── Institution abbreviation lookup ─────────────────────────────
+# Common Chinese university abbreviations, stored as node attribute.
+INST_ABBREV: dict[str, str] = {
+    "University of Science and Technology of China": "USTC",
+    "Peking University": "PKU",
+    "Tsinghua University": "THU",
+    "Zhejiang University": "ZJU",
+    "Shanghai Jiao Tong University": "SJTU",
+    "Fudan University": "FDU",
+    "Nanjing University": "NJU",
+    "Wuhan University": "WHU",
+    "Harbin Institute of Technology": "HIT",
+    "University of Chinese Academy of Sciences": "UCAS",
+    "Sun Yat-sen University": "SYSU",
+    "Xi'an Jiaotong University": "XJTU",
+    "Nankai University": "NKU",
+    "Huazhong University of Science and Technology": "HUST",
+    "Beihang University": "BUAA",
+    "Tongji University": "TJU",
+    "Southeast University": "SEU",
+    "Dalian University of Technology": "DLUT",
+    "Jilin University": "JLU",
+    "Xiamen University": "XMU",
+    "Sichuan University": "SCU",
+    "Central South University": "CSU",
+    "Chongqing University": "CQU",
+    "South China University of Technology": "SCUT",
+    "Hong Kong University of Science and Technology": "HKUST",
+    "University of Hong Kong": "HKU",
+    "Chinese University of Hong Kong": "CUHK",
+}
+
+
+def institution_abbrev(name: str) -> str:
+    """Return the common abbreviation for a Chinese university, or the name itself."""
+    return INST_ABBREV.get(name, name)
+
+
 def enrich_graph(
     G: "nx.Graph",  # noqa: N802
     geo_data: dict[str, dict],
@@ -557,18 +595,26 @@ def enrich_graph(
     for inst_key, geo in geo_data.items():
         country = geo.get("country", "")
         city = geo.get("city", "")
+        lat = geo.get("lat", 0.0) or 0.0
+        lng = geo.get("lng", 0.0) or 0.0
 
-        # Institution node
-        inst_id = node_id(NodeType.INSTITUTION, geo.get("canonical", inst_key))
+        # Skip unresolvable institutions (no coords, source=unknown)
+        if geo.get("source") == "unknown" or (lat == 0.0 and lng == 0.0):
+            continue
+
+        # Institution node (English canonical name)
+        canonical_name = geo.get("canonical", inst_key)
+        inst_id = node_id(NodeType.INSTITUTION, canonical_name)
         if inst_id not in G:
             G.add_node(
                 inst_id,
                 type=NodeType.INSTITUTION,
-                label=geo.get("canonical", inst_key)[:80],
+                label=canonical_name[:80],
+                abbrev=institution_abbrev(canonical_name),
                 color="#c084fc",
                 size=12,
-                lat=geo.get("lat", 0.0),
-                lng=geo.get("lng", 0.0),
+                lat=lat,
+                lng=lng,
                 geo_source=geo.get("source", "unknown"),
             )
             added_nodes += 1

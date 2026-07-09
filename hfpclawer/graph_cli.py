@@ -477,7 +477,7 @@ def cmd_viz(style: str = "circos", output: str = "") -> None:
     if style == "circos":
         try:
             from hfpapers.graph.viz.nxviz import render_circos
-            result = render_circos(G, output=output or "")
+            result = render_circos(G, output=output if output else None)
             if result:
                 console.print(f"[green]✅ Circos plot → {result}[/green]")
                 console.print(f"   {G.number_of_nodes()} nodes in graph")
