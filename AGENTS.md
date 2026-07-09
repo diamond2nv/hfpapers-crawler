@@ -32,6 +32,36 @@ working on this project. It describes the project structure, key patterns, pitfa
 
 > Templates and installer: `~/.hermes/skills/software-development/version-management/`
 
+## Environment & Connectivity
+
+### Zotero Local API (localhost:23119)
+
+**Available on BOTH machines.** Do NOT assume Zotero is only on WSL.
+
+| Machine | Zotero | Port | Status |
+|:--------|:------:|:----:|:------|
+| Huawei i5-12450H (CPU-only, Ubuntu) | Zotero Snap v9.0.1 | localhost:23119 | ✅ **Always on** — `~13,438 PDFs` |
+| WSL @192.168.0.103 (RTX 4500 Ada) | Zotero Desktop | localhost:23119 | ✅ When WSL + Zotero running |
+
+All `hfpclawer zotero` commands (`search`, `list`, `ingest`, `innovate`, `tag-report`, etc.) run on **either machine** — they connect to localhost:23119.
+
+Key constraint: Zotero local API rejects `Mozilla/5.0` User-Agent (403). pyzotero's default urllib UA works fine.
+
+### spaCy NLP (hfpapers.nlp subpackage)
+
+Available when `hfpclawer[nlp]` is installed (`uv sync --extra nlp`):
+- `en_core_web_md` model (~45MB) with word vectors for semantic similarity
+- Falls back gracefully to regex-based extraction when spaCy unavailable
+- Used by: title keyword extraction, semantic reranking, innovation point extraction, auto-tag generation, TF-IDF tag analysis
+
+### GPU vs CPU
+
+| Feature | Huawei (CPU-only) | WSL (RTX 4500 Ada) |
+|:--------|:-----------------:|:------------------:|
+| spaCy en_core_web_md | ✅ ~5ms/title | ✅ faster |
+| hfpclawer zotero ... | ✅ Full support | ✅ Full support |
+| paper_store SQLite | ✅ Local | ❌ (unless DB synced) |
+
 ## Core Architecture
 
 ### 3-Tier Storage
