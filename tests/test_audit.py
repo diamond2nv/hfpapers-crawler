@@ -89,7 +89,7 @@ class TestArxivMetaAudit:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "arxiv_meta.db")
             _create_arxiv_meta_db(db_path)
-            from hfpclawer.audit import run_audit
+            from hfpclawer.audit_deprecated import run_audit
 
             report = run_audit(db_path=db_path)
             assert report["db_exists"]
@@ -107,7 +107,7 @@ class TestArxivMetaAudit:
                     {"arxiv_id": "2501.0002", "title": "B", "source": "oai"},
                 ],
             )
-            from hfpclawer.audit import run_audit
+            from hfpclawer.audit_deprecated import run_audit
 
             report = run_audit(db_path=db_path)
             assert report["total"] == 2
@@ -124,7 +124,7 @@ class TestArxivMetaAudit:
                     {"arxiv_id": "2501.0003", "title": "C", "source": "kaggle"},
                 ],
             )
-            from hfpclawer.audit import run_audit
+            from hfpclawer.audit_deprecated import run_audit
 
             report = run_audit(db_path=db_path)
             assert report["total"] == 3
@@ -141,14 +141,14 @@ class TestArxivMetaAudit:
                     {"arxiv_id": "2501.0001", "title": "A", "source": ""},
                 ],
             )
-            from hfpclawer.audit import run_audit
+            from hfpclawer.audit_deprecated import run_audit
 
             report = run_audit(db_path=db_path)
             assert "unknown" in report["sources"]
             assert report["sources"]["unknown"]["count"] == 1
 
     def test_db_not_exists(self):
-        from hfpclawer.audit import run_audit
+        from hfpclawer.audit_deprecated import run_audit
 
         report = run_audit(db_path="/nonexistent/db.db")
         assert not report["db_exists"]
@@ -167,7 +167,7 @@ class TestArxivMetaAudit:
             conn.execute("INSERT INTO arxiv_meta (arxiv_id, title) VALUES ('2501.0001', 'A')")
             conn.commit()
             conn.close()
-            from hfpclawer.audit import run_audit
+            from hfpclawer.audit_deprecated import run_audit
 
             report = run_audit(db_path=db_path)
             assert report["has_source_column"] is False
@@ -183,7 +183,7 @@ class TestArxivMetaAudit:
                     {"arxiv_id": "2501.0001", "title": "A", "source": "oai"},
                 ],
             )
-            from hfpclawer.audit import run_audit
+            from hfpclawer.audit_deprecated import run_audit
 
             report = run_audit(db_path=db_path)
             oai = report["sources"]["oai"]
@@ -222,7 +222,7 @@ class TestStateFilesAudit:
 
     def test_no_state_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from hfpclawer.audit import _get_state_paths
+            from hfpclawer.audit_deprecated import _get_state_paths
 
             state_files = _get_state_paths(tmpdir)
             assert state_files == []
@@ -232,7 +232,7 @@ class TestStateFilesAudit:
             state_path = os.path.join(tmpdir, "oai_download_state.json")
             with open(state_path, "w") as f:
                 json.dump({"source": "oai", "status": "done", "total_new": 100}, f)
-            from hfpclawer.audit import _get_state_paths
+            from hfpclawer.audit_deprecated import _get_state_paths
 
             state_files = _get_state_paths(tmpdir)
             assert len(state_files) == 1
@@ -245,7 +245,7 @@ class TestStateFilesAudit:
             for src in ["oai", "kaggle", "test"]:
                 with open(os.path.join(tmpdir, f"{src}_download_state.json"), "w") as f:
                     json.dump({"source": src, "status": "done"}, f)
-            from hfpclawer.audit import _get_state_paths
+            from hfpclawer.audit_deprecated import _get_state_paths
 
             state_files = _get_state_paths(tmpdir)
             assert len(state_files) == 3
@@ -257,7 +257,7 @@ class TestStateFilesAudit:
             state_path = os.path.join(tmpdir, "bad_download_state.json")
             with open(state_path, "w") as f:
                 f.write("{invalid json")
-            from hfpclawer.audit import _get_state_paths
+            from hfpclawer.audit_deprecated import _get_state_paths
 
             state_files = _get_state_paths(tmpdir)
             assert len(state_files) == 1
@@ -268,7 +268,7 @@ class TestStateFilesAudit:
             state_path = os.path.join(tmpdir, "oai_download_state.json")
             with open(state_path, "w") as f:
                 json.dump({"source": "oai", "status": "failed", "error": "Network timeout"}, f)
-            from hfpclawer.audit import _get_state_paths
+            from hfpclawer.audit_deprecated import _get_state_paths
 
             state_files = _get_state_paths(tmpdir)
             assert state_files[0]["status"] == "failed"
@@ -280,7 +280,7 @@ class TestJsonlAudit:
 
     def test_jsonl_not_exists(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from hfpclawer.audit import _get_jsonl_info
+            from hfpclawer.audit_deprecated import _get_jsonl_info
 
             info = _get_jsonl_info(tmpdir)
             assert info["exists"] is False
@@ -291,7 +291,7 @@ class TestJsonlAudit:
             with open(jsonl_path, "w") as f:
                 for i in range(100):
                     f.write(f'{{"id": "2501.{i:04d}", "title": "Paper {i}"}}\n')
-            from hfpclawer.audit import _get_jsonl_info
+            from hfpclawer.audit_deprecated import _get_jsonl_info
 
             info = _get_jsonl_info(tmpdir)
             assert info["exists"] is True
@@ -307,7 +307,7 @@ class TestPaperStoreAudit:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
-            from hfpclawer.audit import run_paper_store_audit
+            from hfpclawer.audit_deprecated import run_paper_store_audit
 
             report = run_paper_store_audit(store)
             assert report["total_papers"] == 0
@@ -324,7 +324,7 @@ class TestPaperStoreAudit:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
             store.upsert_paper(PaperRecord(title="Paper A", source="test"))
             store.upsert_paper(PaperRecord(title="Paper B", source="test"))
-            from hfpclawer.audit import run_paper_store_audit
+            from hfpclawer.audit_deprecated import run_paper_store_audit
 
             report = run_paper_store_audit(store)
             assert report["total_papers"] == 2
@@ -333,7 +333,7 @@ class TestPaperStoreAudit:
     def test_dual_id_identifiers(self, paper_store):
         """Verify dual ID audit via paper_store fixture"""
         from hfpapers.paper_store import PaperRecord
-        from hfpclawer.audit import run_paper_store_audit
+        from hfpclawer.audit_deprecated import run_paper_store_audit
 
         # Paper A: arXiv + DOI dual identifiers
         sf_a = paper_store.upsert_paper(PaperRecord(title="Paper A", source="test", verified=True))
@@ -365,7 +365,7 @@ class TestPaperStoreAudit:
     def test_dual_id_no_arxiv(self):
         """Only DOI without arXiv does not count as dual"""
         from hfpapers.paper_store import PaperRecord, PaperStore
-        from hfpclawer.audit import run_paper_store_audit
+        from hfpclawer.audit_deprecated import run_paper_store_audit
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
@@ -376,7 +376,7 @@ class TestPaperStoreAudit:
 
     def test_with_code_flag(self):
         from hfpapers.paper_store import PaperRecord, PaperStore
-        from hfpclawer.audit import run_paper_store_audit
+        from hfpclawer.audit_deprecated import run_paper_store_audit
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
@@ -396,7 +396,7 @@ class TestPaperStoreAudit:
     def test_verify_ratio(self):
         """Verify ratio calculation"""
         from hfpapers.paper_store import PaperRecord, PaperStore
-        from hfpclawer.audit import run_paper_store_audit
+        from hfpclawer.audit_deprecated import run_paper_store_audit
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
@@ -408,7 +408,7 @@ class TestPaperStoreAudit:
 
     def test_identifier_type_breakdown(self):
         from hfpapers.paper_store import PaperRecord, PaperStore
-        from hfpclawer.audit import run_paper_store_audit
+        from hfpclawer.audit_deprecated import run_paper_store_audit
 
         with tempfile.TemporaryDirectory() as tmpdir:
             store = PaperStore(db_path=os.path.join(tmpdir, "papers.db"))
@@ -431,7 +431,7 @@ class TestCombinedAudit:
     def test_full_audit_with_meta_and_store(self, paper_store, test_env):
         """Verify both databases are audited simultaneously via run_full_audit"""
         from hfpapers.paper_store import PaperRecord
-        from hfpclawer.audit import run_audit, run_paper_store_audit
+        from hfpclawer.audit_deprecated import run_audit, run_paper_store_audit
 
         # paper_store insert data
         sf = paper_store.upsert_paper(PaperRecord(title="Combined Paper", source="test"))
@@ -462,7 +462,7 @@ class TestCombinedAudit:
     def test_full_audit_json_output(self):
         """Full audit JSON output format verification"""
         from hfpapers.paper_store import PaperStore
-        from hfpclawer.audit import run_full_audit
+        from hfpclawer.audit_deprecated import run_full_audit
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "test.db")

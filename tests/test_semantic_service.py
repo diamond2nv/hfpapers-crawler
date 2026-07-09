@@ -14,6 +14,9 @@ import unittest
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
+
+pytest.importorskip("uvicorn", reason="uvicorn not installed — optional dep for semantic service")
 
 # ── Mock sentence_transformers before ANY test imports ──
 _mock_st = MagicMock()

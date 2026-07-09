@@ -20,17 +20,10 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 import urllib.request
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch, call
-
-# Mock pymupdf4llm at module level before any test imports trigger it
-# pylint: disable=wrong-import-position
-_sys_mock_md = MagicMock()
-_sys_mock_md.to_markdown.return_value = "# Mock Markdown"
-sys.modules.setdefault("pymupdf4llm", _sys_mock_md)
 
 import pytest
 from typer.testing import CliRunner
@@ -634,7 +627,6 @@ class TestZoteroConnector:
 class TestCmdIngest:
     """cmd_ingest — full pipeline (all mocked)."""
 
-    @pytest.mark.skip(reason="pymupdf4llm import hangs, needs refactoring")
     @patch("hfpclawer.zotero.annotations.resolve_pdf_path")
     @patch("hfpapers.config.get")
     @patch("hfpapers.paper_store.ensure_paper")
@@ -694,7 +686,6 @@ class TestCmdIngest:
         assert kwargs["arxiv_id"] == "2501.01934"
         assert "title" in kwargs
 
-    @pytest.mark.skip(reason="pymupdf4llm import hangs, needs refactoring")
     @patch("hfpclawer.zotero.annotations.resolve_pdf_path")
     @patch("hfpapers.paper_store.get_crossref")
     @patch("urllib.request.urlopen")

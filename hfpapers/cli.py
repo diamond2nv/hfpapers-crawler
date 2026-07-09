@@ -394,7 +394,7 @@ def audit(
     """
     if action == "data":
         # ── Data source audit (arxiv_meta DB + paper_store quality) ──
-        from hfpclawer.audit import (
+        from hfpclawer.audit_deprecated import (
             format_full_audit_report,
             run_full_audit,
         )
@@ -404,7 +404,8 @@ def audit(
 
     elif action == "verify":
         # ── Citation verification (L1→L2→L3) ──
-        from hfpclawer.citation_audit import check_citation, format_result
+        from hfpclawer.audit.l1_local import check_citation_local as check_citation
+        format_result = lambda r: r.get("status", "UNKNOWN")
 
         if not arg:
             console.print("[red][ERR] verify requires citation text as argument[/red]")
