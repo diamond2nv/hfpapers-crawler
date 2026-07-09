@@ -29,22 +29,18 @@ linear search           community detection
 
 ## Phases
 
-### Phase 1 — Graph Build & Schema (v0.10.0) ✅ Target: July 2026
+### Phase 1 — Graph Build & Schema (v0.10.0) ✅ 
 
 | Module | Deliverable |
 |:-------|:------------|
-| `hfpapers/graph/schema.py` | Node/Edge type enums (Person, Paper, Journal, Institution, City, Country, Topic) |
-| `hfpapers/graph/build_graph.py` | Build `nx.Graph` from Zotero API + wiki/people/ + paper_store |
+| `hfpapers/graph/schema.py` | Node/Edge type enums, ID generation, style mapping |
 | `hfpapers/graph/__init__.py` | `GraphBuilder` class: orchestrate sources, dedup, persist |
-| CLI: `hfpclawer graph build` | One-command build from local data sources |
+| CLI: `hfpclawer graph build` | One-command build from Zotero + wiki |
 | CLI: `hfpclawer graph stats` | Node/edge counts, density, degree distribution |
 
-**Data sources:**
-- Zotero local API (`/api/users/0/items`): creators → Person, publicationTitle → Journal, extra → Topic
-- wiki/people/*.md: person metadata (affiliation, ORCID, research interests)
-- paper_store SQLite: additional paper metadata + innovation_tags
+**Data sources:** Zotero local API + wiki/people/*.md
 
-### Phase 2 — Analysis (v0.10.1)
+### Phase 2 — Analysis (v0.10.1) ✅
 
 | Module | Deliverable |
 |:-------|:------------|
@@ -53,15 +49,61 @@ linear search           community detection
 | CLI: `hfpclawer graph community` | Detect and display research communities |
 | CLI: `hfpclawer graph path <A> <B>` | Shortest path between two researchers |
 
-### Phase 3 — Visualization (v0.10.2)
+### Phase 3 — Persistence & Language Support (v0.10.2) ✅
 
 | Module | Deliverable |
 |:-------|:------------|
-| `hfpapers/graph/viz/plotly.py` | Interactive HTML (node color=type, size=centrality, hover=metadata) |
-| `hfpapers/graph/viz/pydot.py` | Static PNG/SVG export via Graphviz |
-| `hfpapers/graph/export.py` | Export GraphML (→ Gephi), GEXF, DOT |
-| CLI: `hfpclawer graph viz` | Generate plotly_network.html |
-| CLI: `hfpclawer graph export --format dot --output graph.dot` | Export for external tools |
+| `hfpapers/graph/__init__.py` | Graph pickle cache, build marker for incremental builds |
+| `hfpapers/graph/sources/wiki.py` | YAML frontmatter parser, google_scholar field |
+| `hfpapers/graph/__init__.py` | TOPIC auto-injection from title (spaCy NNP extraction) |
+| `hfpclawer/graph_cli.py` | `cmd_person` rewrite for fuzzy Chinese/English name search |
+| `config.yaml` | `graph:` section with wiki_dir, cache_path, topic_from_title |
+
+### Phase 4 — Geo Enrichment (v0.10.3) ✅
+
+| Module | Deliverable |
+|:-------|:------------|
+| `hfpapers/graph/schema.py` | New: INSTITUTION, CITY, COUNTRY NodeType + AFFILIATED_WITH, LOCATED_IN EdgeType |
+| `hfpapers/graph/sources/institutions.py` | GeoCache (JSONL cache) · 39 curated institution→city/country/coords · geopy Nominatim RateLimiter · Chinese name matching |
+| `hfpapers/graph/__init__.py` | Phase 5: extract institutions → geocode → enrich graph |
+| `hfpclawer/graph_cli.py` | `geo stats` / `geo institutions` subcommands |
+| `config.yaml` | `graph.geo` section (enabled, cache_path, use_api) |
+| `pyproject.toml` | `geopy>=2.4` added to `[graph]` optional deps |
+
+### Phase 5 — Geo Visualization & nxviz (v0.10.4) 🔜
+
+| Module | Deliverable | Dependencies |
+|:-------|:------------|:-------------|
+| `hfpapers/graph/viz/folium.py` | Interactive institution map (MarkerCluster, popup metadata) | `folium` |
+| `hfpapers/graph/viz/nxviz.py` | Circos/Arc plots for co-authorship | `nxviz` |
+| CLI: `hfpclawer graph map` | Generate `institution_map.html` | `folium` |
+| CLI: `hfpclawer graph viz --style circos` | Circos co-authorship visualization | `nxviz` |
+
+### Phase 6 — OWL/RDF Export (v0.11.0) 🔜
+
+| Module | Deliverable | Dependencies |
+|:-------|:------------|:-------------|
+| `hfpapers/graph/owl/schema.ttl` | OWL class/property definitions (Turtle) | `rdflib` |
+| `hfpapers/graph/owl/export.py` | Serialize graph as RDF/Turtle using rdflib | `rdflib>=7.0` |
+| `hfpapers/graph/owl/sparql.py` | SPARQL query interface | `rdflib` |
+| CLI: `hfpclawer graph export --format ttl` | → `kg.ttl` Turtle serialization |
+| CLI: `hfpclawer graph sparql "SELECT..."` | SPARQL query results |
+
+### Phase 7 — OWL Reasoning & Consistency (v0.11.1) 🔜
+
+| Module | Deliverable | Dependencies |
+|:-------|:------------|:-------------|
+| `hfpapers/graph/owl/reason.py` | owlready2 consistency check + class hierarchy + transitive closure | `owlready2>=0.51` + Java |
+| CLI: `hfpclawer graph consistency` | OWL consistency report |
+| CLI: `hfpclawer graph infer` | Run reasoner, print inferred relations |
+
+### Phase 8 — Enhanced Community Detection (v0.11.x)
+
+| Feature | Description |
+|:--------|:------------|
+| Girvan-Newman community detection | Edge-betweenness based (complement to Louvain) |
+| Geo-community clustering | Cluster researchers by institution proximity |
+| Cross-community bridge analysis | Find researchers connecting different geographic regions |
 
 ---
 
