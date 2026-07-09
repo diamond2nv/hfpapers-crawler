@@ -86,6 +86,7 @@ def _api_get(path: str) -> Any:
 def resolve_pdf_path(
     arxiv_id: str = "",
     zotero_key: str = "",
+    title: str = "",
 ) -> dict:
     """Resolve a Zotero item to its local PDF file path.
 
@@ -93,6 +94,7 @@ def resolve_pdf_path(
         arxiv_id: arXiv ID to look up (e.g., "1905.01522").
                   Mutually exclusive with zotero_key.
         zotero_key: Direct Zotero item key (e.g., "XVLZEDC4").
+        title: Paper title (optional — enables fast keyword-search path).
 
     Returns:
         dict with:
@@ -109,7 +111,7 @@ def resolve_pdf_path(
         from hfpclawer.zotero import ZoteroClient
 
         zc = ZoteroClient()
-        parent_key = zc.is_arxiv_in_zotero(arxiv_id)
+        parent_key = zc.is_arxiv_in_zotero(arxiv_id, title=title)
         if not parent_key:
             return {"error": f"arXiv {arxiv_id} not found in Zotero"}
     elif zotero_key:

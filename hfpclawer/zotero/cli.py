@@ -1086,28 +1086,69 @@ def cmd_ingest(
     aid = arxiv_id.strip().rstrip("/").split("abs/")[-1].split("arXiv:")[-1].strip()
     console.print(f"\n[bold]📥 Ingesting {aid}[/bold]\n")
 
-    # ── Step 1: resolve PDF path from Zotero ──
-    console.print("[dim] 1/6 Resolving PDF in Zotero...[/dim]")
+    # ── Step 1: fetch arXiv metadata FIRST (gets title → accelerates Zotero lookup) ──
+    console.print("[dim] 1/7 Fetching arXiv metadata...[/dim]")
+    arxiv_title = ""
+    arxiv_authors = ""
+    arxiv_abstract = ""
+    arxiv_categories = ""
+    try:
+        from xml.etree import ElementTree as ET
+        url = f"http://export.arxiv.org/api/query?id_list={aid}&max_results=1"
+        ctx = ssl._create_unverified_context()
+        req = urllib.request.Request(url, headers={"User-Agent": "hfpclawer/0.9"})
+        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+            raw_xml = resp.read()
+        root = ET.fromstring(raw_xml)
+        ns = {"a": "http://www.w3.org/2005/Atom"}
+        entry = root.find("a:entry", ns)
+        if entry is not None:
+            title_el = entry.find("a:title", ns)
+            if title_el is not None and title_el.text:
+                arxiv_title = " ".join(title_el.text.split())
+            authors = []
+            for au in entry.findall("a:author", ns):
+                name_el = au.find("a:name", ns)
+                if name_el is not None and name_el.text:
+                    authors.append(name_el.text)
+            arxiv_authors = ", ".join(authors)
+            abs_el = entry.find("a:summary", ns)
+            if abs_el is not None and abs_el.text:
+                arxiv_abstract = " ".join(abs_el.text.split())
+            cats = []
+            for cat in entry.findall("a:category", ns):
+                term = cat.get("term", "")
+                if term:
+                    cats.append(term)
+            arxiv_categories = ", ".join(cats)
+        console.print(f"  ✓ Title: {arxiv_title[:80]}...")
+        if arxiv_authors:
+            console.print(f"  ✓ Authors: {arxiv_authors[:80]}...")
+    except Exception as e:
+        if verbose:
+            console.print(f"  [yellow]⚠️  arXiv meta: {e}[/yellow]")
+
+    # ── Step 2: resolve PDF path from Zotero (uses title for fast keyword search) ──
+    console.print("[dim] 2/7 Resolving PDF in Zotero...[/dim]")
     from hfpclawer.zotero.annotations import resolve_pdf_path
 
-    info = resolve_pdf_path(arxiv_id=aid)
+    info = resolve_pdf_path(arxiv_id=aid, title=arxiv_title)
     if "error" in info:
         console.print(f"[red]❌ {info['error']}[/red]")
         return
 
     zotero_pdf = info["pdf_path"]
-    title = info.get("title", "")
     parent_key = info.get("parent_key", "")
     console.print(f"  ✓ Source: {zotero_pdf}")
-    if title:
-        console.print(f"  ✓ Title: {title}")
+    if arxiv_title:
+        console.print(f"  ✓ Title: {arxiv_title[:80]}...")
     console.print(f"  ✓ Zotero key: {parent_key}")
 
     pdf_size = Path(zotero_pdf).stat().st_size
     console.print(f"  ✓ PDF size: {pdf_size // 1024} KB")
 
-    # ── Step 2: copy PDF to hfpclawer's data dir ──
-    console.print("[dim] 2/6 Copying PDF to hfpclawer storage...[/dim]")
+    # ── Step 3: copy PDF to hfpclawer's data dir ──
+    console.print("[dim] 3/7 Copying PDF to hfpclawer storage...[/dim]")
     pdf_dir: Path
     cfg_get = lambda k, d=None: d  # fallback if config unavailable
     try:
@@ -1130,52 +1171,7 @@ def cmd_ingest(
         shutil.copy2(zotero_pdf, str(pdf_target))
         console.print(f"  ✓ Copied → {pdf_target}")
 
-    # ── Step 2b: fetch metadata from arXiv API ──
-    console.print("[dim]   Fetching arXiv metadata...[/dim]")
-    arxiv_title = title
-    arxiv_authors = ""
-    arxiv_abstract = ""
-    arxiv_categories = ""
-    try:
-        from xml.etree import ElementTree as ET
-        url = f"http://export.arxiv.org/api/query?id_list={aid}&max_results=1"
-        ctx = ssl._create_unverified_context()
-        req = urllib.request.Request(url, headers={"User-Agent": "hfpclawer/0.9"})
-        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
-            raw_xml = resp.read()
-        root = ET.fromstring(raw_xml)
-        ns = {"a": "http://www.w3.org/2005/Atom"}
-        entry = root.find("a:entry", ns)
-        if entry is not None:
-            title_el = entry.find("a:title", ns)
-            if title_el is not None and title_el.text:
-                arxiv_title = " ".join(title_el.text.split())
-            # Authors
-            authors = []
-            for au in entry.findall("a:author", ns):
-                name_el = au.find("a:name", ns)
-                if name_el is not None and name_el.text:
-                    authors.append(name_el.text)
-            arxiv_authors = ", ".join(authors)
-            # Abstract
-            abs_el = entry.find("a:summary", ns)
-            if abs_el is not None and abs_el.text:
-                arxiv_abstract = " ".join(abs_el.text.split())
-            # Categories
-            cats = []
-            for cat in entry.findall("a:category", ns):
-                term = cat.get("term", "")
-                if term:
-                    cats.append(term)
-            arxiv_categories = ", ".join(cats)
-        console.print(f"  ✓ Title: {arxiv_title[:80]}...")
-        if arxiv_authors:
-            console.print(f"  ✓ Authors: {arxiv_authors[:80]}...")
-    except Exception as e:
-        if verbose:
-            console.print(f"  [yellow]⚠️  arXiv meta: {e}[/yellow]")
-
-    # ── Step 2c: CrossRef lookup (DOI + ORCID) ──
+    # ── Step 4: CrossRef lookup (DOI + ORCID) ──
     console.print("[dim]   CrossRef DOI + ORCID lookup...[/dim]")
     crossref_doi = ""
     crossref_orcids: dict[str, str] = {}
@@ -1198,8 +1194,8 @@ def cmd_ingest(
     except Exception as e:
         console.print(f"  [yellow]⚠️  CrossRef: {e}[/yellow]")
 
-    # ── Step 3: convert PDF → Markdown ──
-    console.print("[dim] 3/6 Converting PDF → Markdown...[/dim]")
+    # ── Step 5: convert PDF → Markdown ──
+    console.print("[dim] 5/7 Converting PDF → Markdown...[/dim]")
     md_text = ""
     md_ok = False
     md_target: Path | None = None
@@ -1224,8 +1220,8 @@ def cmd_ingest(
     except Exception as e:
         console.print(f"  [yellow]⚠️  MD conversion skipped: {e}[/yellow]")
 
-    # ── Step 4: ingest into paper_store ──
-    console.print("[dim] 4/6 Writing to paper_store...[/dim]")
+    # ── Step 6: ingest into paper_store ──
+    console.print("[dim] 6/7 Writing to paper_store...[/dim]")
     sf_id = None
     try:
         from hfpapers.paper_store import ensure_paper
@@ -1243,8 +1239,8 @@ def cmd_ingest(
     except Exception as e:
         console.print(f"  [yellow]⚠️  paper_store write: {e}[/yellow]")
 
-    # ── Step 5: extract annotations from PDF ──
-    console.print("[dim] 5/6 Extracting PDF annotations...[/dim]")
+    # ── Step 7: extract annotations from PDF ──
+    console.print("[dim] 7/7 Extracting PDF annotations...[/dim]")
     annotations_md = ""
     try:
         from hfpclawer.zotero.annotations import extract_pdf_annotations, format_markdown
@@ -1259,7 +1255,7 @@ def cmd_ingest(
         if verbose:
             console.print(f"  [yellow]⚠️  Annotations: {e}[/yellow]")
 
-    # ── Step 6: write wiki/raw/papers/{aid}.md ──
+    # ── Write wiki/raw/papers/{aid}.md ──
     wiki_path: Path | None = None
     if not no_wiki:
         console.print("[dim] 6/6 Writing wiki/raw paper note...[/dim]")

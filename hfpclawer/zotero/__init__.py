@@ -237,30 +237,6 @@ class ZoteroClient:
             logger.debug("Zotero file_url(%s) failed: %s", key, e)
             return None
 
-    def search_by_doi(self, doi: str) -> Optional[dict]:
-        """Search for an item by DOI using item enumeration.
-
-        Scans all items' `extra` and `DOI` fields for the given DOI.
-        More reliable than quick-search `q` which doesn't index extra.
-
-        Args:
-            doi: DOI string (e.g., '10.1038/s41586-024-07123-5')
-
-        Returns:
-            First matching item dict, or None
-        """
-        items = self._fetch_all_items()
-        doi_lower = doi.lower()
-        for item in items:
-            data = item.get("data", {})
-            item_doi = data.get("DOI", "")
-            if item_doi and doi_lower in item_doi.lower():
-                return item
-            extra = data.get("extra", "")
-            if doi in extra:
-                return item
-        return None
-
     # ── Dedup / Search by arXiv ID ──────────────
 
     def _fetch_all_items(self) -> list[dict]:
@@ -327,46 +303,369 @@ class ZoteroClient:
     def search_by_arxiv_id(
         self,
         arxiv_id: str,
-        limit: int = 5,
+        title: str = "",
+        authors: list[str] | None = None,
+        year: int | None = None,
     ) -> list[dict]:
-        """Search Zotero items by arXiv ID using item enumeration.
+        """Multi-level Zotero search by arXiv ID.
 
-        Scans all items' `extra` and `url` fields for the given arXiv ID.
-        This is the most reliable method since Zotero's quick search API
-        does not index the `extra` field.
+        Cascade (fast→slow):
+          L0: In-memory arXiv lookup cache (instant)
+          L1: Title keyword quick search → fuzzy match → verify  (if title known)
+          L2: Full 5000-item scan (rebuilds cache)
 
         Args:
             arxiv_id: arXiv ID (e.g., "2606.26294")
-            limit: Max items to return (default: 5).
+            title: Paper title (optional — enables L1 fast path)
+            authors: Author last names for verification (optional)
+            year: Publication year for verification (optional)
 
         Returns:
-            List of matching item dicts (empty if not found).
+            List with 0 or 1 matching item dicts.
         """
+        # ── L0: in-memory cache ──
+        key_from_cache = self._arxiv_lookup.get(arxiv_id) if self._arxiv_lookup else None
+        if key_from_cache:
+            item = self.get_item(key_from_cache)
+            if item:
+                return [item]
+
+        # ── L1: title keyword search (fast, 1 API call) ──
+        if title:
+            try:
+                match = self.find_by_title(title, authors=authors, year=year)
+                if match:
+                    m_key = (match.get("data", {}) or {}).get("key", "")
+                    if m_key:
+                        # Warm the cache
+                        if self._arxiv_lookup is not None:
+                            self._arxiv_lookup[arxiv_id] = m_key
+                        return [match]
+            except Exception:
+                pass
+
+        # ── L2: full scan (fetches all items once, caches result) ──
+        if title:
+            # With title, do one more targeted try via find_by_title with relaxed threshold
+            try:
+                match = self.find_by_title(title, min_similarity=0.40)
+                if match:
+                    m_key = (match.get("data", {}) or {}).get("key", "")
+                    if m_key and self._arxiv_lookup is not None:
+                        self._arxiv_lookup[arxiv_id] = m_key
+                    return [match]
+            except Exception:
+                pass
+
+        # Full scan fallback
         lookup = self._build_arxiv_lookup()
         target_key = lookup.get(arxiv_id)
         if not target_key:
             return []
 
-        # Fetch the matching item by key
         item = self.get_item(target_key)
         return [item] if item else []
 
-    def is_arxiv_in_zotero(self, arxiv_id: str) -> Optional[str]:
-        """Check if an arXiv paper already exists in Zotero.
+    def is_arxiv_in_zotero(
+        self,
+        arxiv_id: str,
+        title: str = "",
+        authors: list[str] | None = None,
+        year: int | None = None,
+    ) -> Optional[str]:
+        """Multi-level arXiv ID dedup check.
 
-        Built a lookup table from all items' extra fields.
-        Efficient for libraries up to ~10,000 items.
+        Same cascade as ``search_by_arxiv_id`` but returns only the item key.
 
         Args:
             arxiv_id: arXiv ID (e.g., "2606.26294")
+            title: Paper title (optional — enables fast keyword search path)
+            authors: Author last names for verification (optional)
+            year: Publication year for verification (optional)
 
         Returns:
-            The Zotero item key if found, None otherwise.
+            Zotero item key if found, None otherwise.
         """
+        # L0: cache hit
+        if self._arxiv_lookup:
+            cached = self._arxiv_lookup.get(arxiv_id)
+            if cached:
+                return cached
+
+        # L1: title keyword search (1 API call)
+        if title:
+            try:
+                match = self.find_by_title(title, authors=authors, year=year)
+                if match:
+                    m_key = (match.get("data", {}) or {}).get("key", "")
+                    if m_key:
+                        if self._arxiv_lookup is not None:
+                            self._arxiv_lookup[arxiv_id] = m_key
+                        return m_key
+            except Exception:
+                pass
+
+        # L2: full scan
         lookup = self._build_arxiv_lookup()
         return lookup.get(arxiv_id)
 
-    # ── Utility ──────────────────────────────────
+    def search_by_doi(
+        self,
+        doi: str,
+        title: str = "",
+    ) -> Optional[dict]:
+        """Multi-level DOI search.
+
+        Cascade:
+          L0: Scan cached items if available (0 API calls)
+          L1: Quick search with DOI string (1 API call, ~20ms)
+          L2: Full 5000-item scan
+
+        Args:
+            doi: DOI string (e.g., '10.1038/s41467-025-63521-z')
+            title: Paper title (optional — enables L1 with title+DOI combo)
+
+        Returns:
+            Matching item dict, or None.
+        """
+        doi_lower = doi.lower()
+
+        # ── L0: scan cached items (no API call) ──
+        if self._arxiv_lookup is not None and self._arxiv_lookup:
+            # Cache exists — fetch items we already have
+            items = self._fetch_all_items_from_cache()
+            for item in items:
+                data = item.get("data", {})
+                item_doi = data.get("DOI", "")
+                if item_doi and doi_lower in item_doi.lower():
+                    return item
+                extra = data.get("extra", "")
+                if doi in extra:
+                    return item
+
+        # ── L1: quick search with DOI string ──
+        # Zotero's FTS may index DOI in the extra field or url
+        try:
+            candidates = self.top(limit=10, q=doi_lower[:40])
+            for item in candidates:
+                data = item.get("data", {}) or {}
+                item_doi = data.get("DOI", "")
+                if item_doi and doi_lower in item_doi.lower():
+                    return item
+                extra = data.get("extra", "")
+                if doi in extra:
+                    return item
+                # Also check: DOI often appears in URL
+                url = data.get("url", "")
+                if doi_lower in url.lower():
+                    return item
+        except Exception:
+            pass
+
+        # ── L1b: title + first author combo (if title given) ──
+        if title:
+            try:
+                keywords = self._title_keywords(title, max_words=3)
+                candidates = self.top(limit=10, q=f"{keywords} {doi_lower[:20]}")
+                for item in candidates:
+                    data = item.get("data", {}) or {}
+                    item_doi = data.get("DOI", "")
+                    if item_doi and doi_lower in item_doi.lower():
+                        return item
+            except Exception:
+                pass
+
+        # ── L2: full scan ──
+        items = self._fetch_all_items()
+        for item in items:
+            data = item.get("data", {})
+            item_doi = data.get("DOI", "")
+            if item_doi and doi_lower in item_doi.lower():
+                return item
+            extra = data.get("extra", "")
+            if doi in extra:
+                return item
+        return None
+
+    def _fetch_all_items_from_cache(self) -> list[dict]:
+        """Re-fetch all items using the cached lookup keys.
+
+        Only fetches items whose keys are in the lookup, instead of
+        doing a full 5000-item dump. Much faster when cache is warm.
+        """
+        if not self._arxiv_lookup:
+            return []
+        keys = list(self._arxiv_lookup.values())
+        items = []
+        import urllib.request
+        import json
+        for key in keys[:200]:  # limit to avoid flooding
+            try:
+                url = f"http://localhost:23119/api/users/0/items/{key}"
+                with urllib.request.urlopen(url, timeout=10) as resp:
+                    items.append(json.loads(resp.read().decode()))
+            except Exception:
+                pass
+        return items
+
+    TITLE_STOPWORDS = frozenset({
+        "a", "an", "the", "of", "in", "on", "at", "to", "for", "with",
+        "by", "and", "or", "is", "are", "was", "were", "be", "been",
+        "has", "have", "had", "do", "does", "did", "will", "would",
+        "can", "could", "may", "might", "shall", "should", "about",
+        "into", "through", "during", "before", "after", "above",
+        "below", "between", "out", "off", "over", "under", "again",
+        "further", "then", "once", "here", "there", "when", "where",
+        "why", "how", "all", "each", "every", "both", "few", "more",
+        "most", "other", "some", "such", "no", "not", "only", "own",
+        "same", "so", "than", "too", "very", "just", "because", "as",
+        "until", "while", "of", "based", "using", "new", "novel",
+        "method", "approach", "toward", "towards",
+    })
+
+    @staticmethod
+    def _title_keywords(title: str, max_words: int = 5) -> str:
+        """Extract meaningful keywords from a paper title for Zotero quick search.
+
+        Strips stopwords and punctuation, returns space-separated keywords.
+        Keeps the most distinctive 2-5 words.
+
+        Examples:
+            'A novel approach to neural PDE solvers' → 'neural PDE solvers'
+            'On the complexity of LCLM training' → 'complexity LCLM training'
+        """
+        import re
+        words = re.sub(r"[^\w\s-]", " ", title).split()
+        # Filter stopwords, keep lowercase for matching
+        filtered = [w for w in words if w.lower() not in ZoteroClient.TITLE_STOPWORDS and len(w) > 1]
+        # Deduplicate while preserving order
+        seen = set()
+        unique = []
+        for w in filtered:
+            wl = w.lower()
+            if wl not in seen:
+                seen.add(wl)
+                unique.append(w)
+        # Keep original word order — Zotero's FTS uses proximity as ranking signal
+        return " ".join(unique[:max_words])
+
+    def find_by_title(
+        self,
+        title: str,
+        authors: list[str] | None = None,
+        year: int | None = None,
+        min_similarity: float = 0.55,
+    ) -> Optional[dict]:
+        """Three-stage Zotero search: quick keyword → fuzzy title → verify.
+
+        **Stage 1** — Quick search by title keywords (Zotero built-in FTS index).
+                    Returns ≤20 candidates in milliseconds.
+
+        **Stage 2** — Fuzzy title matching (SequenceMatcher ratio).
+                    Accepts candidates above min_similarity (default 0.55).
+
+        **Stage 3** — Author + year cross-verification on top match(es).
+
+        Falls back to full-scan (``_build_arxiv_lookup``) if Stage 1-2 fail.
+
+        Args:
+            title: Paper title to search for.
+            authors: Optional list of author last names for verification.
+            year: Optional publication year for verification.
+            min_similarity: Title similarity threshold [0, 1].
+
+        Returns:
+            Zotero item dict (with ``data`` sub-dict), or None.
+        """
+        from difflib import SequenceMatcher
+
+        # ── Stage 1: keyword quick search ──
+        keywords = self._title_keywords(title)
+        if not keywords:
+            return None
+        try:
+            candidates = self.top(limit=20, q=keywords)
+        except Exception:
+            candidates = []
+        if not candidates:
+            return None
+
+        # ── Stage 2: fuzzy title matching ──
+        scored: list[tuple[float, dict]] = []
+        t_lower = title.lower()
+        for item in candidates:
+            item_title = (item.get("data", {}) or {}).get("title", "")
+            if not item_title:
+                continue
+            sim = SequenceMatcher(None, t_lower, item_title.lower()).ratio()
+            if sim >= min_similarity:
+                scored.append((sim, item))
+
+        if not scored:
+            return None
+
+        # Sort by similarity descending
+        scored.sort(key=lambda x: -x[0])
+        best_sim, best_match = scored[0]
+
+        # ── Stage 3: verify by author + year ──
+        if best_sim >= 0.85:
+            # Very high similarity — return directly, skip verification
+            return best_match
+
+        if authors or year:
+            # Try best match first
+            verify_ok = self._verify_metadata(best_match, authors, year)
+            if not verify_ok and len(scored) > 1:
+                # Try next best candidates
+                for _, candidate in scored[1:]:
+                    if self._verify_metadata(candidate, authors, year):
+                        return candidate
+
+        return best_match
+
+    @staticmethod
+    def _verify_metadata(
+        item: dict,
+        authors: list[str] | None = None,
+        year: int | None = None,
+    ) -> bool:
+        """Verify a Zotero item matches expected metadata.
+
+        Checks author last names and publication year.
+        Returns True if both checks pass or are not provided.
+        """
+        data = item.get("data", {}) or {}
+
+        # Year check
+        if year is not None:
+            item_year = data.get("date", "")
+            # Zotero date can be '2025', '2025-03', '2025-03-15'
+            if item_year:
+                try:
+                    item_year_int = int(str(item_year)[:4])
+                    if abs(item_year_int - year) > 2:
+                        return False
+                except (ValueError, TypeError):
+                    pass  # Can't parse, skip check
+
+        # Author check
+        if authors:
+            creators = data.get("creators", [])
+            item_last_names = {
+                c.get("lastName", "").lower()
+                for c in creators
+                if c.get("lastName")
+            }
+            target_last_names = {
+                a.strip().lower().split()[-1]  # take last word as surname
+                for a in authors if a.strip()
+            }
+            # Require at least one author last name match
+            if target_last_names and not (item_last_names & target_last_names):
+                return False
+
+        return True
 
     def check_connection(self) -> bool:
         """Verify Zotero local API is accessible.

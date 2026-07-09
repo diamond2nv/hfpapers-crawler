@@ -128,3 +128,8 @@ ignore = ["E501"]
 "examples/*" = ["E402"]
 "tests/test_audit.py" = ["F841"]
 "tests/test_semantic_service.py" = ["E402"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
