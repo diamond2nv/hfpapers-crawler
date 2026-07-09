@@ -206,6 +206,170 @@ def cmd_tags(collection: str = "") -> None:
     console.print(table)
 
 
+def cmd_tag_report(
+    limit: int = 200,
+    chart_path: str = "",
+    wordcloud: bool = False,
+) -> None:
+    """Scan Zotero library and produce tag optimization report.
+
+    Uses spaCy to extract candidate tags from all item titles, then
+    computes TF-IDF to find high-value terms NOT yet used as tags.
+
+    Args:
+        limit: Max items to scan (default 200).
+        chart_path: Optional path to save bar chart.
+        wordcloud: If True, generate word cloud instead of bar chart.
+    """
+    from hfpapers.nlp import configure as configure_nlp
+
+    # Configure spaCy (lazy — no-op if already loaded)
+    configure_nlp("en_core_web_md")
+
+    zc = _get_client()
+    console.print(f"[dim]Scanning up to {limit} Zotero items with spaCy...[/dim]")
+
+    from hfpapers.nlp.tag_analysis import analyze_library_tags, report_text, report_chart, plot_simple_wordcloud
+
+    analysis = analyze_library_tags(zc, limit=limit, top_n=30)
+
+    # Print report
+    report = report_text(analysis)
+    console.print(report)
+
+    # Generate chart if requested
+    if chart_path:
+        if wordcloud:
+            saved = plot_simple_wordcloud(analysis, output_path=chart_path)
+        else:
+            saved = report_chart(analysis, output_path=chart_path)
+        if saved:
+            console.print(f"\n[green]📊 Chart saved:[/green] {saved}")
+        else:
+            console.print("\n[yellow]⚠️  Chart generation skipped (matplotlib not available)[/yellow]")
+
+    # Summary
+    gaps = analysis["tag_gaps"]
+    if gaps:
+        console.print(f"\n[bold cyan]💡 Top suggestion:[/bold cyan] add tag [bold]'{gaps[0]['term']}'[/bold] "
+                      f"(appears in {gaps[0]['df']} papers, TF-IDF={gaps[0]['tfidf']})")
+
+
+def cmd_innovate(
+    arxiv_id: str = "",
+    zotero_key: str = "",
+    dry_run: bool = False,
+    push: bool = False,
+) -> None:
+    """Extract innovation keywords from a paper and write to Zotero extra.
+
+    Uses spaCy to extract 5-7 structured innovation points (method, field,
+    technique, dataset, metric, application, core concept) from the paper's
+    title and abstract.
+
+    Args:
+        arxiv_id: arXiv ID to look up (from paper_store or Zotero).
+        zotero_key: Direct Zotero item key (skips arXiv ID lookup).
+        dry_run: Show extracted keywords without writing.
+        push: Write innovation keywords to Zotero extra field.
+
+    Examples:
+        hfpclawer zotero innovate 2501.01934               # Preview
+        hfpclawer zotero innovate 2501.01934 --push         # Extract + write
+        hfpclawer zotero innovate --key ABC123 --push       # By Zotero key
+    """
+    from hfpapers.nlp import configure as configure_nlp
+    from hfpapers.nlp.innovation import (
+        extract_innovation_points,
+        format_innovation_summary,
+    )
+    from hfpapers.nlp.tags import generate_tags
+
+    # Load spaCy
+    configure_nlp("en_core_web_md")
+
+    zc = _get_client()
+    abstract = ""
+    title = ""
+    key = zotero_key or ""
+
+    # ── Resolve paper metadata ──
+    if not key and arxiv_id:
+        # Try Zotero lookup first
+        matches = zc.search_by_arxiv_id(arxiv_id)
+        if matches:
+            data = matches[0].get("data", {})
+            key = data.get("key", "")
+            title = data.get("title", "")
+            abstract = data.get("abstractNote", "")
+            console.print(f"[dim]Found in Zotero: {title[:60]}...[/dim]")
+        else:
+            # Fallback: paper_store
+            try:
+                from hfpapers.paper_store import get_store
+                store = get_store()
+                rec = store.get_paper_by_identifier("arxiv", arxiv_id)
+                if rec:
+                    title = rec.title or ""
+                    abstract = rec.abstract or ""
+                    console.print(f"[dim]Found in paper_store: {title[:60]}...[/dim]")
+            except Exception:
+                pass
+
+    elif key:
+        # Direct Zotero key
+        item = zc.get_item(key)
+        if item:
+            data = item.get("data", {})
+            title = data.get("title", "")
+            abstract = data.get("abstractNote", "")
+            arxiv_id = arxiv_id or data.get("key", "")
+
+    if not title:
+        console.print("[yellow]⚠️  No title found. Provide --aid, arXiv ID, or --key.[/yellow]")
+        return
+
+    # ── Extract innovation points ──
+    points = extract_innovation_points(abstract, title)
+    auto_tags = generate_tags(title, abstract)
+
+    console.print(f"\n[bold]📄 {title[:70]}...[/bold]")
+    console.print(f"[dim]arXiv: {arxiv_id}  |  Zotero key: {key}[/dim]")
+    console.print("")
+
+    # Show innovation points
+    console.print("[bold cyan]🎯 Innovation Keywords:[/bold cyan]")
+    summary = format_innovation_summary(points)
+    console.print(summary)
+
+    # Show auto-tags
+    console.print(f"\n[bold cyan]🏷️ Auto-Tags:[/bold cyan]")
+    console.print(f"  {' • '.join(auto_tags[:10])}")
+
+    # Flatten innovation points for extra field
+    extra_fields = {}
+    for slot, values in points.items():
+        if values:
+            extra_fields[f"innovation_{slot}"] = "; ".join(values[:2])
+    if auto_tags:
+        extra_fields["innovation_tags"] = "; ".join(auto_tags[:8])
+
+    # ── Write to Zotero extra ──
+    if push and key:
+        console.print(f"\n[dim]Writing to Zotero extra field...[/dim]")
+        ok = zc.update_item_extra(key, extra_fields)
+        if ok:
+            console.print(f"[green]✅ Innovation keywords written to extra field for {key}[/green]")
+        else:
+            console.print(f"[red]❌ Failed to write to Zotero for {key}[/red]")
+    elif push and not key:
+        console.print("[yellow]⚠️  No Zotero key found. Use --key to specify.[/yellow]")
+    elif dry_run or not push:
+        console.print(f"\n[dim]--- Preview only. Add --push to write to Zotero extra. ---[/dim]")
+        for label, value in extra_fields.items():
+            console.print(f"  [cyan]{label}:[/cyan] {value}")
+
+
 def cmd_children(key: str) -> None:
     """List children (attachments, notes) for a Zotero item."""
     zc = _get_client()

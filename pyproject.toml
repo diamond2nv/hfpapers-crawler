@@ -43,6 +43,8 @@ dependencies = [
     "psutil>=5.8",
     "pymupdf4llm>=1.28.0",
     "pyzotero>=1.13.2",
+    "spacy>=3.8.0",
+    "click>=8.4.2",
 ]
 
 [project.urls]
@@ -55,6 +57,10 @@ Documentation = "https://github.com/diamond2nv/hfpapers-crawler"
 [project.optional-dependencies]
 llm = [
     "litellm>=1.85.0",
+]
+nlp = [
+    "spacy>=3.8.0",
+    "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
 pdf = [
     "pymupdf4llm",

@@ -524,21 +524,29 @@ class ZoteroClient:
     })
 
     @staticmethod
-    def _title_keywords(title: str, max_words: int = 5) -> str:
+    def _title_keywords(title: str, max_words: int = 6) -> str:
         """Extract meaningful keywords from a paper title for Zotero quick search.
 
-        Strips stopwords and punctuation, returns space-separated keywords.
-        Keeps the most distinctive 2-5 words.
+        Uses spaCy-enhanced NLP when available (lemmatization + noun chunks).
+        Falls back to enhanced regex-based extraction otherwise.
 
         Examples:
-            'A novel approach to neural PDE solvers' → 'neural PDE solvers'
-            'On the complexity of LCLM training' → 'complexity LCLM training'
+            'A novel approach to neural PDE solvers' → 'neural pde solver' (spaCy)
+            'On the complexity of LCLM training' → 'complexity LCLM training' (fallback)
         """
+        # Try spaCy-enhanced extraction first
+        try:
+            from hfpapers.nlp.keywords import title_keywords as _nlp_keywords
+            result = _nlp_keywords(title, max_words=max_words)
+            if result:
+                return result
+        except Exception:
+            pass
+
+        # Fallback: enhanced regex-based extraction
         import re
         words = re.sub(r"[^\w\s-]", " ", title).split()
-        # Filter stopwords, keep lowercase for matching
         filtered = [w for w in words if w.lower() not in ZoteroClient.TITLE_STOPWORDS and len(w) > 1]
-        # Deduplicate while preserving order
         seen = set()
         unique = []
         for w in filtered:
@@ -546,7 +554,6 @@ class ZoteroClient:
             if wl not in seen:
                 seen.add(wl)
                 unique.append(w)
-        # Keep original word order — Zotero's FTS uses proximity as ranking signal
         return " ".join(unique[:max_words])
 
     def find_by_title(
@@ -590,8 +597,9 @@ class ZoteroClient:
         if not candidates:
             return None
 
-        # ── Stage 2: fuzzy title matching ──
+        # ── Stage 2: fuzzy title matching with optional vector rerank ──
         scored: list[tuple[float, dict]] = []
+        low_scored: list[tuple[float, dict]] = []  # Borderline: may be boosted by vectors
         t_lower = title.lower()
         for item in candidates:
             item_title = (item.get("data", {}) or {}).get("title", "")
@@ -600,6 +608,22 @@ class ZoteroClient:
             sim = SequenceMatcher(None, t_lower, item_title.lower()).ratio()
             if sim >= min_similarity:
                 scored.append((sim, item))
+            elif sim >= 0.30:
+                # Borderline — may be boosted by spaCy vectors
+                low_scored.append((sim, item))
+
+        # ── Stage 2b: semantic reranking for borderline candidates ──
+        if low_scored and not scored:
+            # Only run rerank if no high-confidence match found yet
+            try:
+                from hfpapers.nlp.search import semantic_rerank
+                for sim, item in low_scored:
+                    item_title = (item.get("data", {}) or {}).get("title", "")
+                    boosted = semantic_rerank(title, item_title, sim)
+                    if boosted >= min_similarity:
+                        scored.append((boosted, item))
+            except Exception:
+                pass  # Graceful degradation
 
         if not scored:
             return None
@@ -683,6 +707,84 @@ class ZoteroClient:
     def is_connected(self) -> bool:
         """Check if connection is established (lazy)."""
         return self._zot is not None
+
+    def update_item_extra(
+        self,
+        key: str,
+        extra_fields: dict[str, str],
+    ) -> bool:
+        """Append structured metadata to a Zotero item's ``extra`` field.
+
+        Uses the Zotero local API (``PUT /api/users/0/items/{key}``).
+        Does NOT require API key when ``local=True``.
+
+        The extra field is free-text but commonly stores structured key:value
+        pairs. This method appends ``innovation_key`` lines for each entry.
+
+        Args:
+            key: Zotero item key (e.g. 'ABC123').
+            extra_fields: Dict of label→value pairs to write, e.g.
+                ``{"innovation_method": "Fourier Neural Operator",
+                   "innovation_field": "PDE surrogates"}``.
+
+        Returns:
+            True on success, False on failure.
+        """
+        zot = self._connect()
+        try:
+            item = zot.item(key)
+        except Exception as e:
+            logger.warning("Cannot fetch item %s for extra update: %s", key, e)
+            return False
+
+        if not item or not item.get("data"):
+            return False
+
+        data = item["data"]
+        current_extra = data.get("extra", "") or ""
+
+        # Build new extra lines, replace any existing innovation_ lines
+        new_lines: list[str] = []
+        innovation_keys_seen = set(extra_fields.keys())
+        for line in current_extra.split("\n"):
+            line_stripped = line.strip()
+            # Remove old innovation lines that we're about to replace
+            if any(line_stripped.startswith(k + ":") for k in innovation_keys_seen):
+                continue
+            if line_stripped:
+                new_lines.append(line)
+
+        # Append new innovation fields
+        innovation_lines = [
+            f"{label}: {value}"
+            for label, value in extra_fields.items()
+            if value
+        ]
+        if new_lines and new_lines[-1] != "":
+            new_lines.append("")  # spacer
+        new_lines.extend(innovation_lines)
+
+        data["extra"] = "\n".join(new_lines).strip()
+
+        # PUT back via local API
+        try:
+            import json, urllib.request
+            body = json.dumps(item).encode("utf-8")
+            req = urllib.request.Request(
+                f"http://localhost:23119/api/users/0/items/{key}",
+                data=body,
+                method="PUT",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status in (200, 204):
+                    logger.info("Extra field updated for %s: %s", key, extra_fields)
+                    return True
+                logger.warning("PUT item %s returned %s", key, resp.status)
+                return False
+        except Exception as e:
+            logger.warning("Failed to update extra for %s: %s", key, e)
+            return False
 
     @property
     def library_summary(self) -> dict:

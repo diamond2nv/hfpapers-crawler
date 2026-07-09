@@ -814,7 +814,7 @@ def cron(
 def zotero(
     action: str = typer.Argument(
         "list",
-        help="check | list | search | get | tags | children | push | push-batch | annotate",
+        help="check | list | search | get | tags | tag-report | innovate | children | push | push-batch | annotate | ingest",
     ),
     arg: str = typer.Argument(
         "",
@@ -899,7 +899,7 @@ def zotero(
     from hfpclawer.zotero.cli import (
         cmd_check, cmd_list, cmd_search, cmd_get, cmd_tags, cmd_children,
         cmd_push, cmd_push_batch, cmd_annotate, cmd_export, cmd_note,
-        cmd_ingest,
+        cmd_ingest, cmd_tag_report, cmd_innovate,
     )
 
     if action == "check":
@@ -975,6 +975,17 @@ def zotero(
             output=output,
             no_wiki=no_wiki,
             verbose=verbose,
+        )
+    elif action in ("tag-report", "tagreport", "tag-r"):
+        # spaCy tag analysis report
+        cmd_tag_report(limit=limit or 200, chart_path=output)
+    elif action in ("innovate", "tag"):
+        # Extract innovation keywords. Add --dry-run to preview without writing.
+        cmd_innovate(
+            arxiv_id=arg or aid,
+            zotero_key=key,
+            dry_run=dry_run,
+            push=not dry_run and bool(key or arg),
         )
     else:
         console.print(f"[red]❌ Unknown zotero action: {action}[/red]")
