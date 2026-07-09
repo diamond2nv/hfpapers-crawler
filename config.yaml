@@ -364,6 +364,25 @@ wiki:
   batch_prefix: "hfpapers-"
   write_summary: true
 
+# ===== 7b. Knowledge Graph Config =====
+graph:
+  wiki_dir: "~/wiki"
+  cache_path: "~/.hermes/graph_cache.pkl"
+  default_limit: 200
+  topic_from_title: true           # Auto-extract TOPIC nodes from paper titles
+  max_title_topics: 3              # Max topics per paper from title
+  skip_common_phrases:             # Skip these from title→topic extraction
+    - "study of"
+    - "analysis of"
+    - "on the"
+    - "towards"
+    - "investigation"
+    - "enhanced"
+    - "novel"
+    - "new"
+    - "review"
+    - "survey"
+
 # ===== 8. Output Paths =====
 paths:
   data_dir: "data"

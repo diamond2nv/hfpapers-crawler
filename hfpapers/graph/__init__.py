@@ -77,24 +77,104 @@ class GraphBuilder:
     def __init__(self):
         self.G: nx.Graph = nx.Graph()
         self._wiki_persons: dict[str, dict] = {}
+        self._config: dict = {}
 
+    @staticmethod
+    def _load_config() -> dict:
+        """Load graph section from project config.yaml.
+
+        Returns:
+            Dict with graph config keys (wiki_dir, cache_path, default_limit, etc.),
+            falling back to sensible defaults for missing entries.
+        """
+        try:
+            from hfpapers.config import load_config
+            cfg = load_config()
+            return cfg.get("graph", {})
+        except Exception:
+            return {}
+
+    def _topic_from_title(self, title: str) -> list[str]:
+        """Extract topic-like phrases from a paper title.
+
+        Filters out common stop-phrases and returns the most
+        substantive 1-3 word phrases.
+
+        Args:
+            title: Paper title.
+
+        Returns:
+            List of topic phrases (max ``max_title_topics``).
+        """
+        skip = set(self._config.get("skip_common_phrases", [
+            "study of", "analysis of", "on the", "towards",
+            "investigation", "enhanced", "novel", "new",
+            "review", "survey",
+        ]))
+        max_topics = self._config.get("max_title_topics", 3)
+        topic_from_title = self._config.get("topic_from_title", True)
+
+        if not topic_from_title or not title:
+            return []
+
+        import re
+        # Split on common delimiters: colon, dash, em-dash, semicolon
+        parts = re.split(r"[:;\u2014\u2013-]\s*", title, maxsplit=1)
+        # Use the first part (before colon) — usually the main topic
+        main_part = parts[0].strip()
+
+        # Extract noun phrases: capitalize words, skip stopwords
+        stop_words = {"a", "an", "the", "of", "in", "for", "with",
+                      "and", "or", "by", "to", "on", "at", "from",
+                      "using", "based", "via", "through", "under"}
+
+        words = main_part.split()
+        phrases = []
+        current = []
+        for w in words:
+            clean = w.strip("(),.;:!?")
+            if not clean:
+                continue
+            if clean.lower() not in stop_words:
+                current.append(clean)
+            else:
+                if current:
+                    phrases.append(" ".join(current))
+                    current = []
+        if current:
+            phrases.append(" ".join(current))
+
+        # Filter out skip phrases and short phrases
+        result = []
+        for p in phrases:
+            p_lower = p.lower()
+            if any(sk in p_lower for sk in skip):
+                continue
+            if len(p.split()) > 4:
+                # Too long — take first 3 words
+                p = " ".join(p.split()[:3])
+            if len(p) > 2 and p not in result:
+                result.append(p)
+
+        return result[:max_topics]
     # ── Build ──────────────────────────────────────────────────
 
     def build(
         self,
         client=None,
-        limit: int = 200,
+        limit: int = 0,
         force: bool = False,
-        wiki_dir: str = "~/wiki",
+        wiki_dir: str = "",
         paper_store_client=None,
     ) -> nx.Graph:
         """Build the knowledge graph from all configured sources.
 
         Args:
             client: ZoteroClient instance (local API on localhost:23119).
-            limit: Max Zotero items to process.
+            limit: Max Zotero items to process. 0 = use config default.
             force: If True, rebuild from scratch (ignore incremental marker).
             wiki_dir: Path to wiki directory for /people/ pages.
+                Empty string = use config default.
             paper_store_client: Optional paper_store client for extra metadata.
 
         Returns:
@@ -103,6 +183,13 @@ class GraphBuilder:
         self.G = nx.Graph()
         build_start = time.time()
         last_build = 0 if force else _last_build_time()
+
+        # Load config
+        cfg = self._load_config()
+        limit = limit or cfg.get("default_limit", 200)
+        if not wiki_dir:
+            wiki_dir = cfg.get("wiki_dir", "~/wiki")
+        self._config = cfg
 
         # ── Phase 1: Wiki persons (ground truth) ──
         self._wiki_persons = parse_wiki_people(wiki_dir)
@@ -220,6 +307,25 @@ class GraphBuilder:
                 for etype, src, tgt, attrs in edges:
                     self.G.add_edge(src, tgt, type=etype, **attrs)
                     stats["edges"] += 1
+
+                if nodes:
+                    ntype = nodes[0][0]
+                    nid = nodes[0][1]
+                    title = nodes[0][2].get("title", "")
+
+                    # Inject TOPIC nodes from paper titles
+                    if title and ntype in (NodeType.PAPER, NodeType.BOOK):
+                        topics = self._topic_from_title(title)
+                        for topic in topics:
+                            tid = node_id(NodeType.TOPIC, topic)
+                            self._add_node(NodeType.TOPIC, tid, {"label": topic})
+                            self.G.add_edge(
+                                nid, tid,
+                                type=EdgeType.ABOUT_TOPIC,
+                                source="title_auto",
+                                tfidf=1.0,
+                            )
+                            stats["edges"] += 1
 
                 stats["items"] += 1
 

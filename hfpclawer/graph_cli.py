@@ -123,21 +123,32 @@ def _load_builder() -> tuple:
 def cmd_person(person_id: str, depth: int = 1, top_n: int = 20) -> None:
     """Show person node details and ego network.
 
+    Accepts:
+    - Node ID (``person:guo-gua``)
+    - Short ID (``guo-gua``)
+    - English name (``Guo Guang-Can``, ``Chen, Xiangdong``)
+    - Chinese name (``郭光灿``, ``Guo Guang-Can``)
+    - Partial match (``Guo``)
+
     Args:
-        person_id: Node ID (e.g. ``person:li-shen`` or just ``li-shen``).
+        person_id: Person identifier.
         depth: Ego network radius.
         top_n: Max ego network nodes to list.
     """
-    builder, G = _load_builder()
+    from hfpapers.graph.schema import person_node_id as _pid
 
-    # Normalize: add "person:" prefix if missing
-    nid = person_id if ":" in person_id else f"person:{person_id}"
-    if nid not in G:
-        console.print(f"[red]❌ Person '{nid}' not found in graph.[/red]")
-        # Try fuzzy search
-        matches = [n for n in G.nodes if "person:" in n and person_id.lower() in n.lower()]
-        if matches:
-            console.print(f"[dim]Did you mean: {', '.join(matches[:5])}?[/dim]")
+    builder, G = _load_builder()
+    nid = _resolve_person_id(G, person_id)
+    if nid is None:
+        # Fuzzy search: find by substring in label or node ID
+        fuzzy = _fuzzy_person_search(G, person_id)
+        if fuzzy:
+            console.print(f"[yellow]⚠️  No exact match for '{person_id}'.[/yellow]")
+            console.print(f"[dim]Did you mean:[/dim]")
+            for match_id, match_label, score in fuzzy[:5]:
+                console.print(f"   [dim]• {match_label:35s} ({match_id}) — match: {score:.0%}[/dim]")
+        else:
+            console.print(f"[red]❌ No person found matching '{person_id}'.[/red]")
         raise SystemExit(1)
 
     data = G.nodes[nid]
@@ -165,7 +176,121 @@ def cmd_person(person_id: str, depth: int = 1, top_n: int = 20) -> None:
             nt = nb_data.get("type", "")
             if hasattr(nt, "name"):
                 nt = nt.name
-            console.print(f"   • {nb_data.get('label', nb)}  [dim]({nt}: {nb})[/dim]")
+            console.print(f"   • {nb_data.get('label', nb)[:55]}  [dim]({nt}: {nb})[/dim]")
+
+
+def _resolve_person_id(G, raw: str) -> str | None:
+    """Resolve a person identifier to a node ID.
+
+    Tries (in order):
+    1. Exact node ID (```person:xxx```)
+    2. ```person:{raw}``` (short ID)
+    3. Parse full name with ```person_node_id``` logic
+    4. ``Last, First`` format → direct person_node_id
+    """
+    from hfpapers.graph.schema import person_node_id as _pid
+
+    # Already a node ID
+    if raw.startswith("person:") and raw in G:
+        return raw
+
+    # Try as short ID
+    nid = f"person:{raw}"
+    if nid in G:
+        return nid
+
+    # Parse as full name
+    raw_stripped = raw.strip()
+
+    # "Last, First" format
+    if "," in raw_stripped:
+        parts = raw_stripped.split(",", 1)
+        last = parts[0].strip()
+        first = parts[1].strip()
+        nid = _pid(last, first)
+        if nid in G:
+            return nid
+        # Try slugified version
+        nid = f"person:{_slugify(last)}-{_slugify(first[:3])}"
+        if nid in G:
+            return nid
+        # Try reverse (Chinese convention)
+        nid = _pid(first, last)
+        if nid in G:
+            return nid
+
+    # "First Last" or "Last First" (space-separated)
+    elif " " in raw_stripped:
+        parts = raw_stripped.rsplit(" ", 1)
+        last = parts[1].strip()  # Last word as surname
+        first = parts[0].strip()
+
+        # Try (last, first)
+        nid = _pid(last, first)
+        if nid in G:
+            return nid
+
+        # Try (first, last) — Chinese name order
+        nid = _pid(first, last)
+        if nid in G:
+            return nid
+
+        # Try slugified shortcut
+        nid = f"person:{_slugify(last)}-{_slugify(first[:3])}"
+        if nid in G:
+            return nid
+
+    return None
+
+
+def _slugify(s: str) -> str:
+    """Simple slugify matching schema._slugify."""
+    import re
+    s = s.lower().strip()
+    s = re.sub(r"[^\w\s\u4e00-\u9fff]", "-", s)
+    s = re.sub(r"[\s_]+", "-", s)
+    s = re.sub(r"-+", "-", s)
+    return s.strip("-") or "unknown"
+
+
+def _fuzzy_person_search(G, query: str, top_n: int = 5) -> list[tuple[str, str, float]]:
+    """Fuzzy search persons by label or node ID.
+
+    Returns:
+        List of (node_id, label, similarity_score) sorted by score descending.
+    """
+    from difflib import SequenceMatcher
+
+    q = query.lower().strip()
+    results = []
+    seen: set[str] = set()
+    for nid, data in G.nodes(data=True):
+        if not nid.startswith("person:"):
+            continue
+        label = data.get("label", nid)
+        label_lower = label.lower()
+
+        # Exact word match
+        words = q.split()
+        word_matches = sum(1 for w in words if w in label_lower or w in nid.lower())
+        if word_matches > 0:
+            score = word_matches / max(len(words), 1) * 0.8 + 0.2
+        else:
+            # Sequence matcher fallback
+            score = max(
+                SequenceMatcher(None, q, nid.lower()).ratio(),
+                SequenceMatcher(None, q, label_lower).ratio(),
+            )
+            if score < 0.3:
+                continue
+
+        key = (nid, label)
+        if key not in seen:
+            seen.add(key)
+            results.append((nid, label, score))
+
+    results.sort(key=lambda x: -x[2])
+    return results[:top_n]
 
 
 def cmd_community(min_size: str = "", top_n: int = 20) -> None:

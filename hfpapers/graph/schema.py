@@ -12,7 +12,7 @@ import re
 from enum import Enum, auto
 
 # ── Schema version for JSONL export ────────────────────────────
-KG_VERSION = "0.10.1"
+KG_VERSION = "0.10.2"
 
 
 class NodeType(Enum):
