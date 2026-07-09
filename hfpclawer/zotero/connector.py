@@ -308,6 +308,15 @@ class ZoteroConnector:
 
         if 200 <= status < 300:
             logger.info("Connector %s session=%s status=%d", method, session_id[:8], status)
+        elif status >= 500:
+            error_msg = result.get("response", {}).get("error", resp_body[:200])
+            logger.warning(
+                "Connector %s session=%s failed: %d %s",
+                method, session_id[:8], status, error_msg,
+            )
+            raise ConnectorError(
+                f"Connector {method} failed (HTTP {status}): {error_msg}"
+            ) from None
         else:
             error_msg = result.get("response", {}).get("error", resp_body[:200])
             logger.warning(

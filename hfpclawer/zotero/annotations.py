@@ -418,8 +418,8 @@ def color_filter(
 
     filtered = []
     for ann in anns:
-        if color_hex and ann.get("color", "").lower() == color_hex.lower():
-            filtered.append(ann)
-        elif color_name and color_name.lower() in ann.get("color_label", "").lower():
+        hex_ok = not color_hex or ann.get("color", "").lower() == color_hex.lower()
+        name_ok = not color_name or color_name.lower() in ann.get("color_label", "").lower()
+        if hex_ok and name_ok:  # AND — both filters must pass when both are set
             filtered.append(ann)
     return filtered
