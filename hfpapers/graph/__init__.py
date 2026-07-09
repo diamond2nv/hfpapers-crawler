@@ -355,13 +355,12 @@ class GraphBuilder:
             return
 
         style = NODE_STYLE.get(ntype, {})
-        # Pop label from attrs to avoid double-pass with **attrs
-        safe_attrs = dict(attrs)
-        label = safe_attrs.pop("label", nid)
+        # Remove keys that are set explicitly to avoid duplicate kwargs
+        safe_attrs = {k: v for k, v in attrs.items() if k not in ("type", "label", "color", "size")}
         self.G.add_node(
             nid,
             type=ntype,
-            label=label,
+            label=attrs.get("label", nid),
             color=style.get("color", "#888"),
             size=style.get("size", 8),
             **safe_attrs,

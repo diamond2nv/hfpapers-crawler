@@ -62,6 +62,26 @@ class ZoteroClient:
                 library_type="user",
                 local=True,
             )
+            # WSL 下 localhost 指向 WSL 自身而非 Windows
+            # 需用 Windows 网关 IP + 伪造 Host 头（Zotero httpd.js 检查 Host=localhost）
+            _wsl_gateway = self._detect_wsl_gateway()
+            if _wsl_gateway:
+                import httpx
+                self._zot.endpoint = f"http://{_wsl_gateway}:23119/api"
+                self._zot.client = httpx.Client(
+                    headers={
+                        "User-Agent": "pyzotero/1.13.2",
+                        "Zotero-API-Version": "3",
+                        "Host": "localhost:23119",
+                        "Content-Type": "application/json",
+                    },
+                    follow_redirects=True,
+                    timeout=httpx.Timeout(self._timeout),
+                )
+                logger.info(
+                    "WSL detected: connecting to Zotero via %s:23119 "
+                    "(Host header spoofed as localhost)", _wsl_gateway
+                )
             # Verify connection with a ping
             _ = self._zot.top(limit=1)
             logger.info("Connected to Zotero local API at localhost:23119")
@@ -72,6 +92,25 @@ class ZoteroClient:
                 f"Cannot connect to Zotero local API: {e}. "
                 "Ensure Zotero is running and local API is enabled."
             ) from e
+
+    @staticmethod
+    def _detect_wsl_gateway() -> str | None:
+        """Detect if running inside WSL and return Windows gateway IP."""
+        try:
+            with open("/proc/version") as f:
+                if "microsoft" not in f.read().lower():
+                    return None  # Not WSL
+            import subprocess
+            result = subprocess.run(
+                ["ip", "route", "show", "default"],
+                capture_output=True, text=True, timeout=3,
+            )
+            parts = result.stdout.strip().split()
+            if len(parts) >= 3:
+                return parts[2]  # Gateway IP (e.g. 172.26.160.1)
+        except Exception:
+            pass
+        return None
 
     # ── READ operations ──────────────────────────
 
