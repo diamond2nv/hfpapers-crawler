@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import networkx as nx
 from rich.console import Console
@@ -465,14 +466,33 @@ def cmd_map(output: str = "") -> None:
         raise SystemExit(1) from e
 
 
-def cmd_viz(style: str = "circos", output: str = "") -> None:
+def cmd_viz(style: str = "circos", output: str = "", source: str = "") -> None:
     """Generate graph visualization (Circos / spring).
 
     Args:
         style: 'circos' (default) for Circos plot, 'spring' for spring layout.
         output: Output image path (default: ~/data/kg/circos.png).
+        source: Only include nodes with this source tag (e.g. 'coc', 'zotero').
     """
     _, G = _load_builder()
+
+    # Filter by source tag if requested
+    if source:
+        source = source.lower()
+        sub = nx.Graph()
+        for nid, data in G.nodes(data=True):
+            src = str(data.get("sources", "")).lower()
+            if source in src:
+                sub.add_node(nid, **dict(data))
+        for u, v, data in G.edges(data=True):
+            if u in sub and v in sub:
+                sub.add_edge(u, v, **dict(data))
+        G = sub
+        console.print(f"[dim]Filtered to source='{source}': {G.number_of_nodes()} nodes, "
+                      f"{G.number_of_edges()} edges[/dim]")
+        if G.number_of_nodes() < 3:
+            console.print("[yellow]⚠️  Too few nodes after filtering[/yellow]")
+            return
 
     if style == "circos":
         try:
@@ -487,5 +507,228 @@ def cmd_viz(style: str = "circos", output: str = "") -> None:
             console.print(f"[red]❌ Circos plot failed: {e}[/red]")
             logger.exception("Circos plot failed")
             raise SystemExit(1) from e
+    elif style == "citation":
+        try:
+            from hfpapers.graph.viz.nxviz import render_citation_network
+            result = render_citation_network(G, output=output if output else None)
+            if result:
+                console.print(f"[green]✅ Citation network → {result}[/green]")
+                console.print(f"   {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+            else:
+                console.print("[yellow]⚠️  Citation plot unavailable[/yellow]")
+        except Exception as e:
+            console.print(f"[red]❌ Citation plot failed: {e}[/red]")
+            logger.exception("Citation plot failed")
     else:
         console.print(f"[red]❌ Unknown viz style: '{style}'. Use 'circos'.[/red]")
+
+
+def cmd_ingest(source: str = "coc", path: str = "") -> None:
+    """Import papers from a refs.jsonl file into the knowledge graph.
+
+    Args:
+        source: Short tag name (e.g. 'coc', 'gsnv').
+        path: Path to refs.jsonl. Auto-detects coc-inverse-agent path if empty.
+    """
+    from hfpapers.graph import GraphBuilder
+
+    # Auto-detect coc path
+    if not path and source == "coc":
+        coc_path = Path.home() / "Documents" / "Gitlab" / "forgejo-self-host" / \
+                   "coc-inverse-agent" / "data" / "references" / "refs.jsonl"
+        if coc_path.exists():
+            path = str(coc_path)
+        else:
+            console.print("[red]❌ coc refs.jsonl not found at default path[/red]")
+            raise SystemExit(1)
+
+    path_obj = Path(path).expanduser()
+    if not path_obj.exists():
+        console.print(f"[red]❌ File not found: {path}[/red]")
+        raise SystemExit(1)
+
+    # Load or build graph
+    cached = GraphBuilder.load()
+    if cached is not None:
+        G = cached
+        console.print(f"[dim]Loaded cached graph ({G.number_of_nodes()} nodes, "
+                      f"{G.number_of_edges()} edges)[/dim]")
+    else:
+        console.print("[yellow]No cached graph found. Run 'hfpclawer graph build' first.[/yellow]")
+        return
+
+    builder = GraphBuilder()
+    builder.G = G
+    result = builder.ingest_refs_jsonl(str(path_obj), tag=source)
+
+    if result["papers_added"] == 0 and result["authors_added"] == 0:
+        console.print("[yellow]No new papers to import (all already in graph)[/yellow]")
+        return
+
+    # Save updated graph
+    builder.save()
+    console.print(
+        f"[green]✅ Imported {result['papers_added']} papers + "
+        f"{result['authors_added']} authors from {source}[/green]"
+    )
+    console.print(f"   Graph now: {builder.G.number_of_nodes()} nodes, "
+                  f"{builder.G.number_of_edges()} edges")
+
+
+def cmd_ingest_citations(path: str = "") -> None:
+    """Import citation edges from a coc-inverse-agent omc_graph.graphml.
+
+    Args:
+        path: Path to omc_graph.graphml. Auto-detects if empty.
+    """
+    from hfpapers.graph import GraphBuilder
+
+    if not path:
+        coc_path = Path.home() / "Documents" / "Gitlab" / "forgejo-self-host" / \
+                   "coc-inverse-agent" / "data" / "references" / "omc_graph.graphml"
+        if coc_path.exists():
+            path = str(coc_path)
+
+    path_obj = Path(path).expanduser()
+    if not path_obj.exists():
+        console.print(f"[red]❌ Citation GraphML not found: {path}[/red]")
+        raise SystemExit(1)
+
+    cached = GraphBuilder.load()
+    if cached is None:
+        console.print("[yellow]No cached graph found. Run 'hfpclawer graph build' first.[/yellow]")
+        return
+
+    builder = GraphBuilder()
+    builder.G = cached
+    result = builder.ingest_citation_graphml(str(path_obj))
+
+    if result["edges_added"] == 0 and result["nodes_added"] == 0:
+        console.print("[yellow]No new citation edges to import[/yellow]")
+        return
+
+    builder.save()
+    console.print(
+        f"[green]✅ Imported {result['edges_added']} citation edges + "
+        f"{result['nodes_added']} new nodes[/green]"
+    )
+    console.print(f"   Graph now: {builder.G.number_of_nodes()} nodes, "
+                  f"{builder.G.number_of_edges()} edges")
+
+
+def cmd_expand_citations(
+    max_depth: int = 2,
+    max_seeds: int = 10,
+    direction: str = "both",
+) -> None:
+    """Expand the knowledge graph via Semantic Scholar citation walking.
+
+    Walks citation/reference edges outward from coc seed papers.
+
+    Args:
+        max_depth: Citation walk depth (1 = immediate neighbors).
+        max_seeds: Max seed papers to expand from (0 = all).
+        direction: 'references', 'citations', or 'both'.
+    """
+    from hfpapers.graph import GraphBuilder
+
+    cached = GraphBuilder.load()
+    if cached is None:
+        console.print("[yellow]No cached graph found. Run 'hfpclawer graph build' first.[/yellow]")
+        return
+
+    builder = GraphBuilder()
+    builder.G = cached
+
+    console.print(f"[dim]Expanding citations (seeds={max_seeds}, depth={max_depth}, "
+                  f"dir={direction})...[/dim]")
+
+    try:
+        result = builder.expand_citations(
+            max_depth=max_depth,
+            direction=direction,
+            max_seeds=max_seeds,
+        )
+    except Exception as e:
+        console.print(f"[red]❌ Citation expansion failed: {e}[/red]")
+        logger.exception("Citation expansion failed")
+        return
+
+    if result["papers_found"] == 0 and result["edges_added"] == 0:
+        console.print("[yellow]No new papers found via citation expansion[/yellow]")
+        return
+
+    builder.save()
+    console.print(
+        f"[green]✅ Citation expansion: {result['papers_found']} new papers, "
+        f"{result['edges_added']} new edges[/green]"
+    )
+    console.print(f"   API calls: {result['api_calls']}, "
+                  f"Skipped (already in graph): {result['skipped_existing']}")
+    console.print(f"   Graph now: {builder.G.number_of_nodes()} nodes, "
+                  f"{builder.G.number_of_edges()} edges")
+
+
+def cmd_analyze(
+    source: str = "",
+    community_algo: str = "leiden",
+    impact_algo: str = "all",
+    resolution: float = 1.0,
+    top_n: int = 20,
+    output_format: str = "markdown",
+    output: str = "",
+) -> None:
+    """Run graph analysis: impact, communities, actors.
+
+    Args:
+        source: Source tag (e.g. 'coc', 'zotero', empty for all).
+        community_algo: louvain | leiden | label_propagation.
+        impact_algo: degree | pagerank | hits | betweenness | all.
+        resolution: Community detection resolution (>1 = finer).
+        top_n: Results per section.
+        output_format: markdown | json.
+        output: Save report to file path.
+    """
+    from hfpapers.graph import GraphBuilder
+
+    G = GraphBuilder.load()
+    if G is None:
+        console.print("[yellow]⚠️  No graph cache. Run 'hfpclawer graph build' first.[/yellow]")
+        raise SystemExit(1)
+
+    if not source:
+        # Auto-detect
+        sources_found = set()
+        for _, d in G.nodes(data=True):
+            src = d.get("sources", set())
+            if isinstance(src, str):
+                src = {src}
+            sources_found.update(s.lower().strip() for s in src if isinstance(s, str))
+        if "coc" in sources_found:
+            source = "coc"
+        else:
+            source = "all"
+
+    console.print(f"[bold cyan]🔍 Analyzing graph (source={source}, format={output_format})[/bold cyan]")
+
+    from hfpapers.graph.analyze import Analyzer
+
+    analyzer = Analyzer(G)
+    report = analyzer.run(
+        source=source,
+        impact_algorithm=impact_algo,
+        community_algorithm=community_algo,
+        resolution=resolution,
+        top_n=top_n,
+        output_format=output_format,
+        output_path=output,
+    )
+
+    if output_format == "qmd":
+        qmd_path = output or f"~/data/kg/{source}-report.qmd"
+        console.print(f"\n[green]✅ QMD + figures generated[/green]")
+        console.print(f"   📄 {qmd_path}")
+        console.print(f"   🖼️  Figures: {Path(qmd_path).expanduser().parent / 'figures'}")
+        console.print(f"\n   [dim]Next: quarto render {qmd_path}[/dim]")
+    else:
+        console.print(report)

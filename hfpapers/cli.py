@@ -1019,14 +1019,16 @@ def stats():
 
 @app.command()
 def graph(
-    action: str = typer.Argument("stats", help="build | stats | export | person | community | path"),
-    arg: str = typer.Argument("", help="Person node ID (for person) / source node (for path)"),
-    arg2: str = typer.Argument("", help="Target node ID (for path)"),
+    action: str = typer.Argument("stats", help="build | stats | export | person | community | path | analyze | ingest | ingest-citations | expand-citations | geo | viz | map"),
+    arg: str = typer.Argument("", help="Person node ID (for person) / source (for ingest) / max_depth (for expand-citations) / source node (for path)"),
+    arg2: str = typer.Argument("", help="Target node ID (for path) / max_seeds (for expand-citations) / path (for ingest)"),
     limit: int = typer.Option(200, "--limit", "-l", help="Max Zotero items (build)"),
     force: bool = typer.Option(False, "--force", "-f", help="Rebuild from scratch (build)"),
     fmt: str = typer.Option("jsonl", "--format", help="Export format: jsonl | graphml"),
     depth: int = typer.Option(1, "--depth", "-d", help="Ego network depth (person)"),
     top_n: int = typer.Option(20, "--top", "-t", help="Top N results (community/person)"),
+    src: str = typer.Option("", "--source", help="Filter by source tag (viz: coc, zotero)"),
+    report_fmt: str = typer.Option("markdown", "--report-format", help="Report format: markdown | qmd | json"),
 ):
     """Knowledge graph operations (v0.10.3).
 
@@ -1036,6 +1038,9 @@ def graph(
     from hfpclawer.graph_cli import cmd_build, cmd_stats, cmd_export, cmd_person, cmd_community, cmd_path
     from hfpclawer.graph_cli import cmd_geo_stats, cmd_geo_institutions
     from hfpclawer.graph_cli import cmd_map, cmd_viz
+    from hfpclawer.graph_cli import cmd_ingest, cmd_ingest_citations
+    from hfpclawer.graph_cli import cmd_expand_citations
+    from hfpclawer.graph_cli import cmd_analyze
 
     if action == "build":
         cmd_build(limit=limit, force=force)
@@ -1052,7 +1057,15 @@ def graph(
     elif action == "map":
         cmd_map(output=arg or "")
     elif action == "viz":
-        cmd_viz(style=arg or "circos", output=arg2 or "")
+        cmd_viz(style=arg or "circos", output=arg2 or "", source=src)
+    elif action == "ingest":
+        cmd_ingest(source=arg or "coc", path=arg2 or "")
+    elif action == "ingest-citations":
+        cmd_ingest_citations(path=arg or "")
+    elif action == "expand-citations":
+        cmd_expand_citations(max_depth=int(arg or "2"), max_seeds=int(arg2 or "10"), direction="both")
+    elif action == "analyze":
+        cmd_analyze(source=src, community_algo=arg or "leiden", top_n=top_n, output=arg2 or "", output_format=report_fmt)
     elif action == "geo":
         sub = arg.strip().lower()
         if sub == "stats":

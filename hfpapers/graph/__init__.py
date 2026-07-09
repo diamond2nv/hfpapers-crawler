@@ -655,3 +655,228 @@ class GraphBuilder:
         nx.write_graphml(H, str(path))
         logger.info("Exported GraphML → %s", path)
         return str(path)
+
+    # ── Import from coc-inverse-agent refs.jsonl ─────────────────────
+
+    def ingest_refs_jsonl(self, jsonl_path: str, tag: str = "coc") -> dict:
+        """Import papers from a coc-inverse-agent refs.jsonl file.
+
+        Creates PAPER and PERSON nodes with AUTHOR_OF edges for each entry.
+        Skips entries already present in the graph (matched by arxiv_id or doi).
+
+        Args:
+            jsonl_path: Path to ``refs.jsonl`` (e.g. from coc-inverse-agent).
+            tag: Tag string to add to ``sources`` attribute (e.g. 'coc', 'gsnv').
+
+        Returns:
+            Dict with counts: ``{"papers_added": N, "papers_skipped": N, "authors_added": N}``.
+        """
+        path = Path(jsonl_path).expanduser()
+        if not path.exists():
+            logger.warning("refs.jsonl not found: %s", path)
+            return {"papers_added": 0, "papers_skipped": 0, "authors_added": 0}
+
+        papers_added = 0
+        papers_skipped = 0
+        authors_added = 0
+
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                aid = (entry.get("arxiv_id") or "").strip()
+                doi = (entry.get("doi") or "").strip()
+                title = (entry.get("title") or "").strip()[:200]
+
+                if not aid and not doi:
+                    papers_skipped += 1
+                    continue
+
+                # Generate paper node ID
+                pid = paper_node_id(arxiv_id=aid, doi=doi)
+
+                # Skip if already in graph
+                if pid in self.G:
+                    papers_skipped += 1
+                    continue
+
+                # Add PAPER node
+                self.G.add_node(
+                    pid,
+                    type=NodeType.PAPER,
+                    label=title,
+                    arxiv_id=aid,
+                    doi=doi,
+                    year=entry.get("year", 0),
+                    venue=(entry.get("journal") or "")[:80],
+                    sources=tag,
+                )
+                papers_added += 1
+
+                # Extract authors
+                authors = entry.get("authors", [])
+                for author_str in authors:
+                    author_str = author_str.strip()
+                    if not author_str:
+                        continue
+                    parts = [p.strip() for p in author_str.split(",", 1)]
+                    if len(parts) == 2:
+                        last_name, first_name = parts[0], parts[1]
+                    else:
+                        last_name = parts[0]
+                        first_name = ""
+
+                    ppid = person_node_id(last_name, first_name)
+                    if ppid not in self.G:
+                        self.G.add_node(
+                            ppid,
+                            type=NodeType.PERSON,
+                            label=f"{last_name}, {first_name}".strip(", ")[:80],
+                        )
+                        authors_added += 1
+
+                    # AUTHOR_OF edge
+                    if not self.G.has_edge(ppid, pid):
+                        self.G.add_edge(ppid, pid, type=EdgeType.AUTHOR_OF)
+
+                # Auto-inject TOPIC nodes from title
+                for topic in self._topic_from_title(title):
+                    tid = node_id(NodeType.TOPIC, topic)
+                    if tid not in self.G:
+                        self.G.add_node(
+                            tid,
+                            type=NodeType.TOPIC,
+                            label=topic,
+                        )
+                    if not self.G.has_edge(pid, tid):
+                        self.G.add_edge(pid, tid, type=EdgeType.ABOUT_TOPIC)
+
+        result = {
+            "papers_added": papers_added,
+            "papers_skipped": papers_skipped,
+            "authors_added": authors_added,
+        }
+        logger.info("ingest_refs_jsonl: %s", result)
+        return result
+
+    # ── Import citation edges from coc omc_graph.graphml ─────────────
+
+    def ingest_citation_graphml(self, graphml_path: str, tag: str = "coc") -> dict:
+        """Import citation edges from a coc-inverse-agent ``omc_graph.graphml``.
+
+        The GraphML should contain CITES / CITED_BY edges between PAPER nodes.
+
+        Args:
+            graphml_path: Path to ``omc_graph.graphml``.
+            tag: Tag to add to edge ``source`` attribute.
+
+        Returns:
+            Dict with counts: ``{"edges_added": N, "nodes_added": N}``.
+        """
+        path = Path(graphml_path).expanduser()
+        if not path.exists():
+            logger.warning("Citation GraphML not found: %s", path)
+            return {"edges_added": 0, "nodes_added": 0}
+
+        try:
+            H = nx.read_graphml(str(path))
+        except Exception as e:
+            logger.warning("Failed to read citation GraphML: %s", e)
+            return {"edges_added": 0, "nodes_added": 0}
+
+        edges_added = 0
+        nodes_added = 0
+
+        # Import any new PAPER nodes
+        for nid, data in H.nodes(data=True):
+            if nid not in self.G:
+                label = data.get("title") or data.get("label", nid)
+                self.G.add_node(nid, type=NodeType.PAPER, label=str(label)[:200],
+                                sources=tag)
+                nodes_added += 1
+
+        # Import CITES edges
+        for u, v, data in H.edges(data=True):
+            edge_type_str = data.get("type", "CITES")
+            try:
+                et = EdgeType[edge_type_str]
+            except KeyError:
+                et = EdgeType.CITES
+
+            if u not in self.G:
+                label_u = H.nodes[u].get("title") or H.nodes[u].get("label", u) if u in H else u
+                self.G.add_node(u, type=NodeType.PAPER, label=str(label_u)[:200], sources=tag)
+                nodes_added += 1
+            if v not in self.G:
+                label_v = H.nodes[v].get("title") or H.nodes[v].get("label", v) if v in H else v
+                self.G.add_node(v, type=NodeType.PAPER, label=str(label_v)[:200], sources=tag)
+                nodes_added += 1
+
+            if not self.G.has_edge(u, v):
+                self.G.add_edge(u, v, type=et, source=tag)
+                edges_added += 1
+
+        result = {"edges_added": edges_added, "nodes_added": nodes_added}
+        logger.info("ingest_citation_graphml: %s", result)
+        return result
+
+    # ── Citation network expansion (S2 API) ────────────────────────
+
+    def expand_citations(
+        self,
+        seed_arxiv_ids: list[str] | None = None,
+        max_depth: int = 2,
+        direction: str = "both",
+        label_source: str = "s2_expanded",
+        max_seeds: int = 10,
+    ) -> dict:
+        """Expand the graph by walking citations from seed papers via S2 API.
+
+        If no seed_arxiv_ids given, picks the highest-relevance coc papers
+        from the graph that have arXiv IDs.
+
+        Args:
+            seed_arxiv_ids: arXiv IDs to start expansion from.
+            max_depth: Citation walk depth.
+            direction: 'references', 'citations', or 'both'.
+            label_source: Source tag for new nodes.
+            max_seeds: Max seeds to process (0 = all).
+
+        Returns:
+            Dict with expansion stats.
+        """
+        from hfpapers.graph.citation_expander import CitationExpander
+
+        # Auto-select seeds from graph if none given
+        if not seed_arxiv_ids:
+            seed_arxiv_ids = []
+            for nid, data in self.G.nodes(data=True):
+                src = data.get("sources", "")
+                if "coc" in str(src) and data.get("arxiv_id"):
+                    aid = str(data["arxiv_id"]).strip()
+                    if aid:
+                        seed_arxiv_ids.append(aid)
+            logger.info("Auto-selected %d coc seeds from graph", len(seed_arxiv_ids))
+
+        if not seed_arxiv_ids:
+            logger.warning("No seed papers found for citation expansion")
+            return {"papers_found": 0, "edges_added": 0, "api_calls": 0}
+
+        if max_seeds > 0:
+            seed_arxiv_ids = seed_arxiv_ids[:max_seeds]
+
+        expander = CitationExpander()
+        result = expander.expand_from_seeds(
+            seed_arxiv_ids=seed_arxiv_ids,
+            graph=self.G,
+            max_depth=max_depth,
+            direction=direction,
+            label_source=label_source,
+        )
+        return result
