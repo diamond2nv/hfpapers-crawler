@@ -15,9 +15,22 @@
 - **M** `docs/cn/README.zh-CN.md` — Synced English changes
 - **M** `pyproject.toml` — `[arxiv]` and `[audit]` removed `git+https` deps (PyPI incompatible), replaced with comment-only placeholders
 - **M** `docs/NETWORK.md` + `docs/cn/NETWORK.zh-CN.md` — GitLab entry → GitHub
+
 ## [2026-07-12] feat | cron CLI + cron-verify audit + no_agent script
 - **A** `hfpclawer/audit/cron_verify.py` — Batch Crossref verify + retraction check module for cron-imported papers (VerifyStats dataclass, batch_verify(), format_report(), format_report_json())
 - **A** `hfpclawer/cli_cron.py` — `hfpclawer cron {init,check,run,import}` CLI subcommands (3-tier DB path resolution, arXiv API search, paper_store import with skip_crossref=True, config.yaml generation)
 - **A** `scripts/hfpclawer-cron-fetch.sh` — no_agent mode shell script (0 LLM token, --json/--help modes, auto venv detection)
 - **A** `docs/cron-guide.md` + `docs/cn/cron-guide.zh-CN.md` — Bilingual user guide (quickstart, commands, DB path, verification pipeline)
 - **M** `hfpapers/cli.py` — Register `cron` command + `audit cron-verify` action in ACTION_DESCRIPTIONS
+
+## [2026-07-12] feat | spaCy NLP subpackage (v0.9.13)
+- **A** `hfpapers/nlp/` — 6-module NLP subpackage: keywords (lemmatization), search (vector reranking), innovation (5-7 point extraction), tags (auto-tag generation), tag_analysis (TF-IDF library scan)
+- **M** `hfpclawer/zotero/__init__.py` — Wire spaCy into `_title_keywords`; L1b semantic rerank; `update_item_extra()`
+- **M** `hfpclawer/zotero/cli.py` — `cmd_innovate`, `cmd_tag_report`
+- **M** `hfpapers/cli.py` — Wire `innovate` and `tag-report` actions
+- **M** `pyproject.toml` — `[nlp]` and `[nlp-full]` optional deps
+
+## [2026-07-12] docs | Knowledge Graph v0.10.x roadmap + plan
+- **A** `docs/ROADMAP.md` — v0.10.x knowledge graph roadmap
+- **A** `docs/plans/knowledge-graph-v0.10.md` — Detailed implementation plan (~1600 lines, 7 node types, 7 edge types)
+- **M** `AGENTS.md` — Add Environment and Connectivity section
