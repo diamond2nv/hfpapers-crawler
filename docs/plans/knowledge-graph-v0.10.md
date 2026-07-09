@@ -293,4 +293,68 @@ def graph(
 | viz.py | 2 h | build_graph.py |
 | cli.py + wiring | 1 h | all modules |
 | Tests | 2 h | all modules |
-| **Total** | **~12 h** | |
+|| **Total** | **~12 h** | |
+
+---
+
+## Cross-Repo Coordination: JSONL Exchange Protocol
+
+hfpclawer builds **Subgraph A** (academic output: papers, people, journals, institutions).
+hedge builds **Subgraph B** (discipline terminology: terms, formulas, chunks) +
+**Subgraph C** (Wikipedia). JSONL is the bridge.
+
+### JSONL Schema
+
+```jsonl
+# Node record (one per line)
+{"type":"node","id":"paper:2501.01934","node_type":"PAPER",
+ "label":"Fourier Neural Operator for Parametric PDEs",
+ "attrs":{"title":"...","year":2025,"doi":"10.xxx","arxiv_id":"2501.01934"}}
+
+# Edge record
+{"type":"edge","source":"person:li-shen","target":"paper:2501.01934",
+ "edge_type":"AUTHOR_OF","attrs":{"position":1}}
+
+# Bridge edge: hfpclawer Subgraph A → hedge Subgraph B
+{"type":"edge","source":"paper:2501.01934","target":"topic:fourier-neural-operator",
+ "edge_type":"ABOUT_TOPIC","attrs":{"tfidf":0.85}}
+```
+
+### Node Types (Subgraph A)
+
+| node_type | id prefix | attrs |
+|:----------|:----------|:------|
+| `PERSON` | `person:` | last_name, first_name, affiliations, orcid |
+| `PAPER` | `paper:` | title, year, doi, arxiv_id, abstract, isbn |
+| `JOURNAL` | `journal:` | name, issn |
+| `INSTITUTION` | `inst:` | name, city, country |
+| `CITY` | `city:` | name, country, lat, lng |
+| `COUNTRY` | `country:` | name, code |
+| `TOPIC` | `topic:` | keyword (from spaCy innovation_tags) |
+
+### Edge Types (Subgraph A → B bridges)
+
+| edge_type | Source → Target | Meaning |
+|:----------|:---------------|:--------|
+| `ABOUT_TOPIC` | PAPER → TOPIC | Paper's research topic (from innovation_tags) |
+| `PUBLISHED_IN` | PAPER → JOURNAL | Journal venue |
+| `AUTHOR_OF` | PERSON → PAPER | Authorship |
+| `AFFILIATED_WITH` | PERSON → INSTITUTION | Affiliation |
+| `LOCATED_IN` | INSTITUTION → CITY | Geography |
+| `BELONGS_TO` | CITY → COUNTRY | Geography |
+| `CO_AUTHOR` | PERSON → PERSON | Derived co-authorship |
+
+### File Convention
+
+```bash
+# Shared directory (NAS or local)
+~/data/kg/
+├── subgraph_a.jsonl    # hfpclawer graph export → academic graph
+├── subgraph_b.jsonl    # hedge → domain terminology + formulas
+├── subgraph_c.jsonl    # hedge → Wikipedia entities
+└── merged/             # Combined output
+
+# Commands
+hfpclawer graph export --format jsonl -o ~/data/kg/subgraph_a.jsonl
+hedge knowledge import --from-jsonl ~/data/kg/subgraph_a.jsonl
+```

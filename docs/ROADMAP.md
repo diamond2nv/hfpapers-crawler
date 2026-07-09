@@ -159,15 +159,14 @@ hfpclawer graph export --format png            # → graph.png (via pydot)
  │  2. add edges (author_of, published_in, affiliated_with)     │
  │  3. derive co_author edges from shared papers                │
  │  4. assign node attributes (type, label, color, size)       │
- │  5. persist: save GraphML / SQLite / pickle                 │
+ │  5. persist: save GraphML / SQLite / pickle / JSONL          │
  └─────────────────────────┬───────────────────────────────────┘
                            │
-                           ▼
-           ┌───────┼───────┐───────┐
-           │       │       │       │
-           ▼       ▼       ▼       ▼
-        Plotly   pydot   nxviz   analysis
-        (HTML)   (PNG)  (circos) (stats)
+           ┌───────┼───────┼───────┐───────┐
+           │       │       │       │       │
+           ▼       ▼       ▼       ▼       ▼
+        Plotly   pydot   nxviz   analysis  JSONL
+        (HTML)   (PNG)  (circos) (stats)  (→ hedge Subgraph B)
 ```
 
 ---
@@ -188,3 +187,44 @@ graph-viz = [
 ```
 
 System dependency: `sudo apt install graphviz`
+
+---
+
+## Cross-Repo Coordination
+
+### Three-Subgraph Architecture
+
+```
+hfpclawer (this repo)         hedge (~/Documents/Gitlab/forgejo-self-host/hedge/)
+    Subgraph A                    Subgraph B + Subgraph C
+    ┌─────────────────┐          ┌──────────────────────────────┐
+    │ Academic Output  │────about_topic────▶│ Discipline Terminology│
+    │ Paper/Book       │          │ Term, Formula, Chunk        │
+    │ Person           │          │ Wikipedia Article, Category │
+    │ Journal          │          └──────────────────────────────┘
+    │ Institution      │
+    │ City/Country     │
+    └───────┬─────────┘
+            │ JSONL (~/data/kg/subgraph_a.jsonl)
+            ▼
+      hedge knowledge import --from-jsonl
+```
+
+### Exchange Format
+
+JSONL (one JSON object per line) with two record types:
+- `{"type":"node","id":"...","node_type":"PAPER","label":"...","attrs":{...}}`
+- `{"type":"edge","source":"...","target":"...","edge_type":"AUTHOR_OF","attrs":{...}}`
+
+Bridge edge `ABOUT_TOPIC` (PAPER → TOPIC) connects Subgraph A to Subgraph B.
+Full schema in `docs/plans/knowledge-graph-v0.10.md#cross-repo-coordination-jsonl-exchange-protocol`.
+
+### Commands
+
+```bash
+# hfpclawer exports Subgraph A
+hfpclawer graph export --format jsonl -o ~/data/kg/subgraph_a.jsonl
+
+# hedge imports → merges with Subgraph B+C
+hedge knowledge import --from-jsonl ~/data/kg/subgraph_a.jsonl
+```
