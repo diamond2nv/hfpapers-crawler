@@ -637,10 +637,14 @@ class TestCmdIngest:
         tmp_path: Path,
     ):
         """Ingest should run all 7 steps successfully."""
-        # Mock PDF path
-        pdf = tmp_path / "papers" / "test.pdf"
-        pdf.parent.mkdir(parents=True)
+        # Mock PDF path — pre-create target so cmd_ingest sees "already exists"
+        pdf_dir = tmp_path / "papers"
+        pdf_dir.mkdir(parents=True, exist_ok=True)
+        pdf = pdf_dir / "test.pdf"
         pdf.write_text("dummy pdf content for testing")
+        # Pre-create the target path with same size so shutil.copy2 is skipped
+        pdf_target = pdf_dir / "2501.01934.pdf"
+        pdf_target.write_bytes(pdf.read_bytes())
         mock_resolve_pdf.return_value = {
             "pdf_path": str(pdf),
             "title": "Test Paper Title",
@@ -677,7 +681,12 @@ class TestCmdIngest:
 
         from hfpclawer.zotero.cli import cmd_ingest
 
-        with patch("builtins.open") as mock_open:  # wiki write
+        # Mock heavy PDF processing deps
+        mock_fitz = MagicMock()
+        mock_fitz.open.side_effect = Exception("Mocked fitz")
+        with patch("pymupdf4llm.to_markdown", return_value="# Mock Markdown"), \
+             patch("fitz.open", mock_fitz.open), \
+             patch("builtins.open") as mock_open:  # wiki write
             cmd_ingest(arxiv_id="2501.01934", verbose=True)
 
         # Verify ensure_paper was called with DOI empty (no crossref)

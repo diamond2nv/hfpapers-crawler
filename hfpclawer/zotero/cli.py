@@ -1168,8 +1168,13 @@ def cmd_ingest(
     if pdf_target.exists() and pdf_target.stat().st_size == pdf_size:
         console.print(f"  ✓ Already exists (same size): {pdf_target}")
     else:
-        shutil.copy2(zotero_pdf, str(pdf_target))
-        console.print(f"  ✓ Copied → {pdf_target}")
+        try:
+            shutil.copy2(zotero_pdf, str(pdf_target))
+            console.print(f"  ✓ Copied → {pdf_target}")
+        except (OSError, shutil.Error) as copy_err:
+            # Fallback: use copyfile if sendfile fails (e.g., special fs)
+            shutil.copyfile(zotero_pdf, str(pdf_target))
+            console.print(f"  ✓ Copied (fallback) → {pdf_target}")
 
     # ── Step 4: CrossRef lookup (DOI + ORCID) ──
     console.print("[dim]   CrossRef DOI + ORCID lookup...[/dim]")
