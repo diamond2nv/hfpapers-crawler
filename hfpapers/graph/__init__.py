@@ -209,6 +209,11 @@ class GraphBuilder:
         # ── Phase 4: Apply wiki authority (override Zotero person attrs) ──
         self._apply_wiki_authority()
 
+        # ── Phase 5: Geo enrichment (institutions, cities, countries) ──
+        geo_enabled = cfg.get("geo", {}).get("enabled", True)
+        if geo_enabled:
+            self._enrich_geo(cfg.get("geo", {}))
+
         elapsed = time.time() - build_start
         stats = self.stats(self.G, silent=True)
         _save_build_marker({
@@ -417,6 +422,62 @@ class GraphBuilder:
 
         if unmatched:
             logger.debug("%d Zotero persons with potential wiki matches (same name, different ID)", unmatched)
+
+    # ── Phase 5: Geo enrichment ────────────────────────────────
+
+    def _enrich_geo(self, geo_cfg: dict):
+        """Add INSTITUTION, CITY, COUNTRY nodes + edges from wiki affiliations.
+
+        Reads geo config:
+          - ``enabled`` (bool): master switch
+          - ``cache_path`` (str): path to JSONL geo cache
+          - ``use_api`` (bool): enable Nominatim API queries
+          - ``institution_city`` (dict): additional curated mappings
+
+        Config defaults to sensible values when missing.
+        """
+        if not self._wiki_persons:
+            logger.info("No wiki persons — skipping geo enrichment")
+            return
+
+        from hfpapers.graph.sources.institutions import (
+            enrich_graph,
+            extract_institutions,
+            geocode_institutions,
+        )
+
+        cache_path = geo_cfg.get("cache_path", "~/.hermes/geo_cache.jsonl")
+        use_api = geo_cfg.get("use_api", False)
+
+        logger.info("Phase 5: Geo enrichment starting...")
+
+        # Step 1: Extract institution names from wiki
+        inst_names = extract_institutions(self._wiki_persons)
+        if not inst_names:
+            logger.info("No institution names found in wiki/people")
+            return
+
+        logger.info("Found %d unique institution names", len(inst_names))
+
+        # Step 2: Apply any additional curated mappings from config
+        extra_mappings = geo_cfg.get("institution_city", {})
+        if extra_mappings:
+            from hfpapers.graph.sources.institutions import CURATED_LOOKUP, _norm_key
+            for k, v in extra_mappings.items():
+                CURATED_LOOKUP[_norm_key(k)] = v
+            logger.debug("Added %d extra institution mappings from config", len(extra_mappings))
+
+        # Step 3: Geocode institutions
+        geo_data = geocode_institutions(
+            inst_names,
+            cache_path=cache_path,
+            use_api=use_api,
+        )
+        logger.info("Geocoded %d institutions", len(geo_data))
+
+        # Step 4: Enrich graph
+        added = enrich_graph(self.G, geo_data, self._wiki_persons)
+        logger.info("Phase 5: Geo enrichment done (+%d nodes)", added)
 
     # ── Analyze bridge methods ─────────────────────────────────
 

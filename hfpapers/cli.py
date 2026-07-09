@@ -1028,8 +1028,13 @@ def graph(
     depth: int = typer.Option(1, "--depth", "-d", help="Ego network depth (person)"),
     top_n: int = typer.Option(20, "--top", "-t", help="Top N results (community/person)"),
 ):
-    """Knowledge graph operations (v0.10.1)."""
+    """Knowledge graph operations (v0.10.3).
+
+    Actions: build | stats | export | person | community | path | geo
+    Geo sub-actions: geo stats | geo institutions
+    """
     from hfpclawer.graph_cli import cmd_build, cmd_stats, cmd_export, cmd_person, cmd_community, cmd_path
+    from hfpclawer.graph_cli import cmd_geo_stats, cmd_geo_institutions
 
     if action == "build":
         cmd_build(limit=limit, force=force)
@@ -1043,6 +1048,14 @@ def graph(
         cmd_community(min_size=arg, top_n=top_n)
     elif action == "path":
         cmd_path(arg, arg2)
+    elif action == "geo":
+        sub = arg.strip().lower()
+        if sub == "stats":
+            cmd_geo_stats()
+        elif sub == "institutions":
+            cmd_geo_institutions()
+        else:
+            console.print(f"[red]❌ Unknown geo subcommand: '{sub}'. Use geo stats | geo institutions.[/red]")
     else:
         console.print(f"[red]❌ Unknown graph action: {action}. "
                       f"Use build | stats | export | person | community | path.[/red]")

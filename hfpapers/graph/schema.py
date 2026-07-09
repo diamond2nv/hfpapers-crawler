@@ -12,7 +12,7 @@ import re
 from enum import Enum, auto
 
 # ── Schema version for JSONL export ────────────────────────────
-KG_VERSION = "0.10.2"
+KG_VERSION = "0.10.3"
 
 
 class NodeType(Enum):
@@ -22,6 +22,9 @@ class NodeType(Enum):
     BOOK = auto()
     JOURNAL = auto()
     TOPIC = auto()
+    INSTITUTION = auto()
+    CITY = auto()
+    COUNTRY = auto()
 
 
 class EdgeType(Enum):
@@ -30,23 +33,30 @@ class EdgeType(Enum):
     PUBLISHED_IN = auto()
     ABOUT_TOPIC = auto()
     CO_AUTHOR = auto()
+    AFFILIATED_WITH = auto()
+    LOCATED_IN = auto()
 
 
 # ── Node style mapping (for visualization) ─────────────────────
 NODE_STYLE = {
-    NodeType.PERSON:  {"color": "#4a9eff", "size": 15, "shape": "circle", "icon": "👤"},
-    NodeType.PAPER:   {"color": "#6bcb77", "size": 8,  "shape": "square", "icon": "📄"},
-    NodeType.BOOK:    {"color": "#ffd93d", "size": 9,  "shape": "diamond", "icon": "📚"},
-    NodeType.JOURNAL: {"color": "#ff6b6b", "size": 10, "shape": "triangle-up", "icon": "📰"},
-    NodeType.TOPIC:   {"color": "#34d399", "size": 5,  "shape": "cross", "icon": "🏷️"},
+    NodeType.PERSON:       {"color": "#4a9eff", "size": 15, "shape": "circle",     "icon": "👤"},
+    NodeType.PAPER:        {"color": "#6bcb77", "size": 8,  "shape": "square",     "icon": "📄"},
+    NodeType.BOOK:         {"color": "#ffd93d", "size": 9,  "shape": "diamond",    "icon": "📚"},
+    NodeType.JOURNAL:      {"color": "#ff6b6b", "size": 10, "shape": "triangle-up","icon": "📰"},
+    NodeType.TOPIC:        {"color": "#34d399", "size": 5,  "shape": "cross",      "icon": "🏷️"},
+    NodeType.INSTITUTION:  {"color": "#c084fc", "size": 12, "shape": "triangle-up","icon": "🏛"},
+    NodeType.CITY:         {"color": "#f472b6", "size": 7,  "shape": "circle",     "icon": "🏙"},
+    NodeType.COUNTRY:      {"color": "#fb923c", "size": 8,  "shape": "circle",     "icon": "🌍"},
 }
 
 # ── Edge style ─────────────────────────────────────────────────
 EDGE_STYLE = {
-    EdgeType.AUTHOR_OF:    {"color": "#888", "width": 1, "label": "author_of"},
-    EdgeType.PUBLISHED_IN: {"color": "#aaa", "width": 1, "label": "published_in"},
-    EdgeType.ABOUT_TOPIC:  {"color": "#4ade80", "width": 0.8, "label": "about_topic"},
-    EdgeType.CO_AUTHOR:    {"color": "#60a5fa", "width": 1.5, "label": "co_author"},
+    EdgeType.AUTHOR_OF:      {"color": "#888", "width": 1,   "label": "author_of"},
+    EdgeType.PUBLISHED_IN:   {"color": "#aaa", "width": 1,   "label": "published_in"},
+    EdgeType.ABOUT_TOPIC:    {"color": "#4ade80", "width": 0.8, "label": "about_topic"},
+    EdgeType.CO_AUTHOR:      {"color": "#60a5fa", "width": 1.5, "label": "co_author"},
+    EdgeType.AFFILIATED_WITH:{"color": "#c084fc", "width": 1.2, "label": "affiliated_with"},
+    EdgeType.LOCATED_IN:     {"color": "#fb923c", "width": 1,   "label": "located_in"},
 }
 
 
@@ -71,6 +81,8 @@ def node_id(ntype: NodeType, key: str) -> str:
         'person:li-shen'
         >>> node_id(NodeType.PAPER, "2501.01934")
         'paper:2501.01934'
+        >>> node_id(NodeType.INSTITUTION, "University of Science and Technology of China")
+        'institution:university-of-science-and-technology-of-china'
     """
     return f"{ntype.name.lower()}:{_slugify(key)}"
 

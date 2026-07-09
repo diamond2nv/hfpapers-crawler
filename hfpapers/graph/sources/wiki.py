@@ -48,6 +48,9 @@ def parse_wiki_people(wiki_dir: str | Path = "~/wiki") -> dict[str, dict]:
 
     persons: dict[str, dict] = {}
     for md_file in sorted(people_dir.glob("*.md")):
+        # Skip README and index files
+        if md_file.stem.lower() in ("readme", "index", "template"):
+            continue
         try:
             text = md_file.read_text(encoding="utf-8")
         except Exception:
@@ -88,6 +91,7 @@ def parse_wiki_people(wiki_dir: str | Path = "~/wiki") -> dict[str, dict]:
             "first_name": first,
             "wiki_page": md_file.stem,
             "orcid": orcid,
+            "google_scholar": _get_frontmatter_field(fm, "google_scholar") or "",
             "affiliation": affiliation,
             "research_interests": research_interests,
             "is_wiki_known": True,

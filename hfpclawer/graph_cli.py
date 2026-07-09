@@ -367,3 +367,71 @@ def cmd_path(source: str, target: str) -> None:
     except nx.NetworkXNoPath:
         console.print(f"[red]❌ No path between '{source}' and '{target}'[/red]")
         raise SystemExit(1)
+
+
+# ── Geo commands ────────────────────────────────────────────────
+
+
+def cmd_geo_stats() -> None:
+    """Show geo enrichment statistics from the last build."""
+    builder, G = _load_builder()
+
+    # Count geo nodes
+    n_inst = sum(1 for _, d in G.nodes(data=True)
+                 if d.get("type") and getattr(d["type"], "name", d["type"]) == "INSTITUTION")
+    n_city = sum(1 for _, d in G.nodes(data=True)
+                 if d.get("type") and getattr(d["type"], "name", d["type"]) == "CITY")
+    n_country = sum(1 for _, d in G.nodes(data=True)
+                    if d.get("type") and getattr(d["type"], "name", d["type"]) == "COUNTRY")
+    n_affil = sum(1 for _, _, d in G.edges(data=True)
+                  if d.get("type") and getattr(d["type"], "name", d["type"]) == "AFFILIATED_WITH")
+
+    # Count by country
+    countries: dict[str, int] = {}
+    for _, d in G.nodes(data=True):
+        if d.get("type") and getattr(d["type"], "name", d["type"]) == "INSTITUTION":
+            country = d.get("country", d.get("label", "")[-20:])
+            countries[country] = countries.get(country, 0) + 1
+
+    console.print("\n[bold cyan]🌍 Geo Enrichment Statistics[/bold cyan]")
+    console.print(f"   🏛 Institutions: {n_inst}")
+    console.print(f"   🏙 Cities:       {n_city}")
+    console.print(f"   🌍 Countries:    {n_country}")
+    console.print(f"   🔗 Affiliations: {n_affil}")
+    if countries:
+        console.print(f"\n[bold]By Country:[/bold]")
+        for country, count in sorted(countries.items(), key=lambda x: -x[1]):
+            console.print(f"   • {country}: {count}")
+
+
+def cmd_geo_institutions(detail: bool = False) -> None:
+    """List all institutions with location data."""
+    _, G = _load_builder()
+
+    institutions = []
+    for nid, data in G.nodes(data=True):
+        nt = data.get("type")
+        if not nt or getattr(nt, "name", nt) != "INSTITUTION":
+            continue
+        institutions.append({
+            "id": nid,
+            "label": data.get("label", nid),
+            "lat": data.get("lat", ""),
+            "lng": data.get("lng", ""),
+            "geo_source": data.get("geo_source", ""),
+        })
+
+    if not institutions:
+        console.print("[yellow]⚠️  No institutions in graph. Rebuild with 'hfpclawer graph build'.[/yellow]")
+        return
+
+    console.print(f"\n[bold cyan]🏛 Institutions ({len(institutions)})[/bold cyan]")
+    for inst in sorted(institutions, key=lambda x: x["label"]):
+        lat = inst["lat"]
+        lng = inst["lng"]
+        src = inst["geo_source"]
+        if lat and lng and float(lat) != 0.0:
+            coord = f"{float(lat):.3f}, {float(lng):.3f}"
+            console.print(f"   • {inst['label'][:55]:55s} [{coord:20s}] [dim]{src}[/dim]")
+        else:
+            console.print(f"   • {inst['label'][:55]:55s} [dim]no coords[/dim]")

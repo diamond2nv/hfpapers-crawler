@@ -382,6 +382,10 @@ graph:
     - "new"
     - "review"
     - "survey"
+  geo:                             # v0.10.3: Geo enrichment (institutions, cities, countries)
+    enabled: true                  # Master switch for geo enrichment
+    cache_path: "~/.hermes/geo_cache.jsonl"  # JSONL cache for geocoding results
+    use_api: false                 # Enable Nominatim API (requires geopy, respects 1req/s)
 
 # ===== 8. Output Paths =====
 paths:
