@@ -313,11 +313,20 @@ class PaperIdentifier:
 
 
 def _db_path() -> str:
-    """Database file path"""
-    base = cfg_get("paths.data_dir", "data")
-    # If base is a relative path, resolve relative to current working directory
-    if not os.path.isabs(base):
-        base = os.path.join(os.getcwd(), base)
+    """Database file path
+
+    Resolution order:
+      1. HFPAPERS_DATA_DIR env var (absolute path)
+      2. config.yaml → paths.data_dir (relative → resolved against CWD)
+      3. fallback: ./data/
+    """
+    env_dir = os.environ.get("HFPAPERS_DATA_DIR")
+    if env_dir:
+        base = env_dir
+    else:
+        base = cfg_get("paths.data_dir", "data")
+        if not os.path.isabs(base):
+            base = os.path.join(os.getcwd(), base)
     os.makedirs(base, exist_ok=True)
     return os.path.join(base, "papers.db")
 
