@@ -68,14 +68,30 @@ def fetch_orcid_works(orcid: str, delay: float = 1.0) -> list[dict]:
 def _parse_work_summary(summary: dict) -> Optional[dict]:
     """Extract DOI, arXiv ID, title, year from a single work-summary."""
     title = ""
-    title_data = summary.get("title", {})
-    if "title" in title_data:
-        title = (title_data["title"].get("value") or "")
+    title_container = summary.get("title", {})
+    if isinstance(title_container, dict):
+        title_inner = title_container.get("title", {})
+        if isinstance(title_inner, dict):
+            title = title_inner.get("value") or ""
+        elif isinstance(title_inner, str):
+            title = title_inner
 
     # Extract DOI from external IDs
     doi = ""
     arxiv_id = ""
-    for ext_id in summary.get("external-ids", []):
+    ext_ids_container = summary.get("external-ids", {})
+    if isinstance(ext_ids_container, dict):
+        ext_id_list = ext_ids_container.get("external-id", [])
+        if not isinstance(ext_id_list, list):
+            ext_id_list = []
+    elif isinstance(ext_ids_container, list):
+        ext_id_list = ext_ids_container
+    else:
+        ext_id_list = []
+
+    for ext_id in ext_id_list:
+        if not isinstance(ext_id, dict):
+            continue
         ext_type = ext_id.get("external-id-type", "")
         ext_val = ext_id.get("external-id-value", "")
         if ext_type == "doi":
@@ -85,17 +101,19 @@ def _parse_work_summary(summary: dict) -> Optional[dict]:
 
     year = 0
     pub_date = summary.get("publication-date", {})
-    if pub_date:
-        try:
-            year_val = pub_date.get("year", {}).get("value")
-            if year_val:
-                year = int(year_val)
-        except (ValueError, TypeError):
-            pass
+    if isinstance(pub_date, dict):
+        year_container = pub_date.get("year", {})
+        if isinstance(year_container, dict):
+            try:
+                year_val = year_container.get("value")
+                if year_val:
+                    year = int(year_val)
+            except (ValueError, TypeError):
+                pass
 
     journal = ""
     journal_data = summary.get("journal-title", {})
-    if journal_data:
+    if isinstance(journal_data, dict):
         journal = journal_data.get("value", "")
 
     if not title and not doi:
