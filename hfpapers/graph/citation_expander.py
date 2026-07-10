@@ -87,6 +87,18 @@ class CitationExpander:
 
     # ── S2 API calls ───────────────────────────────────────────
 
+    def fetch_paper_by_doi(self, doi: str) -> dict | None:
+        """Resolve a DOI to paper metadata via S2 API."""
+        url = f"{S2_BASE}/paper/DOI:{doi}"
+        data = self._get(url, params={"fields": "title,externalIds,venue,year,authors"})
+        return data
+
+    def fetch_paper_by_arxiv(self, arxiv_id: str) -> dict | None:
+        """Fetch paper metadata by arXiv ID via S2 API."""
+        url = f"{S2_BASE}/paper/ArXiv:{arxiv_id}"
+        data = self._get(url, params={"fields": "title,externalIds,venue,year,authors"})
+        return data
+
     def fetch_references(self, arxiv_id: str) -> list[dict]:
         """Fetch papers cited BY *arxiv_id* (its reference list)."""
         fields = "title,externalIds,venue,year"
@@ -119,10 +131,12 @@ class CitationExpander:
         direction: str = "both",
         label_source: str = "s2_expanded",
     ) -> dict:
-        """Expand the graph by walking citations from seed papers.
+        """Expand the graph by walking citations from seed papers via S2 API.
+
+        Seeds can be arXiv IDs (e.g. '2405.00137') or DOIs (e.g. '10.1038/...').
 
         Args:
-            seed_arxiv_ids: List of arXiv IDs to start from.
+            seed_arxiv_ids: List of arXiv IDs or DOIs to start from.
             graph: NetworkX graph to expand (modified in-place).
             max_depth: How many hops to walk (1 = immediate neighbors).
             direction: 'references', 'citations', or 'both'.
@@ -142,20 +156,43 @@ class CitationExpander:
             "no_arxiv_id": 0,
         }
 
-        # BFS frontier: (arxiv_id, current_depth)
+        # Resolve seeds: normalize arXiv IDs and resolve DOIs via S2
+        resolved_seeds: list[str] = []
+        for entry in seed_arxiv_ids:
+            entry = entry.strip()
+            if not entry:
+                continue
+            if entry.startswith("10."):
+                # DOI → fetch paper from S2, add it to graph, get arXiv ID
+                paper = self.fetch_paper_by_doi(entry)
+                stats["api_calls"] += 1
+                if paper:
+                    nsid = _add_paper(graph, paper, label_source)
+                    if nsid:
+                        resolved_seeds.append(nsid)
+                        # Also extract arXiv ID for BFS frontier
+                        ext = paper.get("externalIds") or {}
+                        aid = _extract_arxiv(paper)
+                        if aid:
+                            resolved_seeds.append(aid)
+            else:
+                clean = _clean_arxiv(entry)
+                if clean:
+                    resolved_seeds.append(clean)
+
+        # BFS frontier: (arxiv_id_or_doi, current_depth)
         visited_arxiv: set[str] = set()
         frontier: list[tuple[str, int]] = []
 
-        for aid in seed_arxiv_ids:
-            clean = _clean_arxiv(aid)
-            if clean and clean not in visited_arxiv:
-                visited_arxiv.add(clean)
-                frontier.append((clean, 0))
+        for aid in resolved_seeds:
+            if aid not in visited_arxiv:
+                visited_arxiv.add(aid)
+                frontier.append((aid, 0))
                 # Ensure seed exists as a node so CITES edges connect
-                pid = paper_node_id(arxiv_id=clean)
+                pid = paper_node_id(arxiv_id=aid)
                 if pid not in graph:
                     graph.add_node(pid, type=NodeType.PAPER,
-                                   label=clean, arxiv_id=clean,
+                                   label=aid, arxiv_id=aid,
                                    sources=label_source)
 
         while frontier:

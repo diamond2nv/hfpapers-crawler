@@ -65,8 +65,10 @@ def fetch_orcid_works(orcid: str, delay: float = 1.0) -> list[dict]:
     return works
 
 
-def _parse_work_summary(summary: dict) -> Optional[dict]:
+def _parse_work_summary(summary) -> Optional[dict]:
     """Extract DOI, arXiv ID, title, year from a single work-summary."""
+    if not isinstance(summary, dict):
+        return None
     title = ""
     title_container = summary.get("title", {})
     if isinstance(title_container, dict):

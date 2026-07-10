@@ -118,12 +118,9 @@ class SteppingExpander:
             if not s:
                 continue
             if s.startswith("10."):
-                resolved = resolve_doi_to_arxiv(s)
-                if resolved:
-                    seeds.append(resolved)
-                    logger.info("  DOI→arXiv: %s → %s", s, resolved)
-                else:
-                    logger.info("  DOI %s (unresolvable, skipping)", s)
+                # Keep DOI; the expander will resolve it via S2 API
+                seeds.append(s)
+                logger.info("  DOI seed: %s", s)
             else:
                 clean = _clean_arxiv(s)
                 if clean:
@@ -153,6 +150,9 @@ class SteppingExpander:
                     resolved = resolve_doi_to_arxiv(doi)
                     if resolved:
                         seeds.append(resolved)
+                    else:
+                        # Pass DOI directly for S2 API resolution
+                        seeds.append(doi)
 
         # Deduplicate
         seen: set[str] = set()
