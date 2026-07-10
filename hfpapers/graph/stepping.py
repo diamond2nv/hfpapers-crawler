@@ -50,8 +50,15 @@ class SteppingExpander:
 
     def __init__(self, config_path: str = "", graph: Optional[nx.Graph] = None):
         self.config_path = Path(config_path or _find_config()).expanduser()
-        self.G = graph or nx.Graph()
+        self.G = graph or self._load_cached_graph()
         self._load_config()
+
+    @staticmethod
+    def _load_cached_graph() -> nx.Graph:
+        """Load previously saved graph cache, or create empty."""
+        from hfpapers.graph import GraphBuilder
+        cached = GraphBuilder.load()
+        return cached if cached is not None else nx.Graph()
 
     # ── Config Loading ────────────────────────────────────────────
 

@@ -410,8 +410,7 @@ stepping:
       seeds:
         - "0912.4424"              # Single-Atom Cavity QED (Kimble)
         - "1011.0252"              # WGM QED (Xiao & Zou)
-      filter_keywords: ["cavity quantum electrodynam", "strong coupling", "cavity QED"]
-      filter_authors: ["Kimble", "Haroche"]
+      filter_keywords: ["cavity quantum electrodynam", "strong coupling", "vacuum Rabi", "cavity QED", "atom-cavity"]
       direction: "both"
       max_depth: 1
 
