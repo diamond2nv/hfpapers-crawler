@@ -570,19 +570,16 @@ def enrich_graph(
     G: "nx.Graph",  # noqa: N802
     geo_data: dict[str, dict],
     wiki_persons: dict[str, dict],
-) -> int:
-    """Add INSTITUTION, CITY, COUNTRY nodes and edges to the graph.
-
-    Connects wiki-known persons to their institutions via AFFILIATED_WITH
-    edges, and institutions to cities/countries via LOCATED_IN edges.
+) -> dict[str, int]:
+    """Add INSTITUTION / CITY / COUNTRY nodes + edges to graph.
 
     Args:
-        G: NetworkX graph to enrich (modified in-place).
-        geo_data: Dict from ``geocode_institutions()``.
-        wiki_persons: Dict from ``parse_wiki_people()``.
+        G: NetworkX graph (mutated in-place).
+        geo_data: Output from :func:`geocode_institutions`.
+        wiki_persons: Dict of wiki person records.
 
     Returns:
-        Number of new nodes added.
+        Stats dict with node/edge counts.
     """
     import networkx as nx  # noqa: N812, F401 — used at runtime via G methods
     added_nodes = 0

@@ -1033,11 +1033,15 @@ def graph(
     """Knowledge graph operations (v0.10.3).
 
     Actions: build | stats | export | person | community | path | geo
-    Geo sub-actions: geo stats | geo institutions
+    Geo sub-actions: geo stats | geo institutions | geo globe
+    Map: map [output] | map community [output]
+    Viz: viz [style] [output] [--source]
+    Stepping: step layer | step all | step config
     """
     from hfpclawer.graph_cli import cmd_build, cmd_stats, cmd_export, cmd_person, cmd_community, cmd_path
     from hfpclawer.graph_cli import cmd_geo_stats, cmd_geo_institutions
     from hfpclawer.graph_cli import cmd_map, cmd_viz
+    from hfpclawer.graph_cli import cmd_community_map, cmd_geo_globe
     from hfpclawer.graph_cli import cmd_ingest, cmd_ingest_citations
     from hfpclawer.graph_cli import cmd_expand_citations
     from hfpclawer.graph_cli import cmd_analyze
@@ -1056,7 +1060,10 @@ def graph(
     elif action == "path":
         cmd_path(arg, arg2)
     elif action == "map":
-        cmd_map(output=arg or "")
+        if arg and arg.strip().lower() == "community":
+            cmd_community_map(output=arg2 or "", show_edges=True)
+        else:
+            cmd_map(output=arg or "")
     elif action == "viz":
         cmd_viz(style=arg or "circos", output=arg2 or "", source=src)
     elif action == "ingest":
@@ -1080,8 +1087,10 @@ def graph(
             cmd_geo_stats()
         elif sub == "institutions":
             cmd_geo_institutions()
+        elif sub == "globe":
+            cmd_geo_globe(output=arg2 or "", projection="robinson")
         else:
-            console.print(f"[red]❌ Unknown geo subcommand: '{sub}'. Use geo stats | geo institutions.[/red]")
+            console.print(f"[red]❌ Unknown geo subcommand: '{sub}'. Use geo stats | geo institutions | geo globe.[/red]")
     else:
         console.print(f"[red]❌ Unknown graph action: {action}. "
                       f"Use build | stats | export | person | community | path | analyze | step.[/red]")

@@ -466,6 +466,98 @@ def cmd_map(output: str = "") -> None:
         raise SystemExit(1) from e
 
 
+def cmd_community_map(
+    output: str = "",
+    show_edges: bool = True,
+    min_papers: int = 1,
+) -> None:
+    """Generate an interactive community-overlaid institution map (folium).
+
+    Color-codes institutions by dominant Louvain community.
+    Draws geodesic collaboration edges between co-authoring locations.
+
+    Args:
+        output: Output HTML path (default: ~/data/kg/community_map.html).
+        show_edges: Draw geodesic edges between locations.
+        min_papers: Minimum papers to show a location.
+    """
+    _, G = _load_builder()
+
+    n_geo = sum(1 for _, d in G.nodes(data=True)
+                if d.get("lat") and d.get("lng"))
+    if n_geo == 0:
+        console.print("[yellow]⚠️  No geo data in graph. Rebuild with 'hfpclawer graph build' first.[/yellow]")
+        return
+
+    try:
+        from hfpapers.graph.viz.geo_map import (
+            aggregate_institution_communities,
+            render_community_folium,
+        )
+        loc_comm = aggregate_institution_communities(G, min_papers=min_papers)
+        if not loc_comm:
+            console.print("[yellow]⚠️  No locations with community data found. Try --min-papers 1[/yellow]")
+            return
+        result = render_community_folium(
+            G, loc_comm=loc_comm, output=output or "",
+            show_edges=show_edges, min_papers=min_papers,
+        )
+        console.print(f"[green]✅ Community map → {result}[/green]")
+        console.print(f"   {len(loc_comm)} locations plotted")
+    except Exception as e:
+        console.print(f"[red]❌ Community map failed: {e}[/red]")
+        logger.exception("Community map failed")
+        raise SystemExit(1) from e
+
+
+def cmd_geo_globe(
+    output: str = "",
+    projection: str = "robinson",
+    show_edges: bool = True,
+    min_papers: int = 1,
+) -> None:
+    """Generate a publication-quality global map (cartopy).
+
+    Nature-style Robinson projection with community-colored markers.
+
+    Args:
+        output: Output path (.pdf or .png, default: ~/data/kg/community_map.pdf).
+        projection: Map projection (robinson, mollweide, platecarree, orthographic).
+        show_edges: Draw geodesic edges between locations.
+        min_papers: Minimum papers to show a location.
+    """
+    _, G = _load_builder()
+
+    n_geo = sum(1 for _, d in G.nodes(data=True)
+                if d.get("lat") and d.get("lng"))
+    if n_geo == 0:
+        console.print("[yellow]⚠️  No geo data in graph. Rebuild with 'hfpclawer graph build' first.[/yellow]")
+        return
+
+    try:
+        from hfpapers.graph.viz.geo_map import (
+            aggregate_institution_communities,
+            render_community_static,
+        )
+        loc_comm = aggregate_institution_communities(G, min_papers=min_papers)
+        if not loc_comm:
+            console.print("[yellow]⚠️  No locations with community data found.[/yellow]")
+            return
+        result = render_community_static(
+            G, loc_comm=loc_comm, output=output or "",
+            projection=projection, show_edges=show_edges, min_papers=min_papers,
+        )
+        if result:
+            console.print(f"[green]✅ Globe map → {result}[/green]")
+            console.print(f"   {len(loc_comm)} locations, projection={projection}")
+        else:
+            console.print("[yellow]⚠️  cartopy not available. Install: pip install cartopy[/yellow]")
+    except Exception as e:
+        console.print(f"[red]❌ Globe map failed: {e}[/red]")
+        logger.exception("Globe map failed")
+        raise SystemExit(1) from e
+
+
 def cmd_viz(style: str = "circos", output: str = "", source: str = "") -> None:
     """Generate graph visualization (Circos / spring).
 
