@@ -9,7 +9,7 @@ researcher_audit.py — 研究者论文审计管线
   ③ 输出 JSONL + 控制台统计摘要
 
 用法:
-  cd ~/Documents/Gitlab/forgejo-self-host/hfpapers-crawler
+  cd ~/Documents/Gitlab/Agentic4Sci/hfpapers-crawler
   uv run python scripts/researcher-audit/researcher_audit.py \
       --config scripts/researcher-audit/people.yaml \
       --output scripts/researcher-audit/audit.jsonl

@@ -511,7 +511,7 @@ def _detect_project_root() -> str:
     # Check common locations
     candidates = [
         Path.home() / "Documents/Gitlab/Agentic4Sci/hfpapers-crawler",
-        Path.home() / "Documents/Gitlab/forgejo-self-host/hfpapers-crawler",
+        # Old: forgejo-self-host/ — replaced by symlink → Agentic4Sci/
         Path.cwd(),
     ]
     for d in candidates:

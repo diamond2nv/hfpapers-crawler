@@ -6,7 +6,8 @@ working on this project. It describes the project structure, key patterns, pitfa
 ## Quick Navigation
 
 ```
-~/Gitlab/Agentic4Sci/hfpapers-clawler/
+/Agentic4Sci/hfpapers-crawler/        ← Canonical location
+└── forgejo-self-host/hfpapers-crawler → symlink → ../Agentic4Sci/hfpapers-crawler
 ├── hfpapers/             # Main Python package
 ├── hfpclawer/            # Download pipeline (OAI-PMH, Kaggle, monitor)
 ├── tests/                # pytest tests
