@@ -224,6 +224,27 @@ INSTITUTION_CITY: dict[str, dict] = {
         "city": "Changsha", "country": "China",
         "lat": 28.1869, "lng": 112.9414,
     },
+    # ── ORCID-discovered institutions ──
+    "courant institute of mathematical sciences": {
+        "canonical": "Courant Institute of Mathematical Sciences",
+        "city": "New York", "country": "USA",
+        "lat": 40.7295, "lng": -73.9965,
+    },
+    "university of washington": {
+        "canonical": "University of Washington",
+        "city": "Seattle", "country": "USA",
+        "lat": 47.6553, "lng": -122.3035,
+    },
+    "lanzhou university": {
+        "canonical": "Lanzhou University",
+        "city": "Lanzhou", "country": "China",
+        "lat": 36.0469, "lng": 103.8525,
+    },
+    "yale university": {
+        "canonical": "Yale University",
+        "city": "New Haven", "country": "USA",
+        "lat": 41.3083, "lng": -72.9282,
+    },
     "ecnu": {
         "canonical": "East China Normal University",
         "city": "Shanghai", "country": "China",

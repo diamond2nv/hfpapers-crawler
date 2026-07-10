@@ -440,7 +440,9 @@ def render_community_static(
         try:
             import scienceplots
             plt.style.use(["science", "nature"])
-            logger.info("SciencePlots style applied")
+            # Disable LaTeX text rendering — TinyTeX may lack packages
+            plt.rcParams["text.usetex"] = False
+            logger.info("SciencePlots style applied (usetex=False)")
         except Exception:
             pass
     except ImportError:

@@ -558,6 +558,74 @@ def cmd_geo_globe(
         raise SystemExit(1) from e
 
 
+# ── ORCID enrichment ──────────────────────────────────────────
+
+
+def cmd_enrich_orcid(
+    force: bool = False,
+    limit: int = 0,
+    save: bool = True,
+) -> None:
+    """Fetch employment/education affiliations from ORCID API and enrich graph.
+
+    Scans the cached graph for PERSON nodes with ``orcid`` attributes,
+    queries the ORCID public API, extracts institutions with addresses,
+    and adds INSTITUTION / CITY / COUNTRY nodes + AFFILIATED_WITH edges.
+
+    Args:
+        force: Re-fetch all ORCIDs even if cached.
+        limit: Max ORCIDs to fetch (0 = all).
+        save: Save enriched graph back to cache.
+    """
+    from hfpapers.graph import GraphBuilder
+    from hfpapers.graph.sources.orcid_enrich import (
+        batch_fetch,
+        enrich_graph_from_orcid,
+        extract_orcids_from_graph,
+    )
+
+    _, G = _load_builder()
+
+    # Step 1: Find ORCIDs in graph
+    orcid_to_person = extract_orcids_from_graph(G)
+    if not orcid_to_person:
+        console.print("[yellow]⚠️  No PERSON nodes with ORCID found in graph.[/yellow]")
+        return
+
+    console.print(f"[blue]📡 Found {len(orcid_to_person)} ORCIDs in graph[/blue]")
+    if limit and limit < len(orcid_to_person):
+        orcid_to_person = dict(list(sorted(orcid_to_person.items()))[:limit])
+        console.print(f"   (limited to first {limit})")
+
+    # Step 2: Fetch from ORCID API
+    console.print("[blue]📡 Fetching affiliations from ORCID API...[/blue]")
+    results = batch_fetch(orcid_to_person, force=force)
+
+    total_records = sum(len(v) for v in results.values())
+    console.print(f"   → {total_records} affiliation records for {len(results)} ORCIDs")
+
+    # Step 3: Enrich graph
+    console.print("[blue]📡 Enriching graph with institution nodes...[/blue]")
+    stats = enrich_graph_from_orcid(G, results, orcid_to_person)
+
+    # Step 4: Save
+    if save:
+        builder = GraphBuilder()
+        builder.G = G
+        path = builder.save()
+        console.print(f"[green]✅ ORCID enrichment done: +{stats['added_nodes']} nodes, "
+                       f"+{stats['added_edges']} edges[/green]")
+        console.print(f"   Graph saved → {path}")
+
+        # Show geo stats
+        n_geo = sum(1 for _, d in G.nodes(data=True)
+                    if d.get("lat") and d.get("lng"))
+        console.print(f"   Geo-enabled nodes: {n_geo}")
+    else:
+        console.print(f"[green]✅ ORCID enrichment done: +{stats['added_nodes']} nodes, "
+                       f"+{stats['added_edges']} edges (not saved)[/green]")
+
+
 def cmd_viz(style: str = "circos", output: str = "", source: str = "") -> None:
     """Generate graph visualization (Circos / spring).
 
