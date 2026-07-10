@@ -60,23 +60,30 @@ class CitationExpander:
             time.sleep(self.delay - elapsed)
         self._last_request = time.time()
 
-    def _get(self, url: str, params: dict | None = None) -> dict | None:
+    def _get(self, url: str, params: dict | None = None, retries: int = 5) -> dict | None:
         self._rate_limit()
-        try:
-            resp = self._session.get(url, params=params, timeout=30)
-            if resp.status_code == 429:
-                logger.warning("S2 API rate limited — sleeping 60s")
-                time.sleep(60)
-                return self._get(url, params=params)
-            if resp.status_code == 404:
+        for attempt in range(retries):
+            try:
+                resp = self._session.get(url, params=params, timeout=30)
+                if resp.status_code == 429:
+                    sleep_time = 60 * (2 ** attempt)  # exponential: 60s, 120s, 240s...
+                    logger.warning("S2 API rate limited — sleeping %ds (attempt %d/%d)",
+                                   sleep_time, attempt + 1, retries)
+                    time.sleep(sleep_time)
+                    continue
+                if resp.status_code == 404:
+                    return None
+                if resp.status_code != 200:
+                    logger.debug("S2 API %s: %s", resp.status_code, resp.text[:100])
+                    return None
+                return resp.json()
+            except requests.RequestException as e:
+                logger.debug("S2 API request failed: %s", e)
+                if attempt < retries - 1:
+                    time.sleep(10 * (2 ** attempt))
+                    continue
                 return None
-            if resp.status_code != 200:
-                logger.debug("S2 API %s: %s", resp.status_code, resp.text[:100])
-                return None
-            return resp.json()
-        except requests.RequestException as e:
-            logger.debug("S2 API request failed: %s", e)
-            return None
+        return None
 
     # ── S2 API calls ───────────────────────────────────────────
 
@@ -124,7 +131,7 @@ class CitationExpander:
         Returns:
             Dict with counts.
         """
-        from hfpapers.graph.schema import paper_node_id
+        from hfpapers.graph.schema import paper_node_id, NodeType
 
         stats = {
             "papers_found": 0,
@@ -144,6 +151,12 @@ class CitationExpander:
             if clean and clean not in visited_arxiv:
                 visited_arxiv.add(clean)
                 frontier.append((clean, 0))
+                # Ensure seed exists as a node so CITES edges connect
+                pid = paper_node_id(arxiv_id=clean)
+                if pid not in graph:
+                    graph.add_node(pid, type=NodeType.PAPER,
+                                   label=clean, arxiv_id=clean,
+                                   sources=label_source)
 
         while frontier:
             aid, depth = frontier.pop(0)

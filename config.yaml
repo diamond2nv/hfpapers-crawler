@@ -389,34 +389,98 @@ graph:
 
 # ===== 7c. Stepping Citation Expansion Config =====
 stepping:
-  enabled: false                   # Enable multi-layer stepping expansion
-  api_delay: 3.5                   # S2 API request delay (free tier)
+  enabled: true                    # Enable multi-layer stepping expansion
+  api_delay: 6.0                   # S2 API request delay (free tier)
   resume: true                     # Skip completed layers on re-run
   sources:
     s2_api: true                   # Semantic Scholar API (online)
     pdf_refs: false                # PDF→MD reference extraction (offline, requires pymupdf4llm)
     tex_bib: false                 # TeX .bib parsing (offline)
     person_cards: true             # wiki/people DOI+ORCID as seeds
-  layers: []                       # Define per-layer seeds, filters, directions
+  layers:
+    - name: "QED-foundations"
+      seeds:
+        - "2405.00137"             # J-C model retrospective
+        - "2403.02402"             # Nonperturbative cavity QED
+      filter_keywords: ["Jaynes-Cummings", "vacuum Rabi", "quantum electrodyn"]
+      direction: "references"
+      max_depth: 1
 
-# Template layer — uncomment and customize:
-#  layers:
-#    - name: "QED-foundations"
-#      seeds:
-#        - "2405.00137"             # arXiv ID
-#        - "10.1038/s41586-022-05335-5"  # DOI
-#      orcid_seeds:
-#        - "0000-0003-2484-7292"    # Zou Changling
-#      filter_keywords:
-#        - "QED"
-#        - "cavity quantum"
-#        - "WGM"
-#      filter_authors:
-#        - "Zou"
-#        - "Ren X"
-#        - "Xiao Y"
-#      direction: "both"
-#      max_depth: 2
+    - name: "cavity-qed"
+      seeds:
+        - "0912.4424"              # Single-Atom Cavity QED (Kimble)
+        - "1011.0252"              # WGM QED (Xiao & Zou)
+      filter_keywords: ["cavity quantum electrodynam", "strong coupling", "cavity QED"]
+      filter_authors: ["Kimble", "Haroche"]
+      direction: "both"
+      max_depth: 1
+
+    - name: "wgm-integrated-quantum-optics"
+      seeds:
+        - "1011.0252"              # WGM QED
+        - "2107.12188"             # integrated WGM quantum dots
+        - "1811.07436"             # NV high contrast quantum imaging
+        - "10.1038/s41586-022-05335-5"   # Ren XF Nature 2023
+        - "10.1103/PhysRevLett.128.060501"    # Ren XF PRL 2022
+        - "10.1103/PhysRevLett.126.130501"    # Ren XF PRL 2021
+        - "10.1126/science.aba9772"           # Ren XF Science 2020
+        - "10.1103/PhysRevLett.129.173601"    # Ren XF PRL 2022
+        - "10.1103/PhysRevLett.127.153901"    # Ren XF PRL 2021
+        - "10.1038/ncomms11985"               # Ren XF Nat Commun 2016
+        - "10.1063/5.0246713"                 # Zhang SC APL Photonics 2025
+        - "10.1021/acsnano.4c07131"           # Zhang SC ACS Nano 2024
+        - "10.1063/5.0252580"                 # Guo GC APL 2026
+        - "10.1360/TB-2022-0118"              # Shen Z Science Bulletin
+      orcid_seeds:
+        - "0000-0003-2484-7292"    # Zou Changling
+        - "0000-0001-6559-8101"    # Ren Xifeng
+        - "0000-0002-9625-7390"    # Sun Fangwen
+        - "0000-0002-2246-4039"    # Chen Xiangdong
+        - "0000-0003-1068-5085"    # Dong Yang
+        - "0000-0002-9408-6102"    # Dong Chunhua
+        - "0000-0003-3771-9185"    # Guo Guangcan
+        - "0000-0001-8141-3816"    # Zhang Shaochun
+        - "0000-0003-2849-632X"    # Zheng Yu
+        - "0000-0002-1786-7693"    # Li Shen
+        - "0000-0002-3432-9341"    # Guo Guangcan (old)
+      filter_keywords:
+        - "WGM"
+        - "whispering gallery"
+        - "microring"
+        - "microcavity"
+        - "integrated quantum"
+        - "NV"
+        - "diamond"
+        - "quantum sensing"
+        - "quantum dot"
+      filter_authors:
+        - "Zou"
+        - "Ren X"
+        - "Sun F"
+        - "Xiao Y"
+        - "Dong C"
+        - "Shen Z"
+        - "Chen X"
+        - "Dong Y"
+        - "Zhang S"
+        - "Zheng Y"
+        - "Li S"
+        - "Guo G"
+      direction: "both"
+      max_depth: 1
+
+    - name: "optomechanical-crystals"
+      source: "existing"
+      refs_path: "data/references/refs.jsonl"
+
+    - name: "cavity-magnomechanics"
+      seeds:
+        - "2303.30693"              # enhanced magnon-photon-phonon entanglement
+        - "2404.15111"              # Hybrid cavity-magnon optomechanics
+        - "2506.02463"              # Controlling photon-magnon coupling
+      filter_keywords: ["magnomechanic", "magnon", "YIG", "cavity magnon"]
+      direction: "both"
+      max_depth: 1
 
 # ===== 8. Output Paths =====
 paths:
