@@ -1019,7 +1019,7 @@ def stats():
 
 @app.command()
 def graph(
-    action: str = typer.Argument("stats", help="build | stats | export | person | community | path | analyze | ingest | ingest-citations | expand-citations | geo | viz | map"),
+    action: str = typer.Argument("stats", help="build | stats | export | person | community | path | analyze | ingest | ingest-citations | expand-citations | step | geo | viz | map"),
     arg: str = typer.Argument("", help="Person node ID (for person) / source (for ingest) / max_depth (for expand-citations) / source node (for path)"),
     arg2: str = typer.Argument("", help="Target node ID (for path) / max_seeds (for expand-citations) / path (for ingest)"),
     limit: int = typer.Option(200, "--limit", "-l", help="Max Zotero items (build)"),
@@ -1041,6 +1041,7 @@ def graph(
     from hfpclawer.graph_cli import cmd_ingest, cmd_ingest_citations
     from hfpclawer.graph_cli import cmd_expand_citations
     from hfpclawer.graph_cli import cmd_analyze
+    from hfpclawer.graph_cli import cmd_step
 
     if action == "build":
         cmd_build(limit=limit, force=force)
@@ -1066,6 +1067,8 @@ def graph(
         cmd_expand_citations(max_depth=int(arg or "2"), max_seeds=int(arg2 or "10"), direction="both")
     elif action == "analyze":
         cmd_analyze(source=src, community_algo=arg or "leiden", top_n=top_n, output=arg2 or "", output_format=report_fmt)
+    elif action == "step":
+        cmd_step(layer=arg or "", all_layers=bool(arg2) if arg2 else False, show_config=False)
     elif action == "geo":
         sub = arg.strip().lower()
         if sub == "stats":
@@ -1076,7 +1079,7 @@ def graph(
             console.print(f"[red]❌ Unknown geo subcommand: '{sub}'. Use geo stats | geo institutions.[/red]")
     else:
         console.print(f"[red]❌ Unknown graph action: {action}. "
-                      f"Use build | stats | export | person | community | path.[/red]")
+                      f"Use build | stats | export | person | community | path | analyze | step.[/red]")
 
 
 @app.command()

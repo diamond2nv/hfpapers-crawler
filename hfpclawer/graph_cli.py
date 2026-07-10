@@ -732,3 +732,58 @@ def cmd_analyze(
         console.print(f"\n   [dim]Next: quarto render {qmd_path}[/dim]")
     else:
         console.print(report)
+
+
+def cmd_step(
+    layer: str = "",
+    all_layers: bool = False,
+    show_config: bool = False,
+) -> None:
+    """Run stepping citation expansion (multi-layer BFS).
+
+    Args:
+        layer: Single layer name to run (e.g. 'QED-foundations').
+        all_layers: If True, run all configured layers.
+        show_config: If True, show current stepping config and exit.
+    """
+    from hfpapers.graph.stepping import SteppingExpander, _find_config
+
+    stepper = SteppingExpander(config_path=_find_config())
+
+    if show_config:
+        console.print("[bold cyan]📋 Stepping Config[/bold cyan]")
+        console.print(stepper.config)
+        return
+
+    if not layer and not all_layers:
+        console.print("[yellow]Specify --layer NAME or --all[/yellow]")
+        console.print("  hfpclawer graph step --layer QED-foundations")
+        console.print("  hfpclawer graph step --all")
+        console.print("  hfpclawer graph step --show-config")
+        return
+
+    if all_layers:
+        console.print("[bold cyan]🔄 Running all stepping layers...[/bold cyan]")
+        G, layer_stats = stepper.run_all()
+    else:
+        console.print(f"[bold cyan]🔄 Running layer: {layer}[/bold cyan]")
+        result = stepper.run_layer(layer)
+        layer_stats = {layer: result}
+
+    # Save the expanded graph
+    from hfpapers.graph import GraphBuilder
+    builder = GraphBuilder()
+    builder.G = stepper.G
+    builder.save()
+
+    # Report
+    console.print(f"[green]✅ Stepping complete[/green]")
+    for lname, stats in layer_stats.items():
+        papers = stats.get("papers_found", 0)
+        edges = stats.get("edges_added", 0)
+        api = stats.get("api_calls", 0)
+        console.print(f"  Layer '{lname}': +{papers} papers, +{edges} edges ({api} API calls)")
+
+    full = stepper.stats()
+    console.print(f"\n  Graph total: {full['papers']} papers, {full['edges']} edges")
+    console.print(f"  Completed layers: {full['layers_completed']}")
