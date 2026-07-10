@@ -322,7 +322,7 @@ def _db_path() -> str:
     """
     env_dir = os.environ.get("HFPAPERS_DATA_DIR")
     if env_dir:
-        base = env_dir
+        base = env_dir if os.path.isabs(env_dir) else os.path.join(os.getcwd(), env_dir)
     else:
         base = cfg_get("paths.data_dir", "data")
         if not os.path.isabs(base):
