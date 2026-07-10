@@ -1068,7 +1068,12 @@ def graph(
     elif action == "analyze":
         cmd_analyze(source=src, community_algo=arg or "leiden", top_n=top_n, output=arg2 or "", output_format=report_fmt)
     elif action == "step":
-        cmd_step(layer=arg or "", all_layers=bool(arg2) if arg2 else False, show_config=False)
+        if arg in ("show-config", "config"):
+            cmd_step(layer="", all_layers=False, show_config=True)
+        elif arg in ("all", "--all", "-all"):
+            cmd_step(layer="", all_layers=True, show_config=False)
+        else:
+            cmd_step(layer=arg or "", all_layers=False, show_config=False)
     elif action == "geo":
         sub = arg.strip().lower()
         if sub == "stats":
