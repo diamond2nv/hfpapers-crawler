@@ -26,7 +26,7 @@ HEADERS = {
 }
 
 
-def fetch_orcid_works(orcid: str, delay: float = 1.0) -> list[dict]:
+def fetch_orcid_works(orcid: str, delay: float = 1.0, max_works: int = 10) -> list[dict]:
     """Fetch all published works for an ORCID iD.
 
     Args:
@@ -55,7 +55,11 @@ def fetch_orcid_works(orcid: str, delay: float = 1.0) -> list[dict]:
 
     data = resp.json()
     works = []
-    for group in data.get("group", []):
+    groups = data.get("group", [])
+    if len(groups) > max_works:
+        logger.info("ORCID %s: %d total works, limiting to %d most recent", orcid, len(groups), max_works)
+        groups = groups[:max_works]
+    for group in groups:
         for summary in group.get("work-summary", []):
             work = _parse_work_summary(summary)
             if work:

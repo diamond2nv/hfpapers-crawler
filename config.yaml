@@ -390,7 +390,7 @@ graph:
 # ===== 7c. Stepping Citation Expansion Config =====
 stepping:
   enabled: true                    # Enable multi-layer stepping expansion
-  api_delay: 6.0                   # S2 API request delay (free tier)
+  api_delay: 3.5                   # S2 API request delay (free tier: 100/5min ~20/min)
   resume: true                     # Skip completed layers on re-run
   sources:
     s2_api: true                   # Semantic Scholar API (online)
@@ -419,6 +419,10 @@ stepping:
         - "1011.0252"              # WGM QED
         - "2107.12188"             # integrated WGM quantum dots
         - "1811.07436"             # NV high contrast quantum imaging
+        - "2403.02868"             # user-supplied CUST
+        - "2408.13476"             # user-supplied CUST
+        - "2411.13160"             # user-supplied CUST
+        - "2511.10274"             # user-supplied CUST
         - "10.1038/s41586-022-05335-5"   # Ren XF Nature 2023
         - "10.1103/PhysRevLett.128.060501"    # Ren XF PRL 2022
         - "10.1103/PhysRevLett.126.130501"    # Ren XF PRL 2021
@@ -465,7 +469,7 @@ stepping:
         - "Zheng Y"
         - "Li S"
         - "Guo G"
-      direction: "both"
+      direction: "references"
       max_depth: 1
 
     - name: "optomechanical-crystals"
@@ -478,7 +482,7 @@ stepping:
         - "2404.15111"              # Hybrid cavity-magnon optomechanics
         - "2506.02463"              # Controlling photon-magnon coupling
       filter_keywords: ["magnomechanic", "magnon", "YIG", "cavity magnon"]
-      direction: "both"
+      direction: "references"
       max_depth: 1
 
 # ===== 8. Output Paths =====

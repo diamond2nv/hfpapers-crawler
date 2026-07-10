@@ -137,6 +137,12 @@ class SteppingExpander:
             except Exception as e:
                 logger.warning("  ORCID fetch failed for %s: %s", orcid, e)
                 continue
+            # Limit to N most recent works to avoid explosion
+            # ORCID API returns most recent first
+            max_works = 10
+            if len(works) > max_works:
+                logger.info("  ORCID %s: %d works, limiting to %d most recent", orcid, len(works), max_works)
+                works = works[:max_works]
             for work in works:
                 # Prefer arXiv ID, fallback to DOI
                 aid = work.get("arxiv_id", "")

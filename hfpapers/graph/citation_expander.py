@@ -180,20 +180,30 @@ class CitationExpander:
                 if clean:
                     resolved_seeds.append(clean)
 
-        # BFS frontier: (arxiv_id_or_doi, current_depth)
-        visited_arxiv: set[str] = set()
+        # BFS: frontier of arXiv IDs (used for S2 API calls).
+        # DOI-only papers are added to the graph but NOT expanded further.
+        visited_pids: set[str] = set()
         frontier: list[tuple[str, int]] = []
 
-        for aid in resolved_seeds:
-            if aid not in visited_arxiv:
-                visited_arxiv.add(aid)
-                frontier.append((aid, 0))
-                # Ensure seed exists as a node so CITES edges connect
-                pid = paper_node_id(arxiv_id=aid)
-                if pid not in graph:
-                    graph.add_node(pid, type=NodeType.PAPER,
-                                   label=aid, arxiv_id=aid,
-                                   sources=label_source)
+        for seed in resolved_seeds:
+            if seed.startswith("paper:"):
+                # PID from _add_paper — already in graph
+                if seed not in visited_pids:
+                    visited_pids.add(seed)
+                    node_data = graph.nodes.get(seed, {})
+                    seed_aid = node_data.get("arxiv_id", "")
+                    if seed_aid:
+                        frontier.append((seed_aid, 0))
+            else:
+                # arXiv ID — ensure placeholder node exists
+                pid = paper_node_id(arxiv_id=seed)
+                if pid not in visited_pids:
+                    visited_pids.add(pid)
+                    frontier.append((seed, 0))
+                    if pid not in graph:
+                        graph.add_node(pid, type=NodeType.PAPER,
+                                       label=seed, arxiv_id=seed,
+                                       doi="", sources=label_source)
 
         while frontier:
             aid, depth = frontier.pop(0)
@@ -201,6 +211,7 @@ class CitationExpander:
                 continue
 
             logger.info("  [S2] %s (depth=%d, %d queued)", aid, depth, len(frontier))
+            seed_pid = paper_node_id(arxiv_id=aid)
 
             # ── References (papers cited by this paper) ──────────
             if direction in ("references", "both"):
@@ -210,19 +221,21 @@ class CitationExpander:
                     if self.filter_keywords or self.filter_authors:
                         if not self._paper_matches_filters(ref):
                             continue
-                    ref_aid = _extract_arxiv(ref)
-                    if not ref_aid:
+                    ref_pid = _add_paper(graph, ref, label_source)
+                    if not ref_pid:
                         stats["no_arxiv_id"] += 1
                         continue
-                    if ref_aid in visited_arxiv:
+                    if ref_pid in visited_pids:
                         stats["skipped_existing"] += 1
                         continue
-                    visited_arxiv.add(ref_aid)
-                    _add_paper(graph, ref, label_source)
-                    _add_cites(graph, aid, ref_aid)
+                    visited_pids.add(ref_pid)
+                    _add_cites(graph, seed_pid, ref_pid)
                     stats["papers_found"] += 1
                     stats["edges_added"] += 1
-                    frontier.append((ref_aid, depth + 1))
+                    # Only continue BFS if the ref has an arXiv ID
+                    ref_aid = _extract_arxiv(ref)
+                    if ref_aid:
+                        frontier.append((ref_aid, depth + 1))
 
             # ── Citations (papers citing this paper) ──────────
             if direction in ("citations", "both"):
@@ -232,19 +245,21 @@ class CitationExpander:
                     if self.filter_keywords or self.filter_authors:
                         if not self._paper_matches_filters(cite):
                             continue
-                    cite_aid = _extract_arxiv(cite)
-                    if not cite_aid:
+                    cite_pid = _add_paper(graph, cite, label_source)
+                    if not cite_pid:
                         stats["no_arxiv_id"] += 1
                         continue
-                    if cite_aid in visited_arxiv:
+                    if cite_pid in visited_pids:
                         stats["skipped_existing"] += 1
                         continue
-                    visited_arxiv.add(cite_aid)
-                    _add_paper(graph, cite, label_source)
-                    _add_cites(graph, cite_aid, aid)
+                    visited_pids.add(cite_pid)
+                    _add_cites(graph, cite_pid, seed_pid)
                     stats["papers_found"] += 1
                     stats["edges_added"] += 1
-                    frontier.append((cite_aid, depth + 1))
+                    # Only continue BFS if has arXiv ID
+                    cite_aid = _extract_arxiv(cite)
+                    if cite_aid:
+                        frontier.append((cite_aid, depth + 1))
 
             stats["seeds_processed"] += 1
 
@@ -300,15 +315,30 @@ def _extract_arxiv(paper: dict) -> str:
     return _clean_arxiv(aid)
 
 
+def _extract_doi(paper: dict) -> str:
+    """Extract DOI from S2 paper externalIds. Returns normalized DOI or empty string."""
+    ext = paper.get("externalIds") or {}
+    doi = ext.get("DOI", "")
+    if doi:
+        return doi.lower().strip()
+    return ""
+
+
 def _add_paper(graph, paper: dict, source: str) -> str | None:
-    """Add a PAPER node from S2 API result. Returns node ID or None."""
+    """Add a PAPER node from S2 API result. Returns node ID or None.
+
+    Uses arXiv ID as primary key; falls back to DOI when available.
+    Stores both identifiers as node attributes for cross-lookup.
+    """
     from hfpapers.graph.schema import NodeType, paper_node_id
 
     aid = _extract_arxiv(paper)
-    if not aid:
+    doi = _extract_doi(paper)
+
+    if not aid and not doi:
         return None
 
-    pid = paper_node_id(arxiv_id=aid)
+    pid = paper_node_id(arxiv_id=aid, doi=doi)
     if pid in graph:
         return pid
 
@@ -319,8 +349,9 @@ def _add_paper(graph, paper: dict, source: str) -> str | None:
     graph.add_node(
         pid,
         type=NodeType.PAPER,
-        label=title or aid,
-        arxiv_id=aid,
+        label=title or aid or doi,
+        arxiv_id=aid or "",
+        doi=doi or "",
         venue=venue,
         year=year,
         sources=source,
@@ -328,12 +359,14 @@ def _add_paper(graph, paper: dict, source: str) -> str | None:
     return pid
 
 
-def _add_cites(graph, from_aid: str, to_aid: str):
-    """Add a CITES edge between two paper nodes by arXiv ID."""
-    from hfpapers.graph.schema import EdgeType, paper_node_id
+def _add_cites(graph, from_pid: str, to_pid: str):
+    """Add a CITES edge between two paper nodes by node PID.
 
-    pid_from = paper_node_id(arxiv_id=from_aid)
-    pid_to = paper_node_id(arxiv_id=to_aid)
+    Args:
+        from_pid: Source paper node ID (the one doing the citing).
+        to_pid: Target paper node ID (the one being cited).
+    """
+    from hfpapers.graph.schema import EdgeType
 
-    if pid_from in graph and pid_to in graph and not graph.has_edge(pid_from, pid_to):
-        graph.add_edge(pid_from, pid_to, type=EdgeType.CITES, source="s2_expanded")
+    if from_pid in graph and to_pid in graph and not graph.has_edge(from_pid, to_pid):
+        graph.add_edge(from_pid, to_pid, type=EdgeType.CITES, source="s2_expanded")
