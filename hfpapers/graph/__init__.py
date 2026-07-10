@@ -483,13 +483,13 @@ class GraphBuilder:
     def person_ego(self, person_id: str, depth: int = 1) -> nx.Graph | None:
         """Get ego network around a person node."""
         try:
-            return analyze.ego_network(self.G, person_id, depth)
+            return nx.ego_graph(self.G, person_id, radius=depth, undirected=True)
         except KeyError:
             return None
 
     def communities(self) -> list[set[str]]:
         """Detect communities in the graph."""
-        return analyze.louvain_communities(self.G)
+        return analyze.communities.louvain(self.G)
 
     def shortest_path(self, source: str, target: str) -> list[str]:
         """Find shortest path between two nodes."""
