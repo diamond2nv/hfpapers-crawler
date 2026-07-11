@@ -522,7 +522,7 @@ def cmd_geo_globe(
 
     Args:
         output: Output path (.pdf or .png, default: ~/data/kg/community_map.pdf).
-        projection: Map projection (robinson, mollweide, platecarree, orthographic).
+        projection: Map projection (robinson, mollweide, platecarree, orthographic, china, yrd).
         show_edges: Draw geodesic edges between locations.
         min_papers: Minimum papers to show a location.
     """

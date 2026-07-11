@@ -441,6 +441,7 @@ def render_community_static(
     try:
         import cartopy.crs as ccrs
         import cartopy.feature as cfeature
+        import cartopy.io.shapereader as shp_reader
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
@@ -473,6 +474,7 @@ def render_community_static(
         "orthographic": ccrs.Orthographic(central_longitude=105, central_latitude=35),
         "china": ccrs.LambertConformal(central_longitude=105, central_latitude=36,
                                         standard_parallels=(30, 42)),
+        "yrd": ccrs.PlateCarree(central_longitude=120.5),
     }
     proj = proj_map.get(projection, ccrs.Robinson())
 
@@ -480,17 +482,42 @@ def render_community_static(
     ax = plt.axes(projection=proj)
     if projection == "china":
         ax.set_extent([70, 140, 3, 55], crs=ccrs.PlateCarree())
+    elif projection == "yrd":
+        ax.set_extent([116.8, 123, 29, 33.5], crs=ccrs.PlateCarree())
     else:
         ax.set_global()
 
     # Coastlines, borders, and admin boundaries
-    ax.add_feature(cfeature.LAND, facecolor="#f0f0f0", edgecolor="#ddd", linewidth=0.3)
-    ax.add_feature(cfeature.OCEAN, facecolor="#e8f4f8")
-    ax.add_feature(cfeature.COASTLINE, edgecolor="#222", linewidth=1.5)
+    if projection == "yrd":
+        # PlateCarree works reliably for tight zooms; use 110m cached data
+        try:
+            land_shp = shp_reader.natural_earth(resolution="110m", category="physical", name="land")
+            ax.add_geometries(shp_reader.Reader(land_shp).geometries(), ccrs.PlateCarree(),
+                              facecolor="#f0f0f0", edgecolor="none")
+        except Exception:
+            pass
+        try:
+            ocean_shp = shp_reader.natural_earth(resolution="110m", category="physical", name="ocean")
+            ax.add_geometries(shp_reader.Reader(ocean_shp).geometries(), ccrs.PlateCarree(),
+                              facecolor="#e8f4f8", edgecolor="none")
+        except Exception:
+            ax.set_facecolor("#e8f4f8")
+        try:
+            bord_shp = shp_reader.natural_earth(resolution="110m", category="cultural",
+                                                name="admin_0_boundary_lines_land")
+            ax.add_geometries(shp_reader.Reader(bord_shp).geometries(), ccrs.PlateCarree(),
+                              facecolor="none", edgecolor="#666", linewidth=0.8)
+        except Exception:
+            pass
+        ax.coastlines(resolution="110m", edgecolor="#222", linewidth=1.2)
+    else:
+        ax.add_feature(cfeature.LAND, facecolor="#f0f0f0", edgecolor="#ddd", linewidth=0.3)
+        ax.add_feature(cfeature.OCEAN, facecolor="#e8f4f8")
+        ax.add_feature(cfeature.COASTLINE, edgecolor="#222", linewidth=1.5)
     ax.add_feature(cfeature.BORDERS, edgecolor="#666", linewidth=0.8, linestyle="-")
 
-    # Province/state boundaries (only on China zoom)
-    if projection == "china":
+    # Province/state boundaries (on China and YRD zoom)
+    if projection in ("china", "yrd"):
         try:
             from cartopy.feature import ShapelyFeature
             import cartopy.io.shapereader as shp_reader
@@ -511,18 +538,19 @@ def render_community_static(
         except Exception:
             pass
 
-        # ── Nine-Dash Line (九段线) ──
-        try:
-            from hfpapers.graph.viz.nine_dash_line import NINE_DASH_SEGMENTS
-            for segment in NINE_DASH_SEGMENTS:
-                lons = [p[0] for p in segment]
-                lats = [p[1] for p in segment]
-                ax.plot(lons, lats,
-                        transform=ccrs.PlateCarree(),
-                        color="#666", linewidth=1.2, linestyle="--",
-                        zorder=4)
-        except Exception as e:
-            logger.warning("Nine-dash line failed: %s", e)
+        # ── Nine-Dash Line (九段线) — only on full China view ──
+        if projection == "china":
+            try:
+                from hfpapers.graph.viz.nine_dash_line import NINE_DASH_SEGMENTS
+                for segment in NINE_DASH_SEGMENTS:
+                    lons = [p[0] for p in segment]
+                    lats = [p[1] for p in segment]
+                    ax.plot(lons, lats,
+                            transform=ccrs.PlateCarree(),
+                            color="#666", linewidth=1.5, linestyle="--",
+                            zorder=4)
+            except Exception as e:
+                logger.warning("Nine-dash line failed: %s", e)
 
         # ── South China Sea inset label ──
         ax.text(115, 6, "South China Sea",
