@@ -474,11 +474,33 @@ def render_community_static(
     else:
         ax.set_global()
 
-    # Coastlines and borders
+    # Coastlines, borders, and admin boundaries
     ax.add_feature(cfeature.LAND, facecolor="#f0f0f0", edgecolor="#ddd", linewidth=0.3)
     ax.add_feature(cfeature.OCEAN, facecolor="#e8f4f8")
-    ax.add_feature(cfeature.COASTLINE, edgecolor="#bbb", linewidth=0.5)
-    ax.add_feature(cfeature.BORDERS, edgecolor="#ccc", linewidth=0.3, linestyle=":")
+    ax.add_feature(cfeature.COASTLINE, edgecolor="#888", linewidth=0.6)
+    ax.add_feature(cfeature.BORDERS, edgecolor="#999", linewidth=0.5, linestyle="-")
+
+    # Province/state boundaries (only on China zoom)
+    if projection == "china":
+        try:
+            from cartopy.feature import ShapelyFeature
+            import cartopy.io.shapereader as shp_reader
+            # Use 110m scale for faster download
+            states_shp = shp_reader.natural_earth(
+                resolution="110m",
+                category="cultural",
+                name="admin_1_states_provinces",
+            )
+            states_feature = ShapelyFeature(
+                shp_reader.Reader(states_shp).geometries(),
+                ccrs.PlateCarree(),
+                facecolor="none",
+                edgecolor="#bbb",
+                linewidth=0.3,
+            )
+            ax.add_feature(states_feature, linestyle=":")
+        except Exception:
+            pass
 
     # Gridlines
     gl = ax.gridlines(draw_labels=False, linewidth=0.5, color="#ddd", alpha=0.5)
