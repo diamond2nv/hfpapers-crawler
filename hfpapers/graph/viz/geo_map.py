@@ -485,9 +485,9 @@ def render_community_static(
         try:
             from cartopy.feature import ShapelyFeature
             import cartopy.io.shapereader as shp_reader
-            # Use 110m scale for faster download
+            # 50m includes China provinces; 110m only has US states
             states_shp = shp_reader.natural_earth(
-                resolution="110m",
+                resolution="50m",
                 category="cultural",
                 name="admin_1_states_provinces",
             )
