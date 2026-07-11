@@ -462,12 +462,17 @@ def render_community_static(
         "mollweide": ccrs.Mollweide(),
         "platecarree": ccrs.PlateCarree(),
         "orthographic": ccrs.Orthographic(central_longitude=105, central_latitude=35),
+        "china": ccrs.LambertConformal(central_longitude=105, central_latitude=36,
+                                        standard_parallels=(30, 42)),
     }
     proj = proj_map.get(projection, ccrs.Robinson())
 
     fig = plt.figure(figsize=figsize)
     ax = plt.axes(projection=proj)
-    ax.set_global()
+    if projection == "china":
+        ax.set_extent([70, 140, 15, 55], crs=ccrs.PlateCarree())
+    else:
+        ax.set_global()
 
     # Coastlines and borders
     ax.add_feature(cfeature.LAND, facecolor="#f0f0f0", edgecolor="#ddd", linewidth=0.3)
@@ -489,8 +494,8 @@ def render_community_static(
                     [a["lat"], b["lat"]],
                     transform=ccrs.Geodetic(),
                     color="#999",
-                    linewidth=0.3,
-                    alpha=0.2,
+                    linewidth=0.8,
+                    alpha=0.45,
                     linestyle="--",
                 )
 

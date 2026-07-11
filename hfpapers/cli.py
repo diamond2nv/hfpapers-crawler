@@ -1089,7 +1089,9 @@ def graph(
         elif sub == "institutions":
             cmd_geo_institutions()
         elif sub == "globe":
-            cmd_geo_globe(output=arg2 or "", projection="robinson")
+            # geo globe [projection] — defaults to robinson
+            proj = arg2.strip() if arg2 and arg2.strip() else "robinson"
+            cmd_geo_globe(output="", projection=proj)
         elif sub in ("enrich", "orcid") or sub == "enrich orcid":
             # geo enrich [orcid] [--force] [--limit N]
             cmd_enrich_orcid(force=force, limit=limit)

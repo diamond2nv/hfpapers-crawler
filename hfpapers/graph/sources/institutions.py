@@ -245,6 +245,53 @@ INSTITUTION_CITY: dict[str, dict] = {
         "city": "New Haven", "country": "USA",
         "lat": 41.3083, "lng": -72.9282,
     },
+    # ── Chinese fusion institutions ──
+    "southwestern institute of physics": {
+        "canonical": "Southwestern Institute of Physics",
+        "city": "Chengdu", "country": "China",
+        "lat": 30.5728, "lng": 104.0668,
+    },
+    "swip": {
+        "canonical": "Southwestern Institute of Physics",
+        "city": "Chengdu", "country": "China",
+        "lat": 30.5728, "lng": 104.0668,
+    },
+    "核工业西南物理研究院": {
+        "canonical": "Southwestern Institute of Physics",
+        "city": "Chengdu", "country": "China",
+        "lat": 30.5728, "lng": 104.0668,
+    },
+    "huazhong university of science and technology": {
+        "canonical": "Huazhong University of Science and Technology",
+        "city": "Wuhan", "country": "China",
+        "lat": 30.5128, "lng": 114.4158,
+    },
+    "华中科技大学": {
+        "canonical": "Huazhong University of Science and Technology",
+        "city": "Wuhan", "country": "China",
+        "lat": 30.5128, "lng": 114.4158,
+    },
+    "dalian university of technology": {
+        "canonical": "Dalian University of Technology",
+        "city": "Dalian", "country": "China",
+        "lat": 38.9140, "lng": 121.6147,
+    },
+    # ── YRD universities ──
+    "shanghai jiao tong university": {
+        "canonical": "Shanghai Jiao Tong University",
+        "city": "Shanghai", "country": "China",
+        "lat": 31.0250, "lng": 121.4347,
+    },
+    "southeast university": {
+        "canonical": "Southeast University",
+        "city": "Nanjing", "country": "China",
+        "lat": 32.0584, "lng": 118.7969,
+    },
+    "suzhou university": {
+        "canonical": "Soochow University",
+        "city": "Suzhou", "country": "China",
+        "lat": 31.2989, "lng": 120.5832,
+    },
     "ecnu": {
         "canonical": "East China Normal University",
         "city": "Shanghai", "country": "China",
