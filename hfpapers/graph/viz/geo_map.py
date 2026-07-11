@@ -535,6 +535,9 @@ def render_community_static(
     )
 
     path = Path(output or DEFAULT_STATIC).expanduser()
+    if not output and projection != "robinson":
+        # Use projection-specific filename
+        path = path.with_stem(f"community_map_{projection}")
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(str(path), dpi=300, bbox_inches="tight")
     plt.close(fig)
