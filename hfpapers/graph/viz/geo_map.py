@@ -479,15 +479,15 @@ def render_community_static(
     fig = plt.figure(figsize=figsize)
     ax = plt.axes(projection=proj)
     if projection == "china":
-        ax.set_extent([70, 140, 15, 55], crs=ccrs.PlateCarree())
+        ax.set_extent([70, 140, 3, 55], crs=ccrs.PlateCarree())
     else:
         ax.set_global()
 
     # Coastlines, borders, and admin boundaries
     ax.add_feature(cfeature.LAND, facecolor="#f0f0f0", edgecolor="#ddd", linewidth=0.3)
     ax.add_feature(cfeature.OCEAN, facecolor="#e8f4f8")
-    ax.add_feature(cfeature.COASTLINE, edgecolor="#888", linewidth=0.6)
-    ax.add_feature(cfeature.BORDERS, edgecolor="#999", linewidth=0.5, linestyle="-")
+    ax.add_feature(cfeature.COASTLINE, edgecolor="#222", linewidth=1.5)
+    ax.add_feature(cfeature.BORDERS, edgecolor="#666", linewidth=0.8, linestyle="-")
 
     # Province/state boundaries (only on China zoom)
     if projection == "china":
@@ -511,6 +511,26 @@ def render_community_static(
         except Exception:
             pass
 
+        # ── Nine-Dash Line (九段线) ──
+        try:
+            from hfpapers.graph.viz.nine_dash_line import NINE_DASH_SEGMENTS
+            for segment in NINE_DASH_SEGMENTS:
+                lons = [p[0] for p in segment]
+                lats = [p[1] for p in segment]
+                ax.plot(lons, lats,
+                        transform=ccrs.PlateCarree(),
+                        color="#666", linewidth=1.2, linestyle="--",
+                        zorder=4)
+        except Exception as e:
+            logger.warning("Nine-dash line failed: %s", e)
+
+        # ── South China Sea inset label ──
+        ax.text(115, 6, "South China Sea",
+                transform=ccrs.PlateCarree(),
+                fontsize=7, color="#777", style="italic",
+                ha="center", va="center",
+                zorder=2)
+
     # Gridlines
     gl = ax.gridlines(draw_labels=False, linewidth=0.5, color="#ddd", alpha=0.5)
 
@@ -524,10 +544,10 @@ def render_community_static(
                     [a["lng"], b["lng"]],
                     [a["lat"], b["lat"]],
                     transform=ccrs.Geodetic(),
-                    color="#999",
-                    linewidth=0.8,
-                    alpha=0.45,
-                    linestyle="--",
+                    color="#aaa",
+                    linewidth=0.4,
+                    alpha=0.25,
+                    linestyle="-",
                 )
 
     # ── Nodes ────────────────────────────────────────────
