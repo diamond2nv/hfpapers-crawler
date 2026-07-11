@@ -169,61 +169,70 @@ def aggregate_institution_communities(
                     comm_counts[cid] = comm_counts.get(cid, 0) + 1
 
         total = sum(comm_counts.values())
-        if total < min_papers:
-            continue
 
-        dominant = max(comm_counts, key=comm_counts.get)
-        loc_comm[nid] = {
-            "label": label,
-            "lat": float(lat),
-            "lng": float(lng),
-            "type": "INSTITUTION",
-            "total_papers": total,
-            "communities": comm_counts,
-            "dominant": dominant,
-            "color": _community_color(dominant),
-            "persons": list(persons_at_inst),
-        }
-
-    # CITY/COUNTRY fallback: aggregate papers without institution
-    if use_city_fallback and not loc_comm:
-        city_nodes = [
-            (n, d) for n, d in G.nodes(data=True)
-            if getattr(d.get("type"), "name", d.get("type")) in ("CITY", "COUNTRY")
-        ]
-        for nid, data in city_nodes:
-            lat, lng = data.get("lat"), data.get("lng")
-            if not lat or not lng:
-                continue
-            label = data.get("label", nid)[:80]
-
-            # Find affiliated institutions → persons → papers
-            insts = list(G.neighbors(nid))
-            comm_counts = {}
-            all_persons = set()
-            for inst in insts:
-                for p in _affiliated_persons(G, inst):
-                    all_persons.add(p)
-                    for paper in person_papers.get(p, set()):
-                        cid = paper_comm.get(paper)
-                        if cid is not None:
-                            comm_counts[cid] = comm_counts.get(cid, 0) + 1
-
-            total = sum(comm_counts.values())
-            if total < min_papers:
-                continue
+        if total >= max(min_papers, 1):
             dominant = max(comm_counts, key=comm_counts.get)
-            ntype = getattr(data.get("type"), "name", "CITY")
             loc_comm[nid] = {
                 "label": label,
                 "lat": float(lat),
                 "lng": float(lng),
-                "type": ntype,
+                "type": "INSTITUTION",
                 "total_papers": total,
                 "communities": comm_counts,
                 "dominant": dominant,
                 "color": _community_color(dominant),
-                "persons": list(all_persons),
+                "persons": list(persons_at_inst),
+            }
+            continue
+
+        # ── Institution with no affiliated persons: try city fallback ──
+        # Find papers through city nodes linked via LOCATED_IN
+        city_fallback_comm: dict[int, int] = {}
+        city_fallback_persons: list[str] = []
+        if use_city_fallback:
+            for nb in G.neighbors(nid):
+                nd = G.nodes.get(nb, {})
+                nt = getattr(nd.get("type"), "name", nd.get("type"))
+                if nt == "CITY":
+                    # Other institutions in this city may have persons
+                    for other_inst in G.neighbors(nb):
+                        if other_inst == nid:
+                            continue
+                        ond = G.nodes.get(other_inst, {})
+                        ont = getattr(ond.get("type"), "name", ond.get("type"))
+                        if ont == "INSTITUTION":
+                            for p in _affiliated_persons(G, other_inst):
+                                city_fallback_persons.append(p)
+                                for paper in person_papers.get(p, set()):
+                                    cid = paper_comm.get(paper)
+                                    if cid is not None:
+                                        city_fallback_comm[cid] = city_fallback_comm.get(cid, 0) + 1
+        f_total = sum(city_fallback_comm.values())
+        if f_total >= max(min_papers, 1):
+            dominant = max(city_fallback_comm, key=city_fallback_comm.get)
+            loc_comm[nid] = {
+                "label": label,
+                "lat": float(lat),
+                "lng": float(lng),
+                "type": "INSTITUTION",
+                "total_papers": f_total,
+                "communities": city_fallback_comm,
+                "dominant": dominant,
+                "color": _community_color(dominant),
+                "persons": list(city_fallback_persons),
+            }
+        else:
+            # Render as a small grey dot — institution exists but no linked papers
+            loc_comm[nid] = {
+                "label": label,
+                "lat": float(lat),
+                "lng": float(lng),
+                "type": "INSTITUTION",
+                "total_papers": 0,
+                "communities": {},
+                "dominant": -1,
+                "color": "#cccccc",
+                "persons": [],
             }
 
     logger.info("Aggregated %d locations with community data", len(loc_comm))
@@ -522,9 +531,17 @@ def render_community_static(
                 )
 
     # ── Nodes ────────────────────────────────────────────
+    has_unknown = False
     for nid, info in loc_comm.items():
-        size = max(20, min(200, 20 + info["total_papers"] * 8))
-        color = info["color"]
+        total = info["total_papers"]
+        if total <= 0:
+            # Grey dot for institutions with no linked papers
+            size = 15
+            color = "#cccccc"
+            has_unknown = True
+        else:
+            size = max(20, min(200, 20 + total * 8))
+            color = info["color"]
 
         ax.scatter(
             info["lng"], info["lat"],
@@ -548,6 +565,11 @@ def render_community_static(
                    markersize=8, label=f"C{cid}")
         for cid in sorted_cids
     ]
+    if has_unknown:
+        legend_elements.append(
+            plt.Line2D([0], [0], marker="o", color="w", markerfacecolor="#cccccc",
+                       markersize=6, label="No community data")
+        )
     ax.legend(
         handles=legend_elements,
         loc="lower left",
