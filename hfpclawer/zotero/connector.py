@@ -36,10 +36,9 @@ from typing import Any, Optional
 import urllib.request
 import urllib.error
 
-logger = logging.getLogger("hfpclawer.zotero.connector")
+from hfpclawer.zotero import get_zotero_url, is_zotero_remote
 
-# Default Zotero local connector endpoint
-CONNECTOR_URL = "http://localhost:23119/connector"
+logger = logging.getLogger("hfpclawer.zotero.connector")
 
 # Connector API version (matching Zotero source)
 CONNECTOR_API_VERSION = 3
@@ -56,8 +55,8 @@ class ZoteroConnector:
     All operations are local — no API key, no internet.
     """
 
-    def __init__(self, connector_url: str = CONNECTOR_URL, timeout: float = 15.0):
-        self._url = connector_url.rstrip("/")
+    def __init__(self, connector_url: str | None = None, timeout: float = 15.0):
+        self._url = (connector_url or get_zotero_url() + "/connector").rstrip("/")
         self._timeout = timeout
 
     def save_items(
@@ -188,6 +187,8 @@ class ZoteroConnector:
             "Content-Type": "application/octet-stream",
             "X-Metadata": _json.dumps(metadata, ensure_ascii=False),
         }
+        if is_zotero_remote():
+            headers["Host"] = "localhost:23119"
 
         req = urllib.request.Request(
             target_url, data=pdf_bytes, headers=headers, method="POST"
@@ -275,6 +276,8 @@ class ZoteroConnector:
             "Content-Type": "application/json",
             "X-Zotero-Connector-API-Version": str(CONNECTOR_API_VERSION),
         }
+        if is_zotero_remote():
+            headers["Host"] = "localhost:23119"
 
         logger.debug(
             "POST %s session=%s items=%d",

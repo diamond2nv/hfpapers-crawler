@@ -9,13 +9,50 @@ against Zotero's local HTTP API via pyzotero.
 from __future__ import annotations
 
 import logging
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
 
+from hfpclawer.zotero import get_zotero_url, is_zotero_remote
+
 logger = logging.getLogger("hfpclawer.cli_zotero")
 console = Console()
+
+
+def _cli_api_url(path: str) -> str:
+    """Build absolute Zotero API URL for CLI direct requests."""
+    return f"{get_zotero_url()}/api/users/0{path}"
+
+
+def _cli_api_request(
+    url: str,
+    method: str = "GET",
+    body: bytes | None = None,
+    timeout: float = 15.0,
+) -> tuple[int, str]:
+    """Send a direct HTTP request to Zotero, returning (status_code, body).
+
+    Auto-injects Host spoofing when connecting to a remote Zotero.
+    """
+    headers: dict[str, str] = {
+        "User-Agent": "pyzotero/1.13.2",
+        "Zotero-API-Version": "3",
+    }
+    if is_zotero_remote():
+        headers["Host"] = "localhost:23119"
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8") if e.fp else ""
+    except urllib.error.URLError as e:
+        return 0, str(e.reason)
 
 
 def _get_client(**kwargs):
@@ -46,7 +83,7 @@ def cmd_check(**kwargs) -> None:
         except Exception:
             pass
     else:
-        console.print("[red]❌ Cannot reach Zotero local API (localhost:23119)[/red]")
+        console.print("[red]❌ Cannot reach Zotero local API[/red]")
         console.print("  Make sure Zotero is running and 'Allow other applications' is enabled.")
 
 
@@ -809,21 +846,15 @@ def cmd_export(
 
     elif zotero_key:
         # Verify key exists
-        try:
-            api_path = f"/items/{zotero_key}?format={fmt}"
-            test_url = f"http://localhost:23119/api/users/0/items/{zotero_key}"
-            with urllib.request.urlopen(test_url, timeout=10) as resp:
-                json.loads(resp.read().decode())
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                console.print(f"[red]❌ Zotero key '{zotero_key}' not found[/red]")
-            else:
-                console.print(f"[red]❌ Zotero API error: HTTP {e.code}[/red]")
-            return
-        except Exception as e:
-            console.print("[red]❌ Zotero is not running[/red]")
-            return
         api_path = f"/items/{zotero_key}?format={fmt}"
+        test_url = _cli_api_url(f"/items/{zotero_key}")
+        status, body = _cli_api_request(test_url, timeout=10)
+        if status == 404:
+            console.print(f"[red]❌ Zotero key '{zotero_key}' not found[/red]")
+            return
+        elif status >= 400 or status == 0:
+            console.print(f"[red]❌ Zotero API error: HTTP {status}[/red]")
+            return
 
     elif collection_key:
         api_path = f"/collections/{collection_key}/items?format={fmt}"
@@ -839,18 +870,15 @@ def cmd_export(
         return
 
     # Fetch
-    url = f"http://localhost:23119/api/users/0{api_path}"
+    url = _cli_api_url(api_path)
     console.print(f"[dim]Fetching: {url[:80]}...[/dim]")
 
-    try:
-        with urllib.request.urlopen(url, timeout=30) as resp:
-            content = resp.read().decode("utf-8")
-    except urllib.error.HTTPError as e:
-        console.print(f"[red]❌ Export failed: HTTP {e.code}[/red]")
+    status, body = _cli_api_request(url, timeout=30)
+    if status >= 400 or status == 0:
+        console.print(f"[red]❌ Zotero API returned HTTP {status}[/red]")
         return
-    except Exception as e:
-        console.print(f"[red]❌ Export failed: {e}[/red]")
-        return
+
+    content = body
 
     if not content.strip():
         console.print("[yellow]No results to export.[/yellow]")
@@ -939,9 +967,12 @@ def cmd_note(
 
     # Fetch children
     try:
-        url = f"http://localhost:23119/api/users/0/items/{parent_key}/children"
-        with urllib.request.urlopen(url, timeout=15) as resp:
-            children = json.loads(resp.read().decode())
+        url = _cli_api_url(f"/items/{parent_key}/children")
+        status, body = _cli_api_request(url, timeout=15)
+        if status >= 400 or status == 0:
+            console.print(f"[red]❌ Cannot fetch notes: HTTP {status}[/red]")
+            return
+        children = json.loads(body)
     except Exception as e:
         console.print(f"[red]❌ Cannot fetch notes: {e}[/red]")
         return
@@ -998,22 +1029,16 @@ def cmd_note(
 
 def _api_get_single(key: str) -> dict:
     """Fetch a single Zotero item by key, return its data dict."""
-    import urllib.request
-    import urllib.error
     import json
 
-    url = f"http://localhost:23119/api/users/0/items/{key}"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            item = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return {"error": f"Zotero key '{key}' not found"}
-        return {"error": f"HTTP {e.code}"}
-    except Exception as e:
-        return {"error": str(e)}
-
-    data = item.get("data", {})
+    url = _cli_api_url(f"/items/{key}")
+    status, body = _cli_api_request(url, timeout=10)
+    if status == 404:
+        return {"error": f"Zotero key '{key}' not found"}
+    elif status >= 400 or status == 0:
+        return {"error": f"Zotero API error: HTTP {status}"}
+    item = json.loads(body)
+    data = item.get("data", {}) or {}
     if not data:
         return {"error": f"Item '{key}' not found"}
     return dict(data)

@@ -17,9 +17,140 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
+import urllib.request
 from typing import Any, Optional
 
 logger = logging.getLogger("hfpclawer.zotero")
+
+# ── Shared Zotero URL resolution ──────────────────────
+# All modules (__init__, connector, annotations, cli) use get_zotero_url()
+# so a single ZOTERO_API_URL env var sets the remote Zotero instance for all.
+
+_ZOTERO_BASE_URL_CACHE: str | None = None
+_DOTENV_LOADED = False
+
+
+def _ensure_dotenv() -> None:
+    """Load .env file once via python-dotenv (if available).
+
+    Search order (first match wins):
+      1. CWD → parent directories (load_dotenv() default behavior)
+      2. ~/.config/hfpclawer/.env (XDG standard for CLI tools)
+      3. ~/.hfpclawer/.env (legacy fallback)
+    """
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED:
+        return
+    _DOTENV_LOADED = True
+    try:
+        from dotenv import load_dotenv
+        from pathlib import Path
+
+        # 1. CWD upward (covers dev repo, project dirs)
+        load_dotenv()
+        # 2. XDG user config dir
+        load_dotenv(Path.home() / ".config" / "hfpclawer" / ".env", override=False)
+        # 3. Legacy fallback
+        load_dotenv(Path.home() / ".hfpclawer" / ".env", override=False)
+    except Exception:
+        pass  # dotenv not installed or .env missing — just use os.environ
+
+
+def _get_env(key: str, default: str = "") -> str:
+    """Read env var, with .env support via python-dotenv.
+
+    Calls load_dotenv() once per process so .env values are picked up
+    without needing a manual export.
+    """
+    _ensure_dotenv()
+    return os.environ.get(key, default).strip()
+
+
+def get_zotero_url() -> str:
+    """Get the Zotero base URL, resolved once per process.
+
+    Resolution order:
+      1. ZOTERO_API_URL environment variable (e.g. http://192.168.0.103:23120)
+      2. Default: http://localhost:23119
+
+    ZOTERO_API_URL can be set via:
+      - Environment variable (export)
+      - .env file (python-dotenv, loaded automatically)
+
+    Returns the base URL WITHOUT trailing slash (e.g. 'http://localhost:23119').
+    """
+    global _ZOTERO_BASE_URL_CACHE
+    if _ZOTERO_BASE_URL_CACHE is not None:
+        return _ZOTERO_BASE_URL_CACHE
+    _ensure_dotenv()
+    _ZOTERO_BASE_URL_CACHE = (
+        os.environ.get("ZOTERO_API_URL") or "http://localhost:23119"
+    ).rstrip("/")
+    return _ZOTERO_BASE_URL_CACHE
+
+
+def is_zotero_remote() -> bool:
+    """Check if the configured Zotero URL points to a remote host.
+
+    When True, all HTTP requests should spoof the Host header as
+    ``localhost:23119`` so Zotero's ``httpd.js`` Host check passes.
+    """
+    netloc = get_zotero_url().split("://", 1)[-1].split("/")[0].split(":")[0]
+    return netloc not in ("localhost", "127.0.0.1", "::1")
+
+
+def _zotero_api_path(path: str) -> str:
+    """Build an absolute URL to a Zotero API endpoint.
+
+    Args:
+        path: API path with leading slash (e.g. '/items/ABC123')
+              or absolute URL (passed through unchanged).
+    """
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    base = get_zotero_url()
+    return f"{base}/api/users/0{path}"
+
+
+def _zotero_request(
+    url: str,
+    method: str = "GET",
+    body: bytes | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: float = 15.0,
+) -> urllib.request.Request:
+    """Build a urllib Request with automatic Host spoofing for remote Zotero.
+
+    Args:
+        url: Absolute URL (may be built with _zotero_api_path()).
+        method: HTTP method (default GET).
+        body: Optional request body bytes.
+        headers: Additional headers. Host spoofing is auto-injected when
+                 the configured Zotero URL is remote.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Prepared urllib.request.Request.
+
+    Raises:
+        urllib.error.URLError / HTTPError from urlopen().
+    """
+    req_headers = dict(headers) if headers else {}
+    req_headers.setdefault("Content-Type", "application/json")
+    req_headers.setdefault("User-Agent", "pyzotero/1.13.2")
+    req_headers.setdefault("Zotero-API-Version", "3")
+    if is_zotero_remote():
+        req_headers["Host"] = "localhost:23119"
+    req = urllib.request.Request(url, data=body, headers=req_headers, method=method)
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+# Add settable cache for testing
+def _reset_zotero_url_cache() -> None:
+    """Reset the cached Zotero URL (for testing)."""
+    global _ZOTERO_BASE_URL_CACHE
+    _ZOTERO_BASE_URL_CACHE = None
 
 # pyzotero is an optional dependency
 try:
@@ -53,7 +184,13 @@ class ZoteroClient:
         self._arxiv_lookup: Optional[dict[str, str]] = None
 
     def _connect(self) -> _PyZotero:
-        """Lazy connection to Zotero local API."""
+        """Lazy connection to Zotero API (local or remote).
+
+        Auto-detection sequence:
+          1. ZOTERO_API_URL env var → remote Zotero (with Host spoofing)
+          2. WSL gateway detection → Windows host Zotero via NAT
+          3. Default → localhost:23119
+        """
         if self._zot is not None:
             return self._zot
         try:
@@ -62,36 +199,55 @@ class ZoteroClient:
                 library_type="user",
                 local=True,
             )
-            # WSL 下 localhost 指向 WSL 自身而非 Windows
-            # 需用 Windows 网关 IP + 伪造 Host 头（Zotero httpd.js 检查 Host=localhost）
-            _wsl_gateway = self._detect_wsl_gateway()
-            if _wsl_gateway:
-                import httpx
-                self._zot.endpoint = f"http://{_wsl_gateway}:23119/api"
-                self._zot.client = httpx.Client(
-                    headers={
-                        "User-Agent": "pyzotero/1.13.2",
-                        "Zotero-API-Version": "3",
-                        "Host": "localhost:23119",
-                        "Content-Type": "application/json",
-                    },
-                    follow_redirects=True,
-                    timeout=httpx.Timeout(self._timeout),
-                )
+            base_url = get_zotero_url()
+            is_remote = is_zotero_remote()
+            wsl_gateway = self._detect_wsl_gateway()
+
+            # ── Case A: env var ZOTERO_API_URL set — use as-is ──
+            if is_remote:
+                self._zot.endpoint = f"{base_url}/api"
+                self._zot.client = self._make_httpx_client(base_url)
                 logger.info(
-                    "WSL detected: connecting to Zotero via %s:23119 "
-                    "(Host header spoofed as localhost)", _wsl_gateway
+                    "Remote Zotero via %s (Host spoofed as localhost:23119)",
+                    base_url,
                 )
+            # ── Case B: inside WSL → Windows gateway ──
+            elif wsl_gateway:
+                gw_url = f"http://{wsl_gateway}:23119"
+                self._zot.endpoint = f"{gw_url}/api"
+                self._zot.client = self._make_httpx_client(gw_url)
+                logger.info(
+                    "WSL→Windows Zotero via %s:23119 (Host spoofed as localhost)",
+                    wsl_gateway,
+                )
+            # ── Case C: localhost (default pyzotero local=True) ──
+            else:
+                logger.info("Zotero at localhost:23119")
+
             # Verify connection with a ping
             _ = self._zot.top(limit=1)
-            logger.info("Connected to Zotero local API at localhost:23119")
+            logger.info("Connected to Zotero API at %s", base_url)
             return self._zot
         except Exception as e:
             self._zot = None
             raise ZoteroConnectionError(
-                f"Cannot connect to Zotero local API: {e}. "
+                f"Cannot connect to Zotero at {get_zotero_url()}: {e}. "
                 "Ensure Zotero is running and local API is enabled."
             ) from e
+
+    def _make_httpx_client(self, base_url: str):
+        """Create an httpx.Client with Host spoofing for remote Zotero."""
+        import httpx
+        return httpx.Client(
+            headers={
+                "User-Agent": "pyzotero/1.13.2",
+                "Zotero-API-Version": "3",
+                "Host": "localhost:23119",
+                "Content-Type": "application/json",
+            },
+            follow_redirects=True,
+            timeout=httpx.Timeout(self._timeout),
+        )
 
     @staticmethod
     def _detect_wsl_gateway() -> str | None:
@@ -268,10 +424,9 @@ class ZoteroClient:
         try:
             # pyzotero's file() returns bytes; dump() saves to disk
             # For URL, we call the local API directly
-            import urllib.request
-            url = f"http://localhost:23119/api/users/{self._library_id}/items/{key}/file/view/url"
-            req = urllib.request.urlopen(url, timeout=self._timeout)
-            return req.read().decode().strip()
+            url = _zotero_api_path(f"/items/{key}/file/view/url")
+            with _zotero_request(url, timeout=self._timeout) as resp:
+                return resp.read().decode().strip()
         except Exception as e:
             logger.debug("Zotero file_url(%s) failed: %s", key, e)
             return None
@@ -284,12 +439,10 @@ class ZoteroClient:
         Returns raw item dicts (no pagination needed for local API
         with a generous limit).
         """
-        import urllib.request
-        import json
-
-        url = "http://localhost:23119/api/users/0/items?limit=5000"
+        url = _zotero_api_path("/items?limit=5000")
         try:
-            with urllib.request.urlopen(url, timeout=30) as resp:
+            with _zotero_request(url, timeout=30) as resp:
+                import json
                 return json.loads(resp.read().decode())
         except Exception:
             return []
@@ -536,12 +689,11 @@ class ZoteroClient:
             return []
         keys = list(self._arxiv_lookup.values())
         items = []
-        import urllib.request
         import json
         for key in keys[:200]:  # limit to avoid flooding
             try:
-                url = f"http://localhost:23119/api/users/0/items/{key}"
-                with urllib.request.urlopen(url, timeout=10) as resp:
+                url = _zotero_api_path(f"/items/{key}")
+                with _zotero_request(url, timeout=10) as resp:
                     items.append(json.loads(resp.read().decode()))
             except Exception:
                 pass
@@ -807,15 +959,10 @@ class ZoteroClient:
 
         # PUT back via local API
         try:
-            import json, urllib.request
+            import json
             body = json.dumps(item).encode("utf-8")
-            req = urllib.request.Request(
-                f"http://localhost:23119/api/users/0/items/{key}",
-                data=body,
-                method="PUT",
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            url = _zotero_api_path(f"/items/{key}")
+            with _zotero_request(url, method="PUT", body=body, timeout=15) as resp:
                 if resp.status in (200, 204):
                     logger.info("Extra field updated for %s: %s", key, extra_fields)
                     return True

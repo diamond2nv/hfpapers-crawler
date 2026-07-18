@@ -24,6 +24,8 @@ import urllib.error
 from pathlib import Path
 from typing import Any, Optional
 
+from hfpclawer.zotero import get_zotero_url, is_zotero_remote
+
 logger = logging.getLogger("hfpclawer.zotero.annotations")
 
 
@@ -62,20 +64,44 @@ def _color_label(rgb: tuple[float, float, float]) -> str:
 
 # ─── API helpers ────────────────────────────────────
 
-_ZOTERO_API = "http://localhost:23119/api/users/0"
+
+def _api_url(path: str) -> str:
+    """Build an absolute Zotero API URL.
+
+    Args:
+        path: API path with leading slash (e.g. '/items/ABC123').
+    """
+    base = get_zotero_url()
+    return f"{base}/api/users/0{path}"
 
 
-def _api_get(path: str) -> Any:
-    """GET a Zotero local API endpoint, return parsed JSON."""
-    url = f"{_ZOTERO_API}{path}"
+def _api_request(
+    url: str,
+    method: str = "GET",
+    body: bytes | None = None,
+    timeout: float = 15.0,
+) -> Any:
+    """Send an HTTP request to Zotero API.
+
+    Auto-injects Host header spoofing when the configured Zotero is remote.
+    """
+    headers: dict[str, str] = {
+        "User-Agent": "pyzotero/1.13.2",
+        "Zotero-API-Version": "3",
+    }
+    if is_zotero_remote():
+        headers["Host"] = "localhost:23119"
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(url, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
             import json
             return json.loads(raw)
     except urllib.error.URLError as e:
         raise ConnectionError(
-            f"Cannot reach Zotero at {_ZOTERO_API}: {e.reason}. "
+            f"Cannot reach Zotero at {url}: {e.reason}. "
             "Ensure Zotero is running with local API enabled."
         ) from e
 
@@ -118,7 +144,7 @@ def resolve_pdf_path(
         parent_key = zotero_key
         # Verify it exists
         try:
-            item = _api_get(f"/items/{parent_key}")
+            item = _api_request(_api_url(f"/items/{parent_key}"))
             if not item or not item.get("data"):
                 return {"error": f"Zotero key '{zotero_key}' not found"}
         except urllib.error.HTTPError as e:
@@ -132,14 +158,14 @@ def resolve_pdf_path(
 
     # Step 2: get paper title
     try:
-        item = _api_get(f"/items/{parent_key}")
+        item = _api_request(_api_url(f"/items/{parent_key}"))
     except ConnectionError:
         return {"error": "Zotero is not running"}
     title = (item.get("data", {}) or {}).get("title", "")
 
     # Step 3: find PDF attachment
     try:
-        children = _api_get(f"/items/{parent_key}/children")
+        children = _api_request(_api_url(f"/items/{parent_key}/children"))
     except ConnectionError:
         return {"error": "Zotero is not running"}
 
@@ -162,8 +188,11 @@ def resolve_pdf_path(
 
     # Step 4: get local file path
     try:
-        url = f"http://localhost:23119/api/users/0/items/{attach_key}/file/view/url"
-        req = urllib.request.Request(url, method="GET")
+        file_url = _api_url(f"/items/{attach_key}/file/view/url")
+        headers: dict[str, str] = {}
+        if is_zotero_remote():
+            headers["Host"] = "localhost:23119"
+        req = urllib.request.Request(file_url, method="GET", headers=headers)
         with urllib.request.urlopen(req, timeout=15) as resp:
             file_url_str = resp.read().decode("utf-8").strip()
     except urllib.error.HTTPError as e:
