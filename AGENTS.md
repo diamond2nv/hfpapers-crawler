@@ -26,6 +26,7 @@ working on this project. It describes the project structure, key patterns, pitfa
 | PEP | Rule | How |
 |-----|------|-----|
 | 621 | **Version source** | `pyproject.toml` only; `__init__.py` reads via `importlib.metadata`/`tomllib` |
+| — | **Commit message version** | `v0.{x}.{y}: 描述`. 版本号**必须来自 pyproject.toml**，禁止自行编撰（如 commit msg 写 v0.13.x 但 toml 是 0.12.x）。hotfix 按最新 tag 系列递增 |
 | 660 | **Editable install** | `pip install -e .` must work (has `[build-system]`) |
 | 8 | **Code style** | ruff (100 chars, double quotes); 100% English in .py |
 | — | **.gitignore** | Must cover: `__pycache__/ *.egg-info/ dist/ build/ .venv/ .env` |
