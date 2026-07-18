@@ -1796,3 +1796,91 @@ def semantic_service(
     if preload:
         sys.argv.append("--preload")
     main()
+
+
+# ════════════════════════════════════════════════════════
+# Source Commands — Multi-source document adapters
+# ════════════════════════════════════════════════════════
+
+
+@app.command()
+def source_list():
+    """List all available document source adapters"""
+    from hfpapers.source_adapters import list_sources
+    names = list_sources()
+    if not names:
+        typer.echo("No source adapters registered.")
+        raise typer.Exit(0)
+    typer.echo("Available sources:")
+    for name in names:
+        typer.echo(f"  · {name}")
+
+
+@app.command()
+def source_fetch(
+    source: str = typer.Argument(..., help="Source name (e.g. gh_ingest)"),
+    doc_id: str = typer.Argument(..., help="Document ID to fetch"),
+):
+    """Fetch a document from a source by its ID
+
+    Example: hfpclawer source fetch gh_ingest owner/repo
+    """
+    from hfpapers.source_adapters import get_source
+    s = get_source(source)
+    if s is None:
+        typer.echo(f"Unknown source '{source}'. Use `hfpclawer source-list` to see available sources.", err=True)
+        raise typer.Exit(1)
+    doc = s.fetch(doc_id)
+    if doc is None:
+        typer.echo(f"Document '{doc_id}' not found in '{source}'.", err=True)
+        raise typer.Exit(1)
+    typer.echo(f"Title:    {doc.title}")
+    typer.echo(f"Source:   {doc.source}")
+    typer.echo(f"URL:      {doc.source_url}")
+    typer.echo(f"Code:     {doc.code_url}")
+    typer.echo(f"Abstract: {doc.abstract[:200]}...")
+    if doc.tags:
+        typer.echo(f"Tags:     {', '.join(doc.tags)}")
+
+
+@app.command()
+def source_search(
+    source: str = typer.Argument(..., help="Source name"),
+    query: str = typer.Argument(..., help="Search query"),
+    limit: int = typer.Option(10, "--limit", "-l", help="Max results"),
+):
+    """Search a source for documents matching query"""
+    from hfpapers.source_adapters import get_source
+    s = get_source(source)
+    if s is None:
+        typer.echo(f"Unknown source '{source}'.", err=True)
+        raise typer.Exit(1)
+    docs = s.search(query, limit=limit)
+    if not docs:
+        typer.echo(f"No results for '{query}' in '{source}'.")
+        raise typer.Exit(0)
+    typer.echo(f"Found {len(docs)} result(s):")
+    for i, doc in enumerate(docs, 1):
+        typer.echo(f"  {i}. [{doc.id}] {doc.title}")
+
+
+@app.command()
+def source_ingest(
+    source: str = typer.Argument(..., help="Source name"),
+    doc_id: str = typer.Argument(..., help="Document ID to ingest to paper_store"),
+):
+    """Ingest a source document into paper_store
+
+    Example: hfpclawer source ingest gh_ingest owner/repo
+    """
+    from hfpapers.source_adapters import get_source
+    s = get_source(source)
+    if s is None:
+        typer.echo(f"Unknown source '{source}'.", err=True)
+        raise typer.Exit(1)
+    doc = s.fetch(doc_id)
+    if doc is None:
+        typer.echo(f"Document '{doc_id}' not found.", err=True)
+        raise typer.Exit(1)
+    sf_id, is_new = s.ingest_to_paper_store(doc)
+    typer.echo(f"{'✅' if is_new else '🔁'} {doc.title} → paper_store (id={sf_id}, new={is_new})")
