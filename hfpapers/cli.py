@@ -110,9 +110,7 @@ def search(
 
     dedup = DedupEngine()
     detector = RelevanceDetector()
-    clawler = HFPapersCrawler(
-        dedup=dedup, detector=detector, source_timeout=search_timeout
-    )
+    clawler = HFPapersCrawler(dedup=dedup, detector=detector, source_timeout=search_timeout)
 
     start_t = time.time()
     try:
@@ -199,8 +197,10 @@ def convert_tex(
         "", "--arxiv-id", "-a", help="Single arXiv ID to convert (default: all pending)"
     ),
     tex_dir: str = typer.Option(
-        "", "--tex-dir", "-d",
-        help="Path to tex_src dir with .tar.gz files (default: <repo>/data/tex_src/)"
+        "",
+        "--tex-dir",
+        "-d",
+        help="Path to tex_src dir with .tar.gz files (default: <repo>/data/tex_src/)",
     ),
 ):
     """Convert arXiv TeX source → formula-preserving Markdown
@@ -217,9 +217,7 @@ def convert_tex(
 
     tex_path = Path(tex_dir).expanduser().resolve() if tex_dir else None
 
-    with console.status(
-        "[dim]Converting arXiv TeX sources to Markdown..."
-    ) as status:
+    with console.status("[dim]Converting arXiv TeX sources to Markdown...") as status:
         cli_convert_tex(
             to_wiki=to_wiki,
             arxiv_id=arxiv_id or None,
@@ -359,6 +357,7 @@ ACTION_DESCRIPTIONS = {
 
 VALID_ACTIONS = list(ACTION_DESCRIPTIONS.keys())
 
+
 @app.command()
 def audit(
     action: str = typer.Argument(
@@ -404,17 +403,52 @@ def audit(
 
     elif action == "verify":
         # ── Citation verification (L1→L2→L3) ──
-        from hfpclawer.audit.l1_local import check_citation_local as check_citation
-        format_result = lambda r: r.get("status", "UNKNOWN")
+        from hfpclawer.audit.l1_local import check_citation_local
+        from hfpclawer.audit.l2_s2 import S2Client
+        from hfpclawer.audit.l3_openalex import OAClient
+
+        def _format_oa(result: dict) -> str:
+            status = result.get("status", "UNKNOWN")
+            if status == "VERIFIED":
+                title = result.get("title", "?")
+                year = result.get("year", "?")
+                doi = result.get("doi", "?")
+                venue = result.get("venue", "?")
+                return (
+                    "[green]VERIFIED[/green]  " + title + "\n"
+                    "  Year: " + str(year) + "  DOI: " + str(doi) + "  Venue: " + str(venue)
+                )
+            elif status == "NOT_FOUND":
+                return f"[yellow]NOT_FOUND[/yellow]  {result.get('title', '?')[:80]}"
+            elif status == "ERROR":
+                return f"[red]ERROR[/red]  {result.get('error', '?')}"
+            return f"[dim]{status}[/dim]"
+
+        def _do_verify(title: str, src: str) -> dict:
+            if src == "openalex" or src == "auto":
+                if src == "auto":
+                    # Try L1 first, fall back to L3
+                    l1 = check_citation_local(title)
+                    if l1.get("status") == "VERIFIED":
+                        return l1
+                oa = OAClient()
+                return oa.lookup(title)
+            elif src == "s2":
+                s2 = S2Client()
+                return s2.lookup(title)
+            else:
+                return check_citation_local(title)
 
         if not arg:
             console.print("[red][ERR] verify requires citation text as argument[/red]")
-            console.print("[dim]  Example: hfpclawer audit verify \"Fourier Neural Operator\" --source auto[/dim]")
+            console.print(
+                '[dim]  Example: hfpclawer audit verify "Fourier Neural Operator" --source auto[/dim]'
+            )
             raise typer.Exit(1)
 
         with console.status(f"[dim]Verifying citation: {arg[:80]}...[/dim]"):
-            result = check_citation(arg)  # L1-local: no source param
-        console.print(format_result(result))
+            result = _do_verify(arg, source)
+        console.print(_format_oa(result))
 
     elif action == "traceability":
         # ── Full-chain traceability (bib → store → notebook → L1) ──
@@ -431,6 +465,7 @@ def audit(
             )
 
         from hfpclawer.audit.report import print_summary
+
         print_summary(report)
 
     elif action == "ops":
@@ -558,7 +593,8 @@ def audit(
         t0 = time.time()
         with console.status("[dim]Running cron batch verify..."):
             stats = batch_verify(
-                store, cr,
+                store,
+                cr,
                 since=since,
                 retraction_only=retraction_only,
                 force_all=force_all,
@@ -729,35 +765,50 @@ def cron(
         help="For init: query string / keywords / --from-config path. For import: source (candidates|jsonl)",
     ),
     name: str = typer.Option(
-        "my-domain", "--name", "-n",
+        "my-domain",
+        "--name",
+        "-n",
         help="Domain name (for cron init)",
     ),
     query: str = typer.Option(
-        "", "--query", "-q",
+        "",
+        "--query",
+        "-q",
         help="arXiv query string (e.g. 'cat:cs.AI+AND+abs:neural+operator')",
     ),
     keywords: str = typer.Option(
-        "", "--keywords", "-k",
+        "",
+        "--keywords",
+        "-k",
         help="Comma-separated keywords (auto-converts to arXiv query)",
     ),
     from_config: str = typer.Option(
-        "", "--from-config",
+        "",
+        "--from-config",
         help="Path to existing hfpclawer config YAML",
     ),
     data_dir: str = typer.Option(
-        "", "--data-dir", "-d",
+        "",
+        "--data-dir",
+        "-d",
         help="Custom data directory (default: ~/.hfpclawer/data/)",
     ),
     path: str = typer.Option(
-        "", "--path", "-p",
+        "",
+        "--path",
+        "-p",
         help="Path to file (for import)",
     ),
     force: bool = typer.Option(
-        False, "--force", "-f",
+        False,
+        "--force",
+        "-f",
         help="Force overwrite (for init)",
     ),
     json_output: bool = typer.Option(
-        False, "--json", "-j",
+        False,
+        "--json",
+        "-j",
         help="JSON output (for no_agent cron mode)",
     ),
 ):
@@ -789,8 +840,12 @@ def cron(
         if arg and arg.startswith("--"):
             fc = arg
         result = cron_init(
-            name=name, query=q, keywords=kw,
-            from_config=fc, data_dir=data_dir, force=force,
+            name=name,
+            query=q,
+            keywords=kw,
+            from_config=fc,
+            data_dir=data_dir,
+            force=force,
         )
         console.print(result)
 
@@ -810,6 +865,7 @@ def cron(
     else:
         console.print(f"[red]❌ Unknown cron action: {action}. Use init|check|run|import[/red]")
 
+
 @app.command()
 def zotero(
     action: str = typer.Argument(
@@ -819,7 +875,7 @@ def zotero(
     arg: str = typer.Argument(
         "",
         help="Item key (for get/children), search query (for search), "
-             "arxiv_id (for push), or source filter (for push-batch)",
+        "arxiv_id (for push), or source filter (for push-batch)",
     ),
     limit: int = typer.Option(20, "--limit", "-l", help="Max results"),
     start: int = typer.Option(0, "--start", help="Offset for pagination"),
@@ -833,36 +889,34 @@ def zotero(
         False, "--dry-run", "-n", help="Show what would be pushed without sending"
     ),
     dedup: bool = typer.Option(
-        True, "--dedup/--no-dedup", "-d",
+        True,
+        "--dedup/--no-dedup",
+        "-d",
         help="Skip if paper already exists in Zotero (default: True)",
     ),
     with_pdf: bool = typer.Option(
-        False, "--with-pdf", "-p",
+        False,
+        "--with-pdf",
+        "-p",
         help="Also attach local PDF file to the Zotero item",
     ),
     key: str = typer.Option("", "--key", "-k", help="Zotero item key (for annotate)"),
     fmt: str = typer.Option(
-        "markdown", "--fmt", "--format",
+        "markdown",
+        "--fmt",
+        "--format",
         help="Output format (markdown or json, for annotate)",
     ),
     output: str = typer.Option("", "--output", "-o", help="Save to file (for annotate)"),
     color_hex: str = typer.Option("", "--color-hex", help="Filter by hex color (for annotate)"),
     color_name: str = typer.Option("", "--color-name", help="Filter by color name (for annotate)"),
-    export_all: bool = typer.Option(
-        False, "--all", help="Export entire library (for export)"
-    ),
+    export_all: bool = typer.Option(False, "--all", help="Export entire library (for export)"),
     list_formats: bool = typer.Option(
         False, "--list-formats", help="List available export formats"
     ),
-    raw: bool = typer.Option(
-        False, "--raw", help="Show raw HTML notes (for note command)"
-    ),
-    verbose: bool = typer.Option(
-        False, "--verbose", "-v", help="Verbose output (for ingest)"
-    ),
-    no_wiki: bool = typer.Option(
-        False, "--no-wiki", help="Skip wiki/raw output (for ingest)"
-    ),
+    raw: bool = typer.Option(False, "--raw", help="Show raw HTML notes (for note command)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output (for ingest)"),
+    no_wiki: bool = typer.Option(False, "--no-wiki", help="Skip wiki/raw output (for ingest)"),
 ):
     """Zotero operations via local API (read) and Connector protocol (write)
 
@@ -1001,6 +1055,7 @@ def zotero(
     else:
         console.print(f"[red]❌ Unknown zotero action: {action}[/red]")
 
+
 @app.command()
 def stats():
     """Search statistics — SearchQueue task completion"""
@@ -1030,16 +1085,26 @@ def stats():
 
 @app.command()
 def graph(
-    action: str = typer.Argument("stats", help="build | stats | export | person | community | path | analyze | ingest | ingest-citations | expand-citations | step | geo | viz | map"),
-    arg: str = typer.Argument("", help="Person node ID (for person) / source (for ingest) / max_depth (for expand-citations) / source node (for path)"),
-    arg2: str = typer.Argument("", help="Target node ID (for path) / max_seeds (for expand-citations) / path (for ingest)"),
+    action: str = typer.Argument(
+        "stats",
+        help="build | stats | export | person | community | path | analyze | ingest | ingest-citations | expand-citations | step | geo | viz | map",
+    ),
+    arg: str = typer.Argument(
+        "",
+        help="Person node ID (for person) / source (for ingest) / max_depth (for expand-citations) / source node (for path)",
+    ),
+    arg2: str = typer.Argument(
+        "", help="Target node ID (for path) / max_seeds (for expand-citations) / path (for ingest)"
+    ),
     limit: int = typer.Option(200, "--limit", "-l", help="Max Zotero items (build)"),
     force: bool = typer.Option(False, "--force", "-f", help="Rebuild from scratch (build)"),
     fmt: str = typer.Option("jsonl", "--format", help="Export format: jsonl | graphml"),
     depth: int = typer.Option(1, "--depth", "-d", help="Ego network depth (person)"),
     top_n: int = typer.Option(20, "--top", "-t", help="Top N results (community/person)"),
     src: str = typer.Option("", "--source", help="Filter by source tag (viz: coc, zotero)"),
-    report_fmt: str = typer.Option("markdown", "--report-format", help="Report format: markdown | qmd | json"),
+    report_fmt: str = typer.Option(
+        "markdown", "--report-format", help="Report format: markdown | qmd | json"
+    ),
 ):
     """Knowledge graph operations (v0.10.3).
 
@@ -1094,9 +1159,17 @@ def graph(
     elif action == "ingest-citations":
         cmd_ingest_citations(path=arg or "")
     elif action == "expand-citations":
-        cmd_expand_citations(max_depth=int(arg or "2"), max_seeds=int(arg2 or "10"), direction="both")
+        cmd_expand_citations(
+            max_depth=int(arg or "2"), max_seeds=int(arg2 or "10"), direction="both"
+        )
     elif action == "analyze":
-        cmd_analyze(source=src, community_algo=arg or "leiden", top_n=top_n, output=arg2 or "", output_format=report_fmt)
+        cmd_analyze(
+            source=src,
+            community_algo=arg or "leiden",
+            top_n=top_n,
+            output=arg2 or "",
+            output_format=report_fmt,
+        )
     elif action == "step":
         if arg in ("show-config", "config"):
             cmd_step(layer="", all_layers=False, show_config=True)
@@ -1118,10 +1191,14 @@ def graph(
             # geo enrich [orcid] [--force] [--limit N]
             cmd_enrich_orcid(force=force, limit=limit)
         else:
-            console.print(f"[red]❌ Unknown geo subcommand: '{sub}'. Use geo stats | geo institutions | geo globe | geo enrich orcid.[/red]")
+            console.print(
+                f"[red]❌ Unknown geo subcommand: '{sub}'. Use geo stats | geo institutions | geo globe | geo enrich orcid.[/red]"
+            )
     else:
-        console.print(f"[red]❌ Unknown graph action: {action}. "
-                      f"Use build | stats | export | person | community | path | analyze | step.[/red]")
+        console.print(
+            f"[red]❌ Unknown graph action: {action}. "
+            f"Use build | stats | export | person | community | path | analyze | step.[/red]"
+        )
 
 
 @app.command()
@@ -1719,26 +1796,14 @@ def monitor(
 
 @app.command()
 def import_cmd(
-    identifier: str = typer.Argument(
-        ..., help="arXiv ID (2501.01934), DOI (10.1016/...), or URL"
-    ),
+    identifier: str = typer.Argument(..., help="arXiv ID (2501.01934), DOI (10.1016/...), or URL"),
     title: str = typer.Option("", "--title", "-t", help="Paper title (optional)"),
-    abstract: str = typer.Option(
-        "", "--abstract", "-a", help="Paper abstract (optional)"
-    ),
+    abstract: str = typer.Option("", "--abstract", "-a", help="Paper abstract (optional)"),
     venue: str = typer.Option("", "--venue", "-v", help="Venue (optional)"),
-    source: str = typer.Option(
-        "import", "--source", help="Source label for the paper record"
-    ),
-    skip_pdf: bool = typer.Option(
-        False, "--skip-pdf", help="Skip PDF download"
-    ),
-    skip_md: bool = typer.Option(
-        False, "--skip-md", help="Skip PDF→MD conversion"
-    ),
-    verbose: bool = typer.Option(
-        False, "--verbose", help="Verbose step logging"
-    ),
+    source: str = typer.Option("import", "--source", help="Source label for the paper record"),
+    skip_pdf: bool = typer.Option(False, "--skip-pdf", help="Skip PDF download"),
+    skip_md: bool = typer.Option(False, "--skip-md", help="Skip PDF→MD conversion"),
+    verbose: bool = typer.Option(False, "--verbose", help="Verbose step logging"),
 ):
     """Import a paper by arXiv ID / DOI / URL (atomic pipeline).
 
@@ -1829,6 +1894,7 @@ def semantic_service(
 def source_list():
     """List all available document source adapters"""
     from hfpapers.source_adapters import list_sources
+
     names = list_sources()
     if not names:
         typer.echo("No source adapters registered.")
@@ -1848,9 +1914,13 @@ def source_fetch(
     Example: hfpclawer source fetch gh_ingest owner/repo
     """
     from hfpapers.source_adapters import get_source
+
     s = get_source(source)
     if s is None:
-        typer.echo(f"Unknown source '{source}'. Use `hfpclawer source-list` to see available sources.", err=True)
+        typer.echo(
+            f"Unknown source '{source}'. Use `hfpclawer source-list` to see available sources.",
+            err=True,
+        )
         raise typer.Exit(1)
     doc = s.fetch(doc_id)
     if doc is None:
@@ -1873,6 +1943,7 @@ def source_search(
 ):
     """Search a source for documents matching query"""
     from hfpapers.source_adapters import get_source
+
     s = get_source(source)
     if s is None:
         typer.echo(f"Unknown source '{source}'.", err=True)
@@ -1896,6 +1967,7 @@ def source_ingest(
     Example: hfpclawer source ingest gh_ingest owner/repo
     """
     from hfpapers.source_adapters import get_source
+
     s = get_source(source)
     if s is None:
         typer.echo(f"Unknown source '{source}'.", err=True)
