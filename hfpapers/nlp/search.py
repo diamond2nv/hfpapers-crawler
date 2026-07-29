@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 from difflib import SequenceMatcher
-from typing import Optional
 
 from hfpapers.nlp import get_nlp
 

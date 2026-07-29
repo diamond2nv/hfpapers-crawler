@@ -27,8 +27,10 @@ from hfpapers.graph.analyze import (
     actors,
     communities,
     impact,
-    report as report_fmt,
     subgraph,
+)
+from hfpapers.graph.analyze import (
+    report as report_fmt,
 )
 
 logger = logging.getLogger("hfpapers.graph.analyze")

@@ -9,8 +9,7 @@ communities — these are the "diplomatic" cross-network collaborators.
 from __future__ import annotations
 
 import logging
-from collections import Counter, defaultdict
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("hfpapers.graph.analyze.actors")
 

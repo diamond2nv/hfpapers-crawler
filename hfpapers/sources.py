@@ -66,7 +66,9 @@ class PaperSource(ABC):
 
 
 class HfCliSource(PaperSource):
-    name = "hf_cli"
+    @property
+    def name(self) -> str:
+        return "hf_cli"
 
     def search(self, query: str, category: str = "") -> list[SourcePaper]:
         import subprocess
@@ -119,7 +121,9 @@ class HfCliSource(PaperSource):
 
 
 class OpenReviewSource(PaperSource):
-    name = "openreview"
+    @property
+    def name(self) -> str:
+        return "openreview"
     BASE = "https://api.openreview.net"
 
     def search(self, query: str, category: str = "") -> list[SourcePaper]:
@@ -237,7 +241,9 @@ class OpenReviewSource(PaperSource):
 
 
 class PwcApiSource(PaperSource):
-    name = "pwc_api"
+    @property
+    def name(self) -> str:
+        return "pwc_api"
     BASE = "https://paperswithcode.com/api/v1"
 
     def search(self, query: str, category: str = "") -> list[SourcePaper]:
@@ -307,7 +313,9 @@ class PwcApiSource(PaperSource):
 
 
 class ArxivApiSource(PaperSource):
-    name = "arxiv_api"
+    @property
+    def name(self) -> str:
+        return "arxiv_api"
     BASE = "http://export.arxiv.org/api/query"
 
     def search(self, query: str, category: str = "") -> list[SourcePaper]:

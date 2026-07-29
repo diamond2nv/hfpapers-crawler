@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("hfpapers.graph.analyze.report")
 
@@ -63,7 +63,7 @@ def markdown_report(
     """
     lines = [
         f"# {title}",
-        f"",
+        "",
         f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}",
     ]
     if source:
@@ -75,8 +75,8 @@ def markdown_report(
         "",
         "## 📊 Network Overview",
         "",
-        f"| Metric | Value |",
-        f"|--------|-------|",
+        "| Metric | Value |",
+        "|--------|-------|",
         f"| Papers | {stats.get('total_papers', '?'):,} |",
         f"| Citations (internal) | {stats.get('total_citations', '?'):,} |",
         f"| Authors | {actors.get('stats', {}).get('total_authors', '?'):,} |",

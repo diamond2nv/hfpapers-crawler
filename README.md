@@ -21,10 +21,6 @@ Built with SQLite paper_store, Crossref cross-validation, anti-crawl Scrapy pipe
 
 ## Quick Install
 
----
-
-## Quick Install
-
 ```bash
 pip install hfpclawer
 ```
@@ -149,7 +145,20 @@ mcp:
       args: ["mcp", "--port", "8765"]
 ```
 
-Available MCP tools: `hfpclawer_search`, `hfpclawer_download`, `hfpclawer_convert`, `hfpclawer_info`, `hfpclawer_list`, `hfpclawer_stats`, `hfpclawer_full`.
+Available MCP tools (4 core always active; heavy ops use CLI):
+
+| Tool | MCP (auto) | CLI preferred |
+|------|:----------:|:-------------:|
+| `hfpclawer_search` | ✅ | — |
+| `hfpclawer_info` | ✅ | — |
+| `hfpclawer_list` | ✅ | — |
+| `hfpclawer_stats` | ✅ | — |
+| `hfpclawer_download` | ⚠️ available | `hfpclawer download --limit N` |
+| `hfpclawer_convert` | ⚠️ available | `hfpclawer convert` |
+| `hfpclawer_full` | ⚠️ available | `hfpclawer full` |
+
+> Heavy operations (download/convert/full) are hidden from `tools/list` by default to save tokens.
+> They remain callable via direct `tools/call` — or better, use the CLI for progress feedback.
 
 ---
 
@@ -199,6 +208,7 @@ AI coding assistant that supports the Hermes skill format):
 | `hfpclawer-paper-search` | Daily paper discovery → download → wiki | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-paper-search/SKILL.md` |
 | `hfpclawer-citation-audit` | Verify citations via S2 + OpenAlex | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-citation-audit/SKILL.md` |
 | `hfpclawer-academic-integrity` | Paper draft integrity: extract → verify → flag FABRICATED | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-academic-integrity/SKILL.md` |
+| `hfpclawer-formula-verify` | LaTeX formula cross-validation (SymPy ↔ Wolfram, dimensional) | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-formula-verify/SKILL.md` |
 
 After installing, load with `skill_view(name='hfpclawer-paper-search')` in any
 Hermes conversation.

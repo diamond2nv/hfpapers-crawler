@@ -12,8 +12,8 @@ Docs: https://api.semanticscholar.org/
 from __future__ import annotations
 
 import logging
-import time
 import re
+import time
 
 import requests
 
@@ -145,7 +145,7 @@ class CitationExpander:
         Returns:
             Dict with counts.
         """
-        from hfpapers.graph.schema import paper_node_id, NodeType
+        from hfpapers.graph.schema import NodeType, paper_node_id
 
         stats = {
             "papers_found": 0,

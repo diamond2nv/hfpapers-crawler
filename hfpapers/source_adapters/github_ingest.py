@@ -17,12 +17,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
-from pathlib import Path
 from typing import Optional
 
 from hfpapers.source_adapters import BaseSource, SourceDocument
@@ -67,7 +65,7 @@ def _github_api_request(url: str, headers: Optional[dict] = None) -> dict | None
     else:
         headers.setdefault("User-Agent", "hfpclawer/0.14.0")
         headers.setdefault("Accept", "application/vnd.github.v3+json")
-    
+
     try:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -97,9 +95,9 @@ def _fetch_raw(url: str) -> str | None:
 
 class GitHubSource(BaseSource):
     """GitHub/DeepWiki repository ingestion adapter"""
-    
+
     name = "gh_ingest"
-    
+
     def search(self, query: str, limit: int = 10) -> list[SourceDocument]:
         """Search GitHub by keyword — uses GitHub repo search API"""
         url = f"{GITHUB_API}/search/repositories?q={urllib.parse.quote(query)}&per_page={limit}&sort=stars"
@@ -107,14 +105,14 @@ class GitHubSource(BaseSource):
         data = _github_api_request(url)
         if not data or "items" not in data:
             return []
-        
+
         results = []
         for item in data["items"][:limit]:
             doc = self._repo_item_to_doc(item)
             if doc:
                 results.append(doc)
         return results
-    
+
     def fetch(self, repo_id: str) -> SourceDocument | None:
         """Fetch a single repo by 'owner/repo' string"""
         parts = repo_id.split("/")
@@ -122,7 +120,7 @@ class GitHubSource(BaseSource):
             logger.warning(f"Invalid repo_id '{repo_id}' — expected 'owner/repo'")
             return None
         owner, repo = parts
-        
+
         # Step 1: Get repo info from GitHub API
         repo_data = _github_api_request(f"{GITHUB_API}/repos/{owner}/{repo}")
         if not repo_data:
@@ -141,23 +139,23 @@ class GitHubSource(BaseSource):
                 confidence=0.5,
                 metadata={"fallback": True},
             )
-        
+
         return self._repo_item_to_doc(repo_data)
-    
+
     def _repo_item_to_doc(self, item: dict) -> SourceDocument | None:
         """Convert GitHub API repo item to SourceDocument"""
         full_name = item.get("full_name", "")
         if not full_name:
             return None
-        
+
         owner, repo = full_name.split("/", 1)
-        
+
         # Get README
         readme = self._fetch_readme(owner, repo)
-        
+
         # Try DeepWiki for architecture summary
         deepwiki = self._fetch_deepwiki(owner, repo)
-        
+
         # Build content
         content_parts = []
         if deepwiki:
@@ -165,17 +163,17 @@ class GitHubSource(BaseSource):
         if readme:
             content_parts.append(f"## README\n\n{readme}")
         content = "\n".join(content_parts)
-        
+
         # Abstract
         desc = item.get("description") or ""
         if deepwiki:
             abstract = f"[DeepWiki] {deepwiki[:300]}"
         else:
             abstract = desc[:300]
-        
+
         # Tags from topics
         tags = item.get("topics", []) or []
-        
+
         return SourceDocument(
             id=f"gh:{full_name}",
             title=full_name,
@@ -197,7 +195,7 @@ class GitHubSource(BaseSource):
                 "has_deepwiki": bool(deepwiki),
             },
         )
-    
+
     def _fetch_readme(self, owner: str, repo: str) -> str:
         """Fetch README from raw.githubusercontent.com"""
         for name in ["README.md", "readme.md", "README.rst", "Readme.md"]:
@@ -211,7 +209,7 @@ class GitHubSource(BaseSource):
             if content:
                 return content
         return ""
-    
+
     def _fetch_deepwiki(self, owner: str, repo: str) -> str:
         """Try to get DeepWiki architecture summary"""
         try:
@@ -224,7 +222,7 @@ class GitHubSource(BaseSource):
                 return str(data)
         except Exception:
             return ""
-    
+
     @staticmethod
     def _extract_year(item: dict) -> int:
         """Extract year from repo creation date"""

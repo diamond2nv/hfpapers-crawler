@@ -105,6 +105,7 @@ def check_cost_budget(
         max_cost_usd = get("budget.max_cost_usd", 0.50)
 
     cost = (estimated_input * in_price) + (estimated_output * out_price)
+    assert max_cost_usd is not None
     if cost > max_cost_usd:
         logger.warning(
             f"Cost budget exceeded: estimated ${cost:.4f} > limit ${max_cost_usd:.2f} "

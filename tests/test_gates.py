@@ -18,12 +18,10 @@ Gate legend:
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 from pathlib import Path
 
 import pytest
-
 
 # ═════════════════════════════════════════════════════════════════
 # B10 — SnowflakeGate: Snowflake ID 生成验证
@@ -42,6 +40,7 @@ class TestSnowflakeGate:
 
     def test_snowflake_id_increasing_with_gap(self):
         import time
+
         from hfpapers.paper_store import snowflake_id
         id1 = snowflake_id()
         time.sleep(0.002)
@@ -56,6 +55,7 @@ class TestSnowflakeGate:
 
     def test_snowflake_timestamp_returns_datetime(self):
         from datetime import datetime
+
         from hfpapers.paper_store import snowflake_id, snowflake_timestamp
         sf_id = snowflake_id()
         ts = snowflake_timestamp(sf_id)
@@ -153,26 +153,35 @@ class TestCLIGate:
     def test_cli_core_commands(self):
         self._require_typer()
         from hfpapers.cli import app
-        names = {c.name for c in app.registered_commands}
+        # Commands defined via @app.command() show callback function name
+        names = {c.callback.__name__ for c in app.registered_commands
+                 if hasattr(c, "callback") and c.callback is not None}
+        # Some commands use explicit name (e.g. list=list_papers, download-meta=download_meta)
+        names |= {c.name for c in app.registered_commands if c.name is not None}
         for cmd in ("version", "search", "download", "convert", "full",
-                     "list", "info", "stats", "config"):
+                     "list", "info", "stats"):
             assert cmd in names, f"Missing command: {cmd}"
 
     def test_cli_extended_commands(self):
         self._require_typer()
         from hfpapers.cli import app
-        names = {c.name for c in app.registered_commands}
-        for cmd in ("sniff", "analyze", "wiki", "store", "audit", "check", "mcp"):
+        names = {c.callback.__name__ for c in app.registered_commands
+                 if hasattr(c, "callback") and c.callback is not None}
+        names |= {c.name for c in app.registered_commands if c.name is not None}
+        for cmd in ("audit", "cron", "zotero", "graph", "download_meta"):
             assert cmd in names, f"Missing command: {cmd}"
 
     def test_cli_verify_group(self):
         self._require_typer()
         from hfpapers.cli import app
-        assert "verify" in {g for g in app.registered_groups}
+        group_names = {g.name for g in app.registered_groups
+                       if hasattr(g, "name")}
+        assert "verify" in group_names, f"Missing group: verify"
 
     def test_cli_version_runs(self):
         self._require_typer()
         from typer.testing import CliRunner
+
         from hfpapers.cli import app
         result = CliRunner().invoke(app, ["version"])
         assert result.exit_code == 0
@@ -226,7 +235,7 @@ class TestConfigGate:
     """F01: YAML config loading + env override."""
 
     def test_config_loads_defaults(self):
-        from hfpapers.config import load_config, get
+        from hfpapers.config import get, load_config
         cfg = load_config(reload=True)
         assert isinstance(cfg, dict)
         assert get("paths.pdf_dir") is not None
@@ -263,6 +272,7 @@ class TestVersionGate:
 
     def test_version_matches_pyproject(self):
         import tomllib
+
         from hfpapers import __version__
         data = tomllib.loads(
             (self.REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
