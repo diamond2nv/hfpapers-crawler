@@ -413,7 +413,7 @@ def audit(
             raise typer.Exit(1)
 
         with console.status(f"[dim]Verifying citation: {arg[:80]}...[/dim]"):
-            result = check_citation(arg, source=source)
+            result = check_citation(arg)  # L1-local: no source param
         console.print(format_result(result))
 
     elif action == "traceability":
@@ -897,9 +897,20 @@ def zotero(
       hfpclawer zotero ingest 2501.01934          # Zotero PDF → wiki/raw
     """
     from hfpclawer.zotero.cli import (
-        cmd_check, cmd_list, cmd_search, cmd_get, cmd_tags, cmd_children,
-        cmd_push, cmd_push_batch, cmd_annotate, cmd_export, cmd_note,
-        cmd_ingest, cmd_tag_report, cmd_innovate,
+        cmd_annotate,
+        cmd_check,
+        cmd_children,
+        cmd_export,
+        cmd_get,
+        cmd_ingest,
+        cmd_innovate,
+        cmd_list,
+        cmd_note,
+        cmd_push,
+        cmd_push_batch,
+        cmd_search,
+        cmd_tag_report,
+        cmd_tags,
     )
 
     if action == "check":
@@ -1038,15 +1049,26 @@ def graph(
     Viz: viz [style] [output] [--source]
     Stepping: step layer | step all | step config
     """
-    from hfpclawer.graph_cli import cmd_build, cmd_stats, cmd_export, cmd_person, cmd_community, cmd_path
-    from hfpclawer.graph_cli import cmd_geo_stats, cmd_geo_institutions
-    from hfpclawer.graph_cli import cmd_map, cmd_viz
-    from hfpclawer.graph_cli import cmd_community_map, cmd_geo_globe
-    from hfpclawer.graph_cli import cmd_enrich_orcid
-    from hfpclawer.graph_cli import cmd_ingest, cmd_ingest_citations
-    from hfpclawer.graph_cli import cmd_expand_citations
-    from hfpclawer.graph_cli import cmd_analyze
-    from hfpclawer.graph_cli import cmd_step
+    from hfpclawer.graph_cli import (
+        cmd_analyze,
+        cmd_build,
+        cmd_community,
+        cmd_community_map,
+        cmd_enrich_orcid,
+        cmd_expand_citations,
+        cmd_export,
+        cmd_geo_globe,
+        cmd_geo_institutions,
+        cmd_geo_stats,
+        cmd_ingest,
+        cmd_ingest_citations,
+        cmd_map,
+        cmd_path,
+        cmd_person,
+        cmd_stats,
+        cmd_step,
+        cmd_viz,
+    )
 
     if action == "build":
         cmd_build(limit=limit, force=force)
@@ -1379,8 +1401,8 @@ def mcp(
 # ════════════════════════════════════════════
 
 
-@app.command()
-def download(  # noqa: F811 — intentional typer overload for OAI/Kaggle pipeline
+@app.command(name="download-meta")
+def download_meta(  # noqa: F811 — renamed from `download` to avoid redefinition
     source: str = typer.Option(
         "oai",
         "--source",

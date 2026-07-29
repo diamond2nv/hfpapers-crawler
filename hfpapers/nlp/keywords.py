@@ -12,9 +12,8 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
 
-from hfpapers.nlp import get_nlp, has_spacy
+from hfpapers.nlp import get_nlp
 
 logger = logging.getLogger("hfpapers.nlp.keywords")
 

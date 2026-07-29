@@ -53,7 +53,7 @@ MCP_TOOLS = {
     },
     "hfpclawer_download": {
         "name": "hfpclawer_download",
-        "description": "Download candidate paper PDFs",
+        "description": "[CLI preferred] Download candidate paper PDFs → hfpclawer download --limit N",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -63,12 +63,12 @@ MCP_TOOLS = {
     },
     "hfpclawer_convert": {
         "name": "hfpclawer_convert",
-        "description": "pymupdf4llm convert PDF to Markdown",
+        "description": "[CLI preferred] pymupdf4llm convert PDF to Markdown → hfpclawer convert",
         "input_schema": {"type": "object", "properties": {}},
     },
     "hfpclawer_info": {
         "name": "hfpclawer_info",
-        "description": "Query single paper details",
+        "description": "Query single paper details by arXiv ID",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -79,7 +79,7 @@ MCP_TOOLS = {
     },
     "hfpclawer_list": {
         "name": "hfpclawer_list",
-        "description": "List crawled papers",
+        "description": "List crawled papers in dedup store",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -89,12 +89,12 @@ MCP_TOOLS = {
     },
     "hfpclawer_stats": {
         "name": "hfpclawer_stats",
-        "description": "Crawler statistics",
+        "description": "Crawler statistics (total papers, PDF/md counts)",
         "input_schema": {"type": "object", "properties": {}},
     },
     "hfpclawer_full": {
         "name": "hfpclawer_full",
-        "description": "Full pipeline: search → download → convert",
+        "description": "[CLI preferred] Full pipeline: search → download → convert → hfpclawer full",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -105,6 +105,9 @@ MCP_TOOLS = {
         },
     },
 }
+
+# Core tools always registered in MCP; extra tools available via CLI
+MCP_CORE_NAMES = {"hfpclawer_search", "hfpclawer_info", "hfpclawer_list", "hfpclawer_stats"}
 
 
 def _handle_search(args: dict) -> str:
@@ -290,13 +293,15 @@ def _run_stdio():
         line = line.strip()
         if not line:
             continue
+        req_id = 0
         try:
             req = json.loads(line)
             req_id = req.get("id", 0)
             method = req.get("method", "")
 
             if method == "tools/list":
-                respond(req_id, {"tools": list(MCP_TOOLS.values())})
+                core_tools = [t for name, t in MCP_TOOLS.items() if name in MCP_CORE_NAMES]
+                respond(req_id, {"tools": core_tools})
 
             elif method == "tools/call":
                 params = req.get("params", {})

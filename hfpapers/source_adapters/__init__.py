@@ -15,8 +15,8 @@ SourceDocument dataclass is the unified output format.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -43,19 +43,19 @@ class SourceDocument:
 
 class BaseSource(ABC):
     """Abstract base source adapter"""
-    
+
     name: str = "base"          # Override in subclass
-    
+
     @abstractmethod
     def search(self, query: str, limit: int = 10) -> list[SourceDocument]:
         """Search this source for documents matching query"""
         ...
-    
+
     @abstractmethod
     def fetch(self, doc_id: str) -> SourceDocument | None:
         """Fetch full document by its source-specific ID"""
         ...
-    
+
     def to_search_result(self, doc: SourceDocument) -> "SearchResult":
         """Convert to searcher_registry.SearchResult for paper_store ingestion
         
@@ -76,7 +76,7 @@ class BaseSource(ABC):
             score=0.5,
             confidence=doc.confidence,
         )
-    
+
     def ingest_to_paper_store(self, doc: SourceDocument) -> tuple[int, bool]:
         """Direct convenience: ingest a source document to paper_store
         

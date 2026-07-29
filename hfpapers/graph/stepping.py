@@ -11,18 +11,19 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import networkx as nx
 import yaml
 
 from hfpapers.graph.citation_expander import CitationExpander
-from hfpapers.graph.config_schema import STEPPING_DEFAULTS, STEPPING_SCHEMA, validate_stepping_config
+from hfpapers.graph.config_schema import (
+    STEPPING_DEFAULTS,
+)
 from hfpapers.graph.orcid_fetcher import fetch_orcid_works, resolve_doi_to_arxiv
-from hfpapers.graph.schema import EdgeType, NodeType, paper_node_id
+from hfpapers.graph.schema import NodeType
 
 logger = logging.getLogger("hfpapers.graph.stepping")
 

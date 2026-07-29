@@ -31,9 +31,9 @@ from pathlib import Path
 from typing import Optional
 
 from hfpapers.graph.schema import (
+    KG_VERSION,
     EdgeType,
     NodeType,
-    KG_VERSION,
     node_id,
 )
 

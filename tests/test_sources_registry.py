@@ -1,6 +1,6 @@
 """Tests for hfpapers.sources registry"""
 
-from hfpapers.source_adapters import get_source, list_sources, BaseSource
+from hfpapers.source_adapters import BaseSource, get_source, list_sources
 
 
 class TestSourceRegistry:

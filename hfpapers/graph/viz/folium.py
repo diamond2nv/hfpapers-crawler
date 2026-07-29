@@ -20,8 +20,6 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from hfpapers.graph.schema import NodeType
-
 logger = logging.getLogger("hfpapers.graph.viz.folium")
 
 # ── Default output path ────────────────────────────────────────
