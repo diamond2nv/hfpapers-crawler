@@ -36,18 +36,11 @@ working on this project. It describes the project structure, key patterns, pitfa
 
 ## Environment & Connectivity
 
-### Zotero Local API (localhost:23119)
+Zotero local API runs on localhost:23119 (both machines). See `.hermes/internal-guide.md` for machine-specific details (WSL IPs, GPU/CPU tables).
 
-**Available on BOTH machines.** Do NOT assume Zotero is only on WSL.
+### Zotero UA Constraint
 
-| Machine | Zotero | Port | Status |
-|:--------|:------:|:----:|:------|
-| Huawei i5-12450H (CPU-only, Ubuntu) | Zotero Snap v9.0.1 | localhost:23119 | ✅ **Always on** — `~13,438 PDFs` |
-| WSL @192.168.0.103 (RTX 4500 Ada) | Zotero Desktop | localhost:23119 | ✅ When WSL + Zotero running |
-
-All `hfpclawer zotero` commands (`search`, `list`, `ingest`, `innovate`, `tag-report`, etc.) run on **either machine** — they connect to localhost:23119.
-
-Key constraint: Zotero local API rejects `Mozilla/5.0` User-Agent (403). pyzotero's default urllib UA works fine.
+Zotero local API rejects `Mozilla/5.0` User-Agent (403). pyzotero's default urllib UA works fine.
 
 ### spaCy NLP (hfpapers.nlp subpackage)
 
@@ -55,14 +48,6 @@ Available when `hfpclawer[nlp]` is installed (`uv sync --extra nlp`):
 - `en_core_web_md` model (~45MB) with word vectors for semantic similarity
 - Falls back gracefully to regex-based extraction when spaCy unavailable
 - Used by: title keyword extraction, semantic reranking, innovation point extraction, auto-tag generation, TF-IDF tag analysis
-
-### GPU vs CPU
-
-| Feature | Huawei (CPU-only) | WSL (RTX 4500 Ada) |
-|:--------|:-----------------:|:------------------:|
-| spaCy en_core_web_md | ✅ ~5ms/title | ✅ faster |
-| hfpclawer zotero ... | ✅ Full support | ✅ Full support |
-| paper_store SQLite | ✅ Local | ❌ (unless DB synced) |
 
 ## Core Architecture
 
@@ -125,7 +110,7 @@ stats = store_stats()        # Statistics
 source venv/bin/activate    # Must activate
 ruff format .               # Format (line-length=100, double quotes)
 ruff check .                # Lint
-pyright .                   # Type check (0 errors)
+pyright .                   # Type check
 python -m pytest tests/ -v  # Run tests
 python -m build             # Build package
 ```
@@ -220,7 +205,7 @@ twine upload dist/*
 ### Testing Before Release
 
 - `ruff check .` must pass with **zero errors** (including tests/)
-- `pytest` must pass all tests (currently 91 tests)
+- `pytest` must pass all tests (currently 252 tests)
 - `pyright` warnings for missing imports (torch, scrapy, sentence_transformers) are acceptable — these are optional dependencies
 - Pre-existing warnings (unused `l` variable, None-guard noise) are non-blocking
 
@@ -430,6 +415,7 @@ The repo ships three Hermes Agent skills under `skills/`:
 | `hfpclawer-paper-search` | `skills/hfpclawer-paper-search/SKILL.md` | Daily paper discovery → download → convert → wiki sync |
 | `hfpclawer-citation-audit` | `skills/hfpclawer-citation-audit/SKILL.md` | Citation verification (local → S2 → OpenAlex) |
 | `hfpclawer-academic-integrity` | `skills/hfpclawer-academic-integrity/SKILL.md` | Paper draft integrity audit: extract citations → L1→L2→L3→L4 cascade → flag FABRICATED → structured report |
+| `hfpclawer-formula-verify` | `skills/hfpclawer-formula-verify/SKILL.md` | LaTeX formula cross-validation: L1a syntax check → L1b SymPy↔Wolfram → L2 dimensional analysis → report |
 
 These skills are written for **fresh Hermes Agent users** who have just
 `pip install hfpclawer` and want to use the tool through natural-language
@@ -440,61 +426,6 @@ Install with:
 hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/<skill-name>/SKILL.md
 ```
 
-## Cross-Repository Dependencies
+## Internal Development
 
-This project is the **upstream data pipeline** for `~/Gitlab/Agentic4Sci/expflow`
-(the experiment orchestration tool). expflow depends on this repo for semantic
-embedding and database patterns. Before changing any module listed below, check
-the other repo first.
-
-| hfpapers Module | expflow Module | Coupling | Change Safeguard |
-|-----------------|----------------|----------|-------------------|
-| `semantic_service.py` (FastAPI sidecar) | `semantic_client.py` | HTTP REST | Endpoint paths (`/embed`, `/similarity`, `/classify`), payload schema, return format must stay compatible |
-| `paper_store.py` Snowflake | `snowflake.py` | Ported code | `base_time` (2024-10-04) and `worker_id` must stay identical |
-| `paper_store.py` SQLite + migration pattern | `dispatch_db.py` | Architecture reference | Schema migration idempotency pattern must be aligned |
-| `cli.py:semantic_service` | `semantic_client.py` via `repair.py` | 2-hop call chain | Service startup args, default port (8765) must match client defaults |
-| CLI chain | CLI chain — reverse pipeline | subprocess | `hfpclawer search` output format consumed by `expflow analyze` |
-
-## CodeGraph Integration
-
-CodeGraph (v0.9.3+) is installed and indexed for both repos. Use it during
-development, review, and testing.
-
-### Setup
-
-```bash
-# Already done — indexes are at:
-#   ~/Gitlab/Agentic4Sci/hfpapers-crawler/.codegraph/
-#   ~/Gitlab/Agentic4Sci/expflow/.codegraph/
-
-# Sync after changes (~100ms, incremental):
-cd ~/Gitlab/Agentic4Sci/hfpapers-crawler && npx codegraph sync
-```
-
-### Key Commands
-
-| When | Command | What you get |
-|------|---------|-------------|
-| Find a symbol/class/module | `npx codegraph query "SemanticService"` | Exact file+line match |
-| Get full interface context | `npx codegraph context "SemanticService"` | Class definition, methods, docstrings, callers, tests |
-| Browse project structure (with symbol counts) | `npx codegraph files` | Tree view showing each file's symbol count |
-| Find affected tests | `npx codegraph affected "hfpapers/semantic_service.py"` | List of test files that import from the changed module |
-| Real-time MCP for Hermes | `npx codegraph serve --mcp` (auto-loaded by Hermes Agent via `~/.hermes/config.yaml`) | 4 tools: `codegraph_search`, `codegraph_context`, `codegraph_explore`, `codegraph_affected` |
-
-### Cross-Repo Limitation
-
-CodeGraph indexes **one repo at a time**. When you change `dispatch_db.py`
-in expflow, CodeGraph will NOT detect that `paper_store.py` (the pattern
-source) might need updating. Check the cross-repo table above manually.
-
-### Hermes Agent Flow
-
-```
-User: "refactor semantic service to return top_k results"
-Agent: 1. codegraph context "semantic_service:SemanticService" → gets FastAPI endpoint signatures
-       2. codegraph affected "semantic_service.py"             → sees service-side tests
-       3. Check cross-repo table                               → semantic_client.py needs matching change
-       4. cd expflow && codegraph context "SemanticClient"     → gets client-side interface
-       5. cd expflow && codegraph affected "semantic_client.py" → gets client-side tests
-       6. Code both sides, run both test suites
-```
+Cross-repository dependencies (expflow coupling), CodeGraph integration, and machine-specific config (WSL IPs, GPU/CPU tables) are documented in `.hermes/internal-guide.md`.

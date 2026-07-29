@@ -15,9 +15,15 @@ Usage:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import typer
 from rich.console import Console
 from rich.table import Table
+
+if TYPE_CHECKING:
+    from hfpclawer.verify.pipeline import LayerResult
+    from hfpclawer.verify.registry import FormulaEntry, FormulaRegistry
 
 verify_app = typer.Typer(name="verify", help="Formula verification & CAS cross-validation")
 
@@ -86,6 +92,7 @@ def _generate_latex_report(
         lines.append(r"\subsection{CAS等价性证明 — CAS Equivalence Proof}")
         for cr in cas_results:
             cas = cr.cas
+            assert cas is not None  # Narrowed by cas_results filter
             lines.append(f"\\paragraph{{{cr.fid}}}")
             lines.append(r"\begin{align*}")
             lines.append(f"\\text{{SymPy}} &= {cas.sympy_result} \\\\")

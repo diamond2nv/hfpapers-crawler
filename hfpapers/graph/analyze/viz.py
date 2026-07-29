@@ -119,7 +119,7 @@ def render_community_graph(
     for ci in sorted(set(node_to_community.get(n, -1) for n in Hu_lcc.nodes())):
         if ci >= 0:
             from matplotlib.patches import Patch
-            label = f"C{ci+1}" if ci < len(COMMUNITY_COLORS) else f"Other"
+            label = f"C{ci+1}" if ci < len(COMMUNITY_COLORS) else "Other"
             legend_elements.append(
                 Patch(facecolor=COMMUNITY_COLORS[ci % len(COMMUNITY_COLORS)],
                       label=label, alpha=0.85)

@@ -43,7 +43,7 @@ NINE_DASH_SEGMENTS = [
         (117.00, 15.00),
         (116.80, 14.50),
     ],
-    # Segment 4: East of Palawan (segment 4 of 9)  
+    # Segment 4: East of Palawan (segment 4 of 9)
     [
         (117.50, 14.00),
         (118.00, 13.50),

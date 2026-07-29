@@ -22,7 +22,6 @@ Usage::
 
 from __future__ import annotations
 
-import colorsys
 import logging
 from pathlib import Path
 from typing import Optional
@@ -492,8 +491,8 @@ def render_community_static(
     # Province/state boundaries (only on China zoom)
     if projection == "china":
         try:
-            from cartopy.feature import ShapelyFeature
             import cartopy.io.shapereader as shp_reader
+            from cartopy.feature import ShapelyFeature
             # 50m includes China provinces; 110m only has US states
             states_shp = shp_reader.natural_earth(
                 resolution="50m",
@@ -612,7 +611,7 @@ def enrich_institutions_from_arxiv(
     import urllib.request
     import xml.etree.ElementTree as ET
 
-    from hfpapers.graph.schema import EdgeType, NodeType, node_id
+    from hfpapers.graph.schema import EdgeType, node_id
     from hfpapers.graph.sources.institutions import (
         GeoCache,
         geocode_institutions,

@@ -22,8 +22,7 @@ import json
 import logging
 import urllib.request
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, Mock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
@@ -120,7 +119,7 @@ class TestZoteroClientInit:
         monkeypatch.setattr("hfpclawer.zotero._PyZotero", MagicMock(return_value=mock_instance))
         monkeypatch.setattr("hfpclawer.zotero.HAS_PYZOTERO", True)
 
-        from hfpclawer.zotero import ZoteroClient, ZoteroConnectionError
+        from hfpclawer.zotero import ZoteroClient
 
         zc = ZoteroClient()
         assert zc.check_connection() is False
@@ -611,8 +610,7 @@ class TestZoteroConnector:
             500, "Internal Server Error", {}, None,
         )
 
-        from hfpclawer.zotero.connector import ZoteroConnector
-        from hfpclawer.zotero.connector import ConnectorError
+        from hfpclawer.zotero.connector import ConnectorError, ZoteroConnector
 
         conn = ZoteroConnector()
         with pytest.raises(ConnectorError):

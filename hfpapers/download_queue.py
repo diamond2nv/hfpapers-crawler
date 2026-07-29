@@ -40,7 +40,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 from hfpapers.config import get as cfg_get
 from hfpapers.logger import get_audit, init_logging, record_event
@@ -149,7 +149,7 @@ class BatchSummary:
     skipped: int = 0
     wiki_synced: int = 0
     total: int = 0
-    errors: list[str] = None
+    errors: Optional[List[str]] = None
 
     def __post_init__(self):
         if self.errors is None:
@@ -170,7 +170,7 @@ class BatchSummary:
 class DownloadQueue:
     """Priority download queue backed by paper_store status columns"""
 
-    def __init__(self, max_concurrent: int = 8, progress_cb: Callable = None):
+    def __init__(self, max_concurrent: int = 8, progress_cb: Callable | None = None):
         ensure_migration()
         self.store = get_store()
         self.max_concurrent = max_concurrent
@@ -538,6 +538,7 @@ class DownloadQueue:
         batch_id: str = "",
     ) -> bool:
         """Convert a single PDF to MD, optionally sync to wiki"""
+        assert self.summary is not None
         try:
             import pymupdf4llm
         except ImportError:

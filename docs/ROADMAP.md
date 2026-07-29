@@ -297,3 +297,35 @@ hfpclawer graph export --format jsonl -o ~/data/kg/subgraph_a.jsonl
 # hedge imports → merges with Subgraph B+C
 hedge knowledge import --from-jsonl ~/data/kg/subgraph_a.jsonl
 ```
+
+---
+
+## Future Directions
+
+### Ω-Architect RL + Agent Loop — 分层导航
+
+当 omega-architect 的 RL+Agent+编辑循环+编译循环模式集成后，
+hfpclawer 的知识发现将从平面检索升级为**分层导航**：
+
+| 层级 | 类比 | hfpclawer 对应 | 后端 |
+|:-----|:------|:---------------|:------|
+| **轨迹层** | 车道级导航 | norm_checker 约束搜索空间 | hedge |
+| **策略层** | 路线规划 | RL 奖励引导高价值探索 | omega-architect |
+| **价值层** | 目的地验证 | Lean 形式化确保推理链正确 | omega-architect + lean-lsp-mcp |
+
+**前置条件：** hedge Layer 1 (kg ingest/query) + Layer 2 (norm extension) 接口稳定。
+详见 `hedge/spec/INTERFACE_VISION.md`。
+
+### PM 方法论集成
+
+hfpclawer 作为知识底层，可为结构化决策提供支撑：
+
+```
+pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出方案
+                        ↓
+               hedge norm_checker → 合规验证
+                        ↓
+               omega-architect → 形式化保证
+```
+
+详见 `pm-skills-localization` skill + `~/wiki/concepts/pm-skills-localization.md`。

@@ -22,12 +22,11 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 from collections import Counter, defaultdict
 from typing import Optional
 
-from hfpapers.nlp import get_nlp, has_spacy
-from hfpapers.nlp.tags import generate_tags, DOMAIN_TAGS, _normalize_tag
+from hfpapers.nlp import get_nlp
+from hfpapers.nlp.tags import generate_tags
 
 logger = logging.getLogger("hfpapers.nlp.tag_analysis")
 
@@ -262,8 +261,8 @@ def report_text(analysis: dict) -> str:
     lines = []
     lines.append("## 📊 Zotero Tag Analysis Report")
     lines.append("")
-    lines.append(f"| Metric | Value |")
-    lines.append(f"|:-------|:-----:|")
+    lines.append("| Metric | Value |")
+    lines.append("|:-------|:-----:|")
     lines.append(f"| Papers scanned | {analysis['n_papers']} |")
     lines.append(f"| Existing unique tags | {analysis['total_existing_tags']} |")
     lines.append(f"| spaCy candidate tags | {analysis['total_candidate_tags']} |")
@@ -403,8 +402,8 @@ def plot_simple_wordcloud(
         Path to the saved image, or None if wordcloud unavailable.
     """
     try:
-        from wordcloud import WordCloud
         import matplotlib
+        from wordcloud import WordCloud
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:

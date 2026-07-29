@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger("hfpapers.graph.analyze.impact")
 

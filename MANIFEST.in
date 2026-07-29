@@ -1,0 +1,3 @@
+# Include skills in source distribution
+# so pip install hfpclawer brings them locally
+recursive-include skills *.md
