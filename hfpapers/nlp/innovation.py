@@ -19,7 +19,7 @@ import logging
 import re
 from typing import Optional
 
-from hfpapers.nlp import get_nlp, has_spacy
+from hfpapers.nlp import get_nlp
 from hfpapers.nlp.keywords import _is_acronym
 
 logger = logging.getLogger("hfpapers.nlp.innovation")

@@ -51,3 +51,9 @@ htmlcov/
 .pytest_cache/
 # Downloaded paper PDFs (large, generated)
 raw_pdfs/
+
+# ── Hermes Agent (internal) ──
+.hermes/
+
+# ── CodeGraph index (generated) ──
+.codegraph/

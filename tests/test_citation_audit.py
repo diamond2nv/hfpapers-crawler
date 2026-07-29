@@ -11,13 +11,14 @@ import os
 import sqlite3
 import tempfile
 
+# Removed API stubs — kept so existing test classes can be collected (then skipped)
+from unittest.mock import MagicMock
+
 import pytest
 
 # Current API: check_citation_local lives in hfpclawer.audit.l1_local
 from hfpclawer.audit.l1_local import check_citation_local
 
-# Removed API stubs — kept so existing test classes can be collected (then skipped)
-from unittest.mock import MagicMock
 batch_audit = MagicMock(return_value=[])
 check_citation_by_arxiv_id = MagicMock(return_value={"status": "NOT_FOUND"})
 extract_citations_from_text = MagicMock(return_value=[])

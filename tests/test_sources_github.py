@@ -4,12 +4,7 @@
 
 from __future__ import annotations
 
-import json
-import urllib.request
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from hfpapers.source_adapters.github_ingest import (
     GitHubSource,

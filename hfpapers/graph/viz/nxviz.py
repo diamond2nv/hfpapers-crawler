@@ -18,8 +18,6 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from hfpapers.graph.schema import NodeType
-
 logger = logging.getLogger("hfpapers.graph.viz.nxviz")
 
 # ── Defaults ───────────────────────────────────────────────────
@@ -56,7 +54,6 @@ def render_citation_network(
         logger.warning("matplotlib not available — skipping citation plot")
         return None
 
-    from hfpapers.graph.schema import EdgeType
 
     path = Path(output or "~/data/kg/citation.png").expanduser()
 
@@ -203,7 +200,6 @@ def _circular_layout(G: "nx.Graph", ax, group_by: str = "type") -> None:  # noqa
     Colors by node type (PERSON=blue, INSTITUTION=purple).
     Larger nodes for institutions, smaller for persons.
     """
-    import matplotlib.pyplot as plt
     import networkx as nx
     import numpy as np
 

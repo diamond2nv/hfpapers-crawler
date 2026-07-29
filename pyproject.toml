@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hfpclawer"
-version = "0.14.1"
+version = "0.15.0"
 description = "Multi-source academic paper clawler for PDE/neural operator/physics-informed ML — OAI-PMH download + PDF download + SQLite paper_store + Cross-Ref + MCP server"
 authors = [
     {name = "Li Shen"},
@@ -155,3 +155,18 @@ dev = [
     "pytest>=9.1.1",
     "sympy>=1.14.0",
 ]
+
+[tool.pyright]
+include = ["hfpapers"]
+exclude = ["hfpapers/graph/**"]
+reportMissingImports = "warning"
+reportMissingTypeStubs = "warning"
+reportUndefinedVariable = "error"
+reportOptionalMemberAccess = "warning"
+reportOptionalSubscript = "warning"
+reportOptionalCall = "warning"
+reportOptionalOperand = "warning"
+reportIncompatibleMethodOverride = "error"
+reportAssignmentType = "error"
+reportGeneralTypeIssues = "warning"
+reportCallIssue = "error"

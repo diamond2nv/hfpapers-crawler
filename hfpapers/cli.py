@@ -1478,8 +1478,8 @@ def mcp(
 # ════════════════════════════════════════════
 
 
-@app.command()
-def download(  # noqa: F811 — intentional typer overload for OAI/Kaggle pipeline
+@app.command(name="download-meta")
+def download_meta(  # noqa: F811 — renamed from `download` to avoid redefinition
     source: str = typer.Option(
         "oai",
         "--source",
