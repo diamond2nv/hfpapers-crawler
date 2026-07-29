@@ -115,6 +115,9 @@ addopts = "-q --tb=short"
 asyncio_mode = "auto"
 markers = [
     "slow: marks tests as slow (e.g. venv creation + pip install), deselected by default",
+    "gate_b: Geometry/base functionality verification gates (B10-B11)",
+    "gate_c: Topology/pipeline verification gates (C01-C02)",
+    "gate_f: Magnitude/config verification gates (F01-F02)",
 ]
 
 [tool.coverage.run]
