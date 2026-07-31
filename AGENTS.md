@@ -242,6 +242,40 @@ Test fixture `test_env` already chdir's to a temp directory. Do NOT hardcode `~/
 
 Scrapy's `pipelines.py` calls `ensure_paper()` directly. If the spider doesn't set `sf_id`, `StorePipeline` will skip. Check `pipelines.py` lines 38-69.
 
+### ⚠️ upsert_paper() 从不 commit → ensure_paper() 静默丢数据 (2026-07-31 实测)
+
+**症状**: `ensure_paper()` 返回 `(sf_id, is_new=True)` 看似成功，但随后
+查询 `papers` 表 / identifiers 都查不到——数据根本没落库。
+
+**根因**: `upsert_paper()` 用 `with self._conn() as conn:` 上下文管理器执行
+INSERT/UPDATE。Python `sqlite3` 的 `with conn:` 语义是：成功退出**不提交**，
+仅异常时回滚。连接关闭时未提交事务被丢弃。`paper_store.py` 全库搜索
+`commit` 零命中——所有写路径都有此问题。
+
+**影响范围**: `ensure_paper()`, `upsert_paper()`, `add_identifier()`,
+`verify_paper()` 等一切通过 `_conn()` 写库的路径。
+
+**绕过方案 (已实测)**: 直接用 SQLite + 显式 `commit()` 补录:
+
+```python
+import sqlite3, time
+conn = sqlite3.connect('/home/shenli/data/papers.db')
+cur = conn.cursor()
+cur.execute("INSERT INTO papers (sf_id, title, ...) VALUES (?,?,...)",
+            (sf_id, title, ...))
+cur.execute("INSERT INTO identifiers (sf_id, id_type, id_value, source) VALUES (?,?,?,?)",
+            (sf_id, 'doi', doi, 'pdf_metadata'))
+conn.commit()   # ← 必须显式 commit
+```
+
+**修复方向**: 给 `_conn()` 加 `conn.isolation_level = None` (autocommit) 或
+在 `upsert_paper`/`add_identifier` 等写方法末尾显式 `conn.commit()`。
+修复后需回归测试 `tests/test_paper_store.py` 的 CRUD 用例。
+
+### PwC API Deprecated
+
+PapersWithCode API has been redirected to HuggingFace API. `PwcApiSource` in `sources.py` may return empty results.
+
 ### PwC API Deprecated
 
 PapersWithCode API has been redirected to HuggingFace API. `PwcApiSource` in `sources.py` may return empty results.
