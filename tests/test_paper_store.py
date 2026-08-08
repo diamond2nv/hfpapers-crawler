@@ -159,3 +159,42 @@ class TestGetStoreSingleton:
         s1 = get_store()
         s2 = get_store()
         assert s1 is s2
+
+
+class TestDbPathNoNestedDB:
+    """Regression: v0.15.1 fix — _db_path() must resolve relative data_dir
+    against the package root, NOT CWD. Running from inside data/ previously
+    created nested data/data/papers.db empty DBs (metadata split from PDF/MD).
+    """
+
+    def test_db_path_from_data_dir_cwd(self, monkeypatch):
+        import os
+
+        from hfpapers import paper_store
+
+        # Simulate running from inside <pkg_root>/data/
+        pkg_root = os.path.realpath(
+            os.path.join(os.path.dirname(paper_store.__file__), "..")
+        )
+        monkeypatch.chdir(os.path.join(pkg_root, "data"))
+        monkeypatch.delenv("HFPAPERS_DATA_DIR", raising=False)
+
+        db = paper_store._db_path()
+        expected = os.path.join(pkg_root, "data", "papers.db")
+        assert db == expected, f"nested DB trap: {db} != {expected}"
+        assert "data/data/" not in db, f"nested data/data path: {db}"
+        assert os.path.realpath(db) == db, "db_path not normalized"
+
+    def test_db_path_from_project_root(self, monkeypatch):
+        import os
+
+        from hfpapers import paper_store
+
+        pkg_root = os.path.realpath(
+            os.path.join(os.path.dirname(paper_store.__file__), "..")
+        )
+        monkeypatch.chdir(pkg_root)
+        monkeypatch.delenv("HFPAPERS_DATA_DIR", raising=False)
+
+        db = paper_store._db_path()
+        assert db == os.path.join(pkg_root, "data", "papers.db")
