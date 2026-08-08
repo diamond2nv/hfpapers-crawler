@@ -37,6 +37,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -317,16 +318,25 @@ def _db_path() -> str:
 
     Resolution order:
       1. HFPAPERS_DATA_DIR env var (absolute path)
-      2. config.yaml → paths.data_dir (relative → resolved against CWD)
-      3. fallback: ./data/
+      2. config.yaml → paths.data_dir (relative → resolved against package root,
+         matching evolved.py BASE_DIR semantics)
+      3. fallback: <package_root>/data/
+
+    ⚠️ FIX (v0.15.1): relative paths are resolved against the package root
+    (Path(__file__).parent.parent), NOT os.getcwd(). Previously CWD-based
+    resolution created nested `data/data/papers.db` empty DBs when the CLI
+    was run from inside `data/` — metadata went to the nested empty DB while
+    PDF/MD (BASE_DIR-based in evolved.py) were written correctly.
     """
+    pkg_root = Path(__file__).parent.parent
     env_dir = os.environ.get("HFPAPERS_DATA_DIR")
     if env_dir:
-        base = env_dir if os.path.isabs(env_dir) else os.path.join(os.getcwd(), env_dir)
+        base = env_dir if os.path.isabs(env_dir) else os.path.join(str(pkg_root), env_dir)
     else:
         base = cfg_get("paths.data_dir", "data")
         if not os.path.isabs(base):
-            base = os.path.join(os.getcwd(), base)
+            base = os.path.join(str(pkg_root), base)
+    base = os.path.realpath(base)
     os.makedirs(base, exist_ok=True)
     return os.path.join(base, "papers.db")
 
