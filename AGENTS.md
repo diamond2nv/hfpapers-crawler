@@ -250,35 +250,34 @@ Test fixture `test_env` already chdir's to a temp directory. Do NOT hardcode `~/
 
 Scrapy's `pipelines.py` calls `ensure_paper()` directly. If the spider doesn't set `sf_id`, `StorePipeline` will skip. Check `pipelines.py` lines 38-69.
 
-### ⚠️ upsert_paper() 从不 commit → ensure_paper() 静默丢数据 (2026-07-31 实测)
+### ✅ 已核实不成立: upsert_paper() "从不 commit → 静默丢数据" (2026-08-08 复核)
 
-**症状**: `ensure_paper()` 返回 `(sf_id, is_new=True)` 看似成功，但随后
-查询 `papers` 表 / identifiers 都查不到——数据根本没落库。
+> **结论**: 该坑描述 (2026-07-31 记录) 是**误诊**, 实际不存在。
+> 2026-08-08 实证复核 (Python 3.11.13):
 
-**根因**: `upsert_paper()` 用 `with self._conn() as conn:` 上下文管理器执行
-INSERT/UPDATE。Python `sqlite3` 的 `with conn:` 语义是：成功退出**不提交**，
-仅异常时回滚。连接关闭时未提交事务被丢弃。`paper_store.py` 全库搜索
-`commit` 零命中——所有写路径都有此问题。
+**实证证据**:
+1. `upsert_paper()` 用 `with self._conn() as conn:` — Python 3.5+ 的 `with conn:`
+   语义是 **正常退出自动 commit、异常回滚** (非旧版 3.4- 的"不提交")。
+   ```python
+   # 隔离测试 (temp db):
+   sf_id = store.upsert_paper(PaperRecord(title='X', relevance=80))
+   # 独立 sqlite3.connect 读取 → ✅ 数据落库
+   ```
+2. 生产库 587 篇全部经此代码路径写入成功 (含 377 条 cron 行) — 无数据丢失。
+3. Python 文档: `Connection` 的 `__exit__` 在无异常时提交事务。
 
-**影响范围**: `ensure_paper()`, `upsert_paper()`, `add_identifier()`,
-`verify_paper()` 等一切通过 `_conn()` 写库的路径。
+**当时真实根因 (推测)**: 2026-07-31 遇到的"数据查不到"更可能是
+**嵌套库陷阱** (CWD 相对路径 → `data/data/papers.db` 空库), 已于 **v0.15.1**
+修复 (`_db_path()` 相对路径对包根解析, 见下方 Pitfall)。症状相似 (写入后查不到),
+但根因完全不同。
 
-**绕过方案 (已实测)**: 直接用 SQLite + 显式 `commit()` 补录:
+**不要做的事**: 无需给 `_conn()` 加 `isolation_level=None` 或显式 commit —
+那是针对不存在的 bug 的过度工程, 且会破坏事务语义。
 
-```python
-import sqlite3, time
-conn = sqlite3.connect('/home/shenli/data/papers.db')
-cur = conn.cursor()
-cur.execute("INSERT INTO papers (sf_id, title, ...) VALUES (?,?,...)",
-            (sf_id, title, ...))
-cur.execute("INSERT INTO identifiers (sf_id, id_type, id_value, source) VALUES (?,?,?,?)",
-            (sf_id, 'doi', doi, 'pdf_metadata'))
-conn.commit()   # ← 必须显式 commit
-```
-
-**修复方向**: 给 `_conn()` 加 `conn.isolation_level = None` (autocommit) 或
-在 `upsert_paper`/`add_identifier` 等写方法末尾显式 `conn.commit()`。
-修复后需回归测试 `tests/test_paper_store.py` 的 CRUD 用例。
+**遇到"数据写入后查不到"时的排查顺序**:
+1. `PRAGMA database_list` — 确认连接的 DB 路径 (是否嵌套库)
+2. `cd` 到项目根再运行
+3. 检查 `HFPAPERS_DATA_DIR` 环境变量是否指向意外路径
 
 ### PwC API Deprecated
 
