@@ -46,6 +46,9 @@ class ImportResult:
         "status",
         "sf_id",
         "arxiv_id",
+        "title",
+        "abstract",
+        "year",
         "pdf_path",
         "md_path",
         "error",
@@ -56,6 +59,9 @@ class ImportResult:
         self.status = "unknown"
         self.sf_id: Optional[int] = None
         self.arxiv_id = arxiv_id
+        self.title: str = ""
+        self.abstract: str = ""
+        self.year: int = 0
         self.pdf_path: Optional[str] = None
         self.md_path: Optional[str] = None
         self.error: Optional[str] = None
@@ -275,13 +281,32 @@ def import_arxiv_id(
     try:
         from hfpapers.paper_store import ensure_paper
 
+        # Use metadata fetched from arXiv API when the caller did not
+        # supply title/abstract explicitly (FIX v0.15.2: previously
+        # fell back to the raw arXiv ID as title, producing garbage
+        # records like title="2504.19413", year=0).
+        final_title = title or result.title or arxiv_id
+        final_abstract = abstract or result.abstract
         sf_id, is_new = ensure_paper(
-            arxiv_id=arxiv_id,
-            title=title or arxiv_id,
-            abstract=abstract,
+            arxiv_id=arxiv_id if resolved.source == "arxiv" else "",
+            doi=arxiv_id if resolved.source == "doi" else "",
+            title=final_title,
+            abstract=final_abstract,
             venue=venue,
             source=source,
         )
+        # Backfill year from arXiv metadata (ensure_paper has no year
+        # parameter; Crossref verification may overwrite later).
+        if result.year and is_new:
+            try:
+                from hfpapers.paper_store import get_store
+
+                rec = get_store().get_paper_by_id(sf_id)
+                if rec is not None and not rec.year:
+                    rec.year = result.year
+                    get_store().upsert_paper(rec)
+            except Exception:
+                pass
         result.sf_id = sf_id
         result.status = "ok" if is_new else "duplicate"
         result.steps.append(f"store: sf_id={sf_id} (is_new={is_new})")
@@ -295,9 +320,13 @@ def import_arxiv_id(
 
 
 def _fetch_arxiv_meta(result: ImportResult) -> None:
-    """Try to fetch title + abstract from the arXiv API.
+    """Try to fetch title + abstract + year from the arXiv API.
 
-    This is best-effort – failure is silently ignored.
+    Best-effort – failure is silently ignored. On success, populates
+    ``result.title``, ``result.abstract`` and ``result.year`` so the
+    PaperStore write uses real metadata instead of falling back to the
+    raw arXiv ID as title (FIX v0.15.2: previously parsed metadata was
+    only logged to steps and never assigned back).
     """
     from xml.etree import ElementTree as ET
 
@@ -315,8 +344,17 @@ def _fetch_arxiv_meta(result: ImportResult) -> None:
             if title_el is not None and title_el.text:
                 # ArXiv API often wraps titles in newlines
                 title_text = " ".join(title_el.text.split())
+                result.title = title_text
                 result.steps.append(f"arxiv_meta: title={title_text[:60]}...")
-                # Store for later use – the caller passes title via parameter
+            summary_el = entry.find("a:summary", ns)
+            if summary_el is not None and summary_el.text:
+                result.abstract = " ".join(summary_el.text.split())
+            published_el = entry.find("a:published", ns)
+            if published_el is not None and published_el.text:
+                try:
+                    result.year = int(published_el.text[:4])
+                except (TypeError, ValueError):
+                    pass
         result.steps.append("arxiv_meta: ok")
     except Exception as exc:
         logger.debug("arXiv meta fetch failed: %s", exc)
