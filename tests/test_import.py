@@ -135,6 +135,71 @@ class TestImportResult:
         pass
 
 
+class TestFetchArxivMeta:
+    """Regression test for v0.15.2: metadata must be assigned back,
+    not merely logged to steps (previously title fell back to arXiv ID)."""
+
+    def _make_result(self, aid="2504.19413"):
+        from hfpclawer.import_paper.importer import ImportResult
+
+        return ImportResult(arxiv_id=aid)
+
+    def test_title_abstract_year_assigned(self, monkeypatch):
+        """_fetch_arxiv_meta populates result.title/.abstract/.year."""
+        sample_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2504.19413v1</id>
+    <title>Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory</title>
+    <summary>Large Language Models (LLMs) have demonstrated remarkable prowess.</summary>
+    <published>2025-04-25T17:59:48Z</published>
+  </entry>
+</feed>"""
+
+        class FakeResp:
+            def read(self):
+                return sample_xml
+
+        class FakeUrlopen:
+            def __init__(self, *a, **kw):
+                pass
+
+            def __enter__(self):
+                return FakeResp()
+
+            def __exit__(self, *a):
+                return False
+
+        import hfpclawer.import_paper.importer as imp
+
+        monkeypatch.setattr(imp.urllib.request, "urlopen", FakeUrlopen)
+        result = self._make_result()
+        imp._fetch_arxiv_meta(result)
+
+        assert result.title == (
+            "Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory"
+        )
+        assert "remarkable prowess" in result.abstract
+        assert result.year == 2025
+
+    def test_fetch_failure_keeps_empty_meta(self, monkeypatch):
+        """On API failure, result stays empty (best-effort, non-fatal)."""
+
+        def boom(*a, **kw):
+            raise OSError("network down")
+
+        import hfpclawer.import_paper.importer as imp
+
+        monkeypatch.setattr(imp.urllib.request, "urlopen", boom)
+        result = self._make_result()
+        imp._fetch_arxiv_meta(result)
+
+        assert result.title == ""
+        assert result.abstract == ""
+        assert result.year == 0
+        assert any("failed" in s for s in result.steps)
+
+
 # ════════════════════════════════════════════
 # Test the docstring examples
 # ════════════════════════════════════════════
