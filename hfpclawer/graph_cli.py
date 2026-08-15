@@ -829,6 +829,87 @@ def cmd_expand_citations(
                   f"{builder.G.number_of_edges()} edges")
 
 
+def cmd_expand_hub(
+    seeds: str = "",
+    max_layers: int = 3,
+    top_k: int = 15,
+    direction: str = "both",
+    checkpoint: str = "",
+) -> None:
+    """Expand the graph layer-by-layer with hub-guided frontier truncation.
+
+    Inspired by xAI x-algorithm SimClusters: after each layer, rank new
+    papers by hub score (PageRank + degree), keep only the top-k as the
+    next frontier. Avoids exponential blowup of blind BFS and survives
+    S2 rate limits via per-layer checkpoints.
+
+    Args:
+        seeds: Comma-separated arXiv IDs to start from. Empty = auto-select
+            s2_hub/s2_digiecon papers already in graph.
+        max_layers: How many layers to walk.
+        top_k: Papers kept per layer (frontier size).
+        direction: 'references', 'citations', or 'both'.
+        checkpoint: Path to JSON checkpoint file (empty = none).
+    """
+    from hfpapers.graph import GraphBuilder
+
+    cached = GraphBuilder.load()
+    if cached is None:
+        console.print("[yellow]No cached graph found. Run 'hfpclawer graph build' first.[/yellow]")
+        return
+
+    builder = GraphBuilder()
+    builder.G = cached
+
+    seed_ids = [s.strip() for s in seeds.split(",") if s.strip()] if seeds else []
+    if not seed_ids:
+        # Auto-select: papers already tagged s2_hub / s2_digiecon in graph
+        for nid, data in builder.G.nodes(data=True):
+            src = str(data.get("sources", ""))
+            if src.startswith("s2_hub") or src.startswith("s2_digiecon"):
+                aid = str(data.get("arxiv_id", "")).strip()
+                if aid:
+                    seed_ids.append(aid)
+        if seed_ids:
+            console.print(f"[dim]Auto-selected {len(seed_ids)} tagged seeds from graph[/dim]")
+
+    if not seed_ids:
+        console.print("[yellow]No seed papers. Pass comma-separated arXiv IDs as ARG.[/yellow]")
+        return
+
+    console.print(f"[dim]Hub-guided expansion (seeds={len(seed_ids)}, layers={max_layers}, "
+                  f"top_k={top_k}, dir={direction})...[/dim]")
+
+    try:
+        result = builder.expand_hub_guided(
+            seed_arxiv_ids=seed_ids,
+            max_layers=max_layers,
+            top_k=top_k,
+            direction=direction,
+            checkpoint=checkpoint,
+        )
+    except Exception as e:
+        console.print(f"[red]❌ Hub-guided expansion failed: {e}[/red]")
+        logger.exception("Hub-guided expansion failed")
+        return
+
+    builder.save()
+
+    for layer in result["layers"]:
+        console.print(
+            f"[green]Layer {layer['layer']}: +{layer['papers_found']} papers, "
+            f"{layer['api_calls']} API calls, {layer['elapsed_s']}s[/green]"
+        )
+        for aid, score in layer["hub"][:5]:
+            console.print(f"   hub {aid} score={score}")
+
+    console.print(f"[green]✅ Done: {result['layers_completed']}/{result['max_layers']} layers[/green]")
+    console.print(f"   Graph now: {result['final_nodes']} nodes, {result['final_edges']} edges")
+    if result["top_hub"]:
+        console.print("   Top hub papers: " + ", ".join(
+            f"{aid}({score})" for aid, score in result["top_hub"][:5]))
+
+
 def cmd_analyze(
     source: str = "",
     community_algo: str = "leiden",

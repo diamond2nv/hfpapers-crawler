@@ -1121,6 +1121,7 @@ def graph(
         cmd_community_map,
         cmd_enrich_orcid,
         cmd_expand_citations,
+        cmd_expand_hub,
         cmd_export,
         cmd_geo_globe,
         cmd_geo_institutions,
@@ -1161,6 +1162,15 @@ def graph(
     elif action == "expand-citations":
         cmd_expand_citations(
             max_depth=int(arg or "2"), max_seeds=int(arg2 or "10"), direction="both"
+        )
+    elif action == "expand-hub":
+        # expand-hub [seeds_csv] [max_layers]  (--checkpoint PATH --top-k N)
+        cmd_expand_hub(
+            seeds=arg or "",
+            max_layers=int(arg2 or "3"),
+            top_k=top_n,
+            direction="both",
+            checkpoint=src or "",
         )
     elif action == "analyze":
         cmd_analyze(
