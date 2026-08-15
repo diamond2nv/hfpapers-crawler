@@ -880,3 +880,46 @@ class GraphBuilder:
             label_source=label_source,
         )
         return result
+
+    def expand_hub_guided(
+        self,
+        seed_arxiv_ids: list[str],
+        max_layers: int = 3,
+        top_k: int = 15,
+        direction: str = "both",
+        label_source: str = "s2_hub",
+        filter_keywords: list[str] | None = None,
+        checkpoint: str = "",
+    ) -> dict:
+        """Expand the graph layer-by-layer, truncating the frontier by hub score.
+
+        Inspired by xAI x-algorithm SimClusters: rank papers after each layer
+        by PageRank + degree, keep only the top-k as the next frontier. Avoids
+        the exponential blowup of blind BFS and survives S2 rate limits via
+        checkpoints.
+
+        Args:
+            seed_arxiv_ids: arXiv IDs to start from.
+            max_layers: How many layers to walk.
+            top_k: Papers kept per layer (frontier size).
+            direction: 'references', 'citations', or 'both'.
+            label_source: Source tag for new nodes.
+            filter_keywords: Optional keywords to keep only matching papers.
+            checkpoint: Path to JSON checkpoint file (empty = no checkpoint).
+
+        Returns:
+            Dict with per-layer stats and final hub list.
+        """
+        from hfpapers.graph.citation_expander import CitationExpander, HubGuidedExpander
+
+        expander = CitationExpander(
+            delay=2.0, filter_keywords=filter_keywords or []
+        )
+        hub = HubGuidedExpander(
+            expander=expander,
+            top_k=top_k,
+            sources_filter=label_source,
+            checkpoint=checkpoint,
+        )
+        return hub.run(self.G, seeds=seed_arxiv_ids, max_layers=max_layers,
+                       direction=direction)

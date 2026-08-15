@@ -370,3 +370,140 @@ def _add_cites(graph, from_pid: str, to_pid: str):
 
     if from_pid in graph and to_pid in graph and not graph.has_edge(from_pid, to_pid):
         graph.add_edge(from_pid, to_pid, type=EdgeType.CITES, source="s2_expanded")
+
+
+# ── Hub-guided layered expansion (x-algorithm SimClusters inspired) ────────
+
+
+def _hub_scores(graph, top_n: int = 15, sources_filter: str = "") -> list[tuple[str, float, str]]:
+    """Rank PAPER nodes by PageRank + degree (hub score), filtered by sources.
+
+    Args:
+        graph: NetworkX graph.
+        top_n: How many top papers to return.
+        sources_filter: Only rank papers whose sources start with this tag
+            (empty = all papers).
+
+    Returns:
+        Sorted list of (node_id, score, arxiv_id) tuples.
+    """
+    from hfpapers.graph.schema import NodeType
+
+    try:
+        import networkx as nx
+
+        pr = nx.pagerank(graph, alpha=0.85, max_iter=50)
+    except Exception:
+        pr = {}
+
+    scored = []
+    for nid, data in graph.nodes(data=True):
+        if data.get("type") != NodeType.PAPER:
+            continue
+        src = str(data.get("sources", ""))
+        if sources_filter and not src.startswith(sources_filter):
+            continue
+        aid = str(data.get("arxiv_id", "")).strip()
+        if not aid:
+            continue
+        score = pr.get(nid, 0.0) * 100.0 + float(graph.degree(nid))
+        scored.append((nid, score, aid))
+    scored.sort(key=lambda x: -x[1])
+    return scored[:top_n]
+
+
+class HubGuidedExpander:
+    """Layered citation expansion with hub-guided frontier truncation.
+
+    Inspired by xAI x-algorithm SimClusters: instead of blind BFS (which
+    explodes exponentially and stalls on API rate limits), expand one layer
+    at a time, rank new papers by hub score (PageRank + degree), keep only
+    the top-N as the next frontier, and checkpoint after each layer so the
+    run can be resumed.
+    """
+
+    def __init__(
+        self,
+        expander: "CitationExpander",
+        top_k: int = 15,
+        sources_filter: str = "s2_digiecon",
+        checkpoint: str = "",
+    ):
+        """Args:
+        expander: Configured CitationExpander (with keywords/delay).
+        top_k: Papers kept per layer (frontier size for next layer).
+        sources_filter: Sources tag prefix used to pick hub candidates.
+        checkpoint: Path to JSON checkpoint file (empty = no checkpoint).
+        """
+        self.expander = expander
+        self.top_k = top_k
+        self.sources_filter = sources_filter
+        self.checkpoint = checkpoint
+
+    def run(self, graph, seeds: list[str], max_layers: int = 3,
+            direction: str = "both") -> dict:
+        """Run layered hub-guided expansion.
+
+        Args:
+            graph: NetworkX graph (modified in place).
+            seeds: arXiv IDs to start from.
+            max_layers: How many layers to walk.
+            direction: 'references', 'citations', or 'both'.
+
+        Returns:
+            Dict with per-layer stats and final hub list.
+        """
+        import json
+        import os
+        import time
+
+        frontier = list(seeds)
+        start_layer = 0
+        if self.checkpoint and os.path.exists(self.checkpoint):
+            try:
+                with open(self.checkpoint) as f:
+                    state = json.load(f)
+                frontier = state.get("frontier", frontier)
+                start_layer = int(state.get("layer", 0))
+            except (OSError, ValueError, KeyError):
+                pass
+
+        layers = []
+        for layer in range(start_layer + 1, max_layers + 1):
+            t0 = time.time()
+            stats = self.expander.expand_from_seeds(
+                seed_arxiv_ids=frontier,
+                graph=graph,
+                max_depth=1,
+                direction=direction,
+                label_source="s2_hub",
+            )
+            top = _hub_scores(graph, top_n=self.top_k,
+                              sources_filter=self.sources_filter)
+            layer_stat = {
+                "layer": layer,
+                "papers_found": stats.get("papers_found", 0),
+                "api_calls": stats.get("api_calls", 0),
+                "elapsed_s": round(time.time() - t0, 1),
+                "frontier": [aid for _, _, aid in top],
+                "hub": [(aid, round(score, 2))
+                        for _, score, aid in top[:8]],
+            }
+            layers.append(layer_stat)
+
+            if self.checkpoint:
+                with open(self.checkpoint, "w") as f:
+                    json.dump({"layer": layer, "frontier": layer_stat["frontier"]}, f)
+
+            if not layer_stat["frontier"]:
+                break
+            frontier = layer_stat["frontier"]
+
+        return {
+            "layers": layers,
+            "layers_completed": len(layers),
+            "max_layers": max_layers,
+            "final_nodes": graph.number_of_nodes(),
+            "final_edges": graph.number_of_edges(),
+            "top_hub": layers[-1]["hub"] if layers else [],
+        }
