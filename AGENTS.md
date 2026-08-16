@@ -38,7 +38,7 @@ working on this project. It describes the project structure, key patterns, pitfa
 
 > ⛔ This repo has a **public origin** (Aliyun Codeup `Token-Arena/hfpapers-crawler`)
 > and is published to PyPI. Anything committed to `main` may become public.
-> The NAS remote (`local`, ssh://192.168.0.25:222) is private — push sensitive
+> The NAS remote (`local`, `ssh://<nas-forgejo>/...`) is private — push sensitive
 > changes there only, never to `origin`.
 
 ### What must NEVER appear in tracked files
