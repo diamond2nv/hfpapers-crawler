@@ -1,513 +1,526 @@
-# ─────────────────────────────────────────
-# HF Papers Collector — Config-driven crawler system
-# Main config: config.yaml
-# Secrets:     .env
-# ─────────────────────────────────────────
-
-# ===== 1. Site Resources & Crawl Rules =====
 search:
-  # Built-in site config
   sources:
     huggingface:
-      engine: "hf_cli"          # hf_cli | requests | browser
-      command: "hf papers search '{query}' --json --limit {limit}"
+      engine: hf_cli
+      command: hf papers search '{query}' --json --limit {limit}
       max_pages: 3
       delay_sec: 1.0
       enable: true
     arxiv:
-      api_base: "https://export.arxiv.org/api/query"
-      search_prefix: "https://export.arxiv.org/api/query?search_query="
+      api_base: https://export.arxiv.org/api/query
+      search_prefix: https://export.arxiv.org/api/query?search_query=
       delay_sec: 3.0
       results_per_query: 50
-      enable: false              # Fallback
+      enable: false
     openreview:
-      api_base: "https://api.openreview.net"
+      api_base: https://api.openreview.net
       max_results: 30
-      enable: true               # Review records + papers
-      notes: "Includes reviewer ratings and comments"
+      enable: true
+      notes: Includes reviewer ratings and comments
     pwc:
-      api_base: "https://paperswithcode.com/api/v1"
+      api_base: https://paperswithcode.com/api/v1
       max_results: 30
-      enable: true               # Code repos + SOTA rankings
-      notes: "Includes official code repository links"
-
-    # ─── CNS OA Journal Sources (Nature/Science/Cell Open Access) ───
+      enable: true
+      notes: Includes official code repository links
     europepmc:
-      enabled: false             # Enable for Nature Communications / Cell Reports searches
+      enabled: false
       journals:
-        - "Nature Communications"
+      - Nature Communications
       page_size: 25
-      notes: "Europe PMC REST API — public, no key required. Covers Nature Comms, Sci Reports, Cell Reports"
+      notes: Europe PMC REST API — public, no key required. Covers Nature Comms, Sci
+        Reports, Cell Reports
     semanticscholar:
-      enabled: false             # Enable for Science Advances / OA journal searches
+      enabled: false
       journals:
-        - "Science Advances"
-      api_key: ""                # Optional: get from https://api.semanticscholar.org/
-      notes: "Semantic Scholar API — journal-filtered, OA PDF filter. 100req/5min without key"
-
-  # Enabled search sources (ordered by priority)
+      - Science Advances
+      api_key: ''
+      notes: Semantic Scholar API — journal-filtered, OA PDF filter. 100req/5min without
+        key
   enabled:
-    - "hf_cli"
-    - "pwc_api"
-    - "openreview"
-    - "arxiv_api"        # AI4Math: arXiv API for math/theorem-proving papers
-    # - "arxiv_api"  # Fallback, disabled by default
-
-  # Search dimensions
-  max_per_dim: 30               # Max results per dimension (after multi-source dedup)
+  - hf_cli
+  - pwc_api
+  - openreview
+  - arxiv_api
+  max_per_dim: 30
   queries:
-    # ═══ PDE / Neural Operator (original) ═══
-    - query: "PDE neural operator"
-      category: neural-operator
-      weight: 2
-    - query: "physics-informed neural network"
-      category: pinn
-      weight: 1
-    - query: "physical constraint residual loss PDE"
-      category: pinn
-      weight: 1
-    - query: "AI 4 Science neural surrogate"
-      category: foundation-model
-      weight: 1
-    - query: "neural operator physics informed"
-      category: neural-operator
-      weight: 2
-    - query: "PDE solution operators"
-      category: foundation-model
-      weight: 1
-    - query: "flow matching physical constraints"
-      category: pinn
-      weight: 1
-    - query: "neural PDE solver"
-      category: neural-operator
-      weight: 2
-    # v0.4.3: Expanded coverage — 12 new queries across all categories
-    - query: "autoregressive neural operator"
-      category: neural-operator
-      weight: 1
-    - query: "attention neural operator"
-      category: neural-operator
-      weight: 1
-    - query: "graph neural operator"
-      category: neural-operator
-      weight: 1
-    - query: "Fourier operator learning"
-      category: neural-operator
-      weight: 1
-    - query: "geometric operator learning"
-      category: neural-operator
-      weight: 1
-    - query: "multi-scale neural operator"
-      category: neural-operator
-      weight: 1
-    - query: "memory efficiency neural operator"
-      category: neural-operator
-      weight: 1
-    - query: "foundation model physics simulation"
-      category: foundation-model
-      weight: 1
-    - query: "benchmark PDE solver"
-      category: benchmark
-      weight: 1
-    - query: "deep learning surrogate PDE"
-      category: surrogate
-      weight: 1
-    - query: "conservation law neural"
-      category: pinn
-      weight: 1
-    - query: "operator transformer"
-      category: neural-operator
-      weight: 1
-    # ═══ AI4Math: Theorem Proving & Formal Verification ═══
-    - query: "neural theorem proving"
-      category: ai4math
-      weight: 2
-    - query: "Lean 4 formal mathematics"
-      category: ai4math
-      weight: 2
-    - query: "AI automated theorem proving"
-      category: ai4math
-      weight: 1
-    - query: "LLM mathematical reasoning"
-      category: ai4math
-      weight: 1
-    - query: "formal verification machine learning"
-      category: ai4math
-      weight: 1
-    - query: "proof assistant AI agent"
-      category: ai4math
-      weight: 1
-    - query: "OProver agentic proving"
-      category: ai4math
-      weight: 2
-    - query: "Rethlas Archon Anderson conjecture"
-      category: ai4math
-      weight: 2
-    - query: "PackingStar kissing number"
-      category: ai4math
-      weight: 1
-    - query: "Intern-S1-MO OREAL-H"
-      category: ai4math
-      weight: 2
-    - query: "AlphaProof Nexus"
-      category: ai4math
-      weight: 2
-    - query: "FrontierMath Epoch benchmark"
-      category: ai4math
-      weight: 1
-    - query: "automatic proof synthesis"
-      category: ai4math
-      weight: 1
-    - query: "gram matrix completion sphere packing"
-      category: ai4math
-      weight: 1
-    # ═══ Hydrogen Storage + Fiber Optic Sensing + Neural Operator ═══
-    - query: "hydrogen storage fiber optic sensing monitoring"
-      category: pde-application
-      weight: 3
-    - query: "FBG hydrogen tank structural health monitoring"
-      category: pde-application
-      weight: 3
-    - query: "distributed acoustic sensing tank monitoring"
-      category: pde-application
-      weight: 2
-    - query: "DAS DTS hydrogen leak detection"
-      category: pde-application
-      weight: 3
-    - query: "neural operator inverse problem PDE sensing"
-      category: pde-application
-      weight: 3
-    - query: "FNO DeepONet structural health monitoring"
-      category: pde-application
-      weight: 2
-    - query: "fiber Bragg grating hydrogen pressure"
-      category: pde-application
-      weight: 2
-    - query: "BOTDA Brillouin temperature strain tank"
-      category: pde-application
-      weight: 2
-    - query: "digital twin hydrogen storage neural operator"
-      category: pde-application
-      weight: 2
-    - query: "\"hydrogen refueling\" monitoring sensor"
-      category: pde-application
-      weight: 2
-    - query: "machine learning hydrogen leak detection"
-      category: pde-application
-      weight: 2
-    - query: "physics-informed neural network tank monitoring"
-      category: pde-application
-      weight: 2
-    - query: "\"hydrogen embrittlement\" fiber optic"
-      category: pde-application
-      weight: 1
-    - query: "COMSOL hydrogen storage tank simulation"
-      category: pde-application
-      weight: 2
-    # ═══ AI4Math: Quantum Cryptography & Post-Quantum ═══
-    - query: "Apple CoreCrypto Isabelle"
-      category: quantum-crypto
-      weight: 2
-    - query: "PQClean post-quantum cryptography"
-      category: quantum-crypto
-      weight: 2
-    - query: "ML-KEM ML-DSA formal verification"
-      category: quantum-crypto
-      weight: 2
-    - query: "post-quantum cryptographic implementation"
-      category: quantum-crypto
-      weight: 1
-    - query: "NIST PQC formal proof"
-      category: quantum-crypto
-      weight: 1
-
-# ===== 2. Keyword Whitelist / Blacklist =====
+  - query: PDE neural operator
+    category: neural-operator
+    weight: 2
+  - query: physics-informed neural network
+    category: pinn
+    weight: 1
+  - query: physical constraint residual loss PDE
+    category: pinn
+    weight: 1
+  - query: AI 4 Science neural surrogate
+    category: foundation-model
+    weight: 1
+  - query: neural operator physics informed
+    category: neural-operator
+    weight: 2
+  - query: PDE solution operators
+    category: foundation-model
+    weight: 1
+  - query: flow matching physical constraints
+    category: pinn
+    weight: 1
+  - query: neural PDE solver
+    category: neural-operator
+    weight: 2
+  - query: autoregressive neural operator
+    category: neural-operator
+    weight: 1
+  - query: attention neural operator
+    category: neural-operator
+    weight: 1
+  - query: graph neural operator
+    category: neural-operator
+    weight: 1
+  - query: Fourier operator learning
+    category: neural-operator
+    weight: 1
+  - query: geometric operator learning
+    category: neural-operator
+    weight: 1
+  - query: multi-scale neural operator
+    category: neural-operator
+    weight: 1
+  - query: memory efficiency neural operator
+    category: neural-operator
+    weight: 1
+  - query: foundation model physics simulation
+    category: foundation-model
+    weight: 1
+  - query: benchmark PDE solver
+    category: benchmark
+    weight: 1
+  - query: deep learning surrogate PDE
+    category: surrogate
+    weight: 1
+  - query: conservation law neural
+    category: pinn
+    weight: 1
+  - query: operator transformer
+    category: neural-operator
+    weight: 1
+  - query: neural theorem proving
+    category: ai4math
+    weight: 2
+  - query: Lean 4 formal mathematics
+    category: ai4math
+    weight: 2
+  - query: AI automated theorem proving
+    category: ai4math
+    weight: 1
+  - query: LLM mathematical reasoning
+    category: ai4math
+    weight: 1
+  - query: formal verification machine learning
+    category: ai4math
+    weight: 1
+  - query: proof assistant AI agent
+    category: ai4math
+    weight: 1
+  - query: OProver agentic proving
+    category: ai4math
+    weight: 2
+  - query: Rethlas Archon Anderson conjecture
+    category: ai4math
+    weight: 2
+  - query: PackingStar kissing number
+    category: ai4math
+    weight: 1
+  - query: Intern-S1-MO OREAL-H
+    category: ai4math
+    weight: 2
+  - query: AlphaProof Nexus
+    category: ai4math
+    weight: 2
+  - query: FrontierMath Epoch benchmark
+    category: ai4math
+    weight: 1
+  - query: automatic proof synthesis
+    category: ai4math
+    weight: 1
+  - query: gram matrix completion sphere packing
+    category: ai4math
+    weight: 1
+  - query: hydrogen storage fiber optic sensing monitoring
+    category: pde-application
+    weight: 3
+  - query: FBG hydrogen tank structural health monitoring
+    category: pde-application
+    weight: 3
+  - query: distributed acoustic sensing tank monitoring
+    category: pde-application
+    weight: 2
+  - query: DAS DTS hydrogen leak detection
+    category: pde-application
+    weight: 3
+  - query: neural operator inverse problem PDE sensing
+    category: pde-application
+    weight: 3
+  - query: FNO DeepONet structural health monitoring
+    category: pde-application
+    weight: 2
+  - query: fiber Bragg grating hydrogen pressure
+    category: pde-application
+    weight: 2
+  - query: BOTDA Brillouin temperature strain tank
+    category: pde-application
+    weight: 2
+  - query: digital twin hydrogen storage neural operator
+    category: pde-application
+    weight: 2
+  - query: '"hydrogen refueling" monitoring sensor'
+    category: pde-application
+    weight: 2
+  - query: machine learning hydrogen leak detection
+    category: pde-application
+    weight: 2
+  - query: physics-informed neural network tank monitoring
+    category: pde-application
+    weight: 2
+  - query: '"hydrogen embrittlement" fiber optic'
+    category: pde-application
+    weight: 1
+  - query: COMSOL hydrogen storage tank simulation
+    category: pde-application
+    weight: 2
+  - query: Apple CoreCrypto Isabelle
+    category: quantum-crypto
+    weight: 2
+  - query: PQClean post-quantum cryptography
+    category: quantum-crypto
+    weight: 2
+  - query: ML-KEM ML-DSA formal verification
+    category: quantum-crypto
+    weight: 2
+  - query: post-quantum cryptographic implementation
+    category: quantum-crypto
+    weight: 1
+  - query: NIST PQC formal proof
+    category: quantum-crypto
+    weight: 1
+  - query: Hamiltonian beam dynamics accelerator
+    category: accelerator-theory
+    weight: 2
+  - query: space charge beam collective effects
+    category: accelerator-theory
+    weight: 2
+  - query: Twiss parameters lattice optics accelerator
+    category: accelerator-theory
+    weight: 2
+  - query: Lawson criterion fusion ignition
+    category: accelerator-theory
+    weight: 2
+  - query: triple product fusion confinement
+    category: accelerator-theory
+    weight: 1
+  - query: fusion reactivity cross section sigmav
+    category: accelerator-theory
+    weight: 1
+  - query: Fokker-Planck equation beam plasma
+    category: accelerator-theory
+    weight: 1
+  - query: Vlasov-Maxwell accelerator beam
+    category: accelerator-theory
+    weight: 1
+  - query: Boltzmann collision operator beam
+    category: accelerator-theory
+    weight: 1
+  - query: beam lifetime storage ring
+    category: accelerator-control
+    weight: 1
+  - query: intrabeam scattering emittance
+    category: accelerator-control
+    weight: 2
+  - query: Touschek scattering beam
+    category: accelerator-control
+    weight: 1
+  - query: space charge tune shift
+    category: accelerator-control
+    weight: 2
+  - query: beam-beam interaction collider
+    category: accelerator-control
+    weight: 2
+  - query: luminosity storage ring collider
+    category: accelerator-control
+    weight: 2
+  - query: emittance collider luminosity
+    category: accelerator-control
+    weight: 1
+  - query: dynamic aperture storage ring
+    category: accelerator-control
+    weight: 1
+  - query: energy confinement time tokamak
+    category: accelerator-theory
+    weight: 1
 keywords:
-  # Whitelist — hit adds score
   include_high:
-    - "neural operator"
-    - "fourier neural operator"
-    - "deeponet"
-    - "pino"
-    - "physics-informed"
-    - "pinn"
-    - "partial differential equation"
-    - "flow matching"
-    - "operator learning"
-    - "conservation law"
-    - "physical constraint"
-    - "surrogate model"
-    - "pde solver"
-    - "foundation model"
-    - "function space"
-    # AI4Math: Theorem Proving
-    - "theorem proving"
-    - "formal mathematics"
-    - "lean 4"
-    - "proof assistant"
-    - "automated reasoning"
-    - "neural theorem"
-    - "agentic proving"
-    - "mathematical reasoning"
-    - "proof synthesis"
-    - "formally verify"
-    - "Isabelle HOL"
-    - "CoreCrypto"
-    - "PQClean"
-    - "post-quantum cryptography"
-    - "kissing number"
-    - "sphere packing"
-    # PDE Application keywords
-    - "hydrogen storage"
-    - "fiber optic sensing"
-    - "fiber Bragg grating"
-    - "distributed acoustic sensing"
-    - "structural health monitoring"
-    - "hydrogen leak detection"
-    - "inverse problem"
-    - "digital twin"
-    - "BOTDA"
-    - "Brillouin"
-    - "FBG"
-    - "DAS"
-    - "DTS"
-    - "Φ-OTDR"
-
+  - neural operator
+  - fourier neural operator
+  - deeponet
+  - pino
+  - physics-informed
+  - pinn
+  - partial differential equation
+  - flow matching
+  - operator learning
+  - conservation law
+  - physical constraint
+  - surrogate model
+  - pde solver
+  - foundation model
+  - function space
+  - theorem proving
+  - formal mathematics
+  - lean 4
+  - proof assistant
+  - automated reasoning
+  - neural theorem
+  - agentic proving
+  - mathematical reasoning
+  - proof synthesis
+  - formally verify
+  - Isabelle HOL
+  - CoreCrypto
+  - PQClean
+  - post-quantum cryptography
+  - kissing number
+  - sphere packing
+  - hydrogen storage
+  - fiber optic sensing
+  - fiber Bragg grating
+  - distributed acoustic sensing
+  - structural health monitoring
+  - hydrogen leak detection
+  - inverse problem
+  - digital twin
+  - BOTDA
+  - Brillouin
+  - FBG
+  - DAS
+  - DTS
+  - Φ-OTDR
   include_medium:
-    - "simulation"
-    - "cfd"
-    - "fluid"
-    - "navier-stokes"
-    - "burgers"
-    - "turbulence"
-    - "multiscale"
-    - "mesh"
-    - "discretization-invariant"
-    # AI4Math: medium-weight terms
-    - "formal proof"
-    - "automated deduction"
-    - "interactive theorem"
-    - "Mathlib"
-    - "Gram matrix"
-    - "dimension packing"
-
+  - simulation
+  - cfd
+  - fluid
+  - navier-stokes
+  - burgers
+  - turbulence
+  - multiscale
+  - mesh
+  - discretization-invariant
+  - formal proof
+  - automated deduction
+  - interactive theorem
+  - Mathlib
+  - Gram matrix
+  - dimension packing
   include_low:
-    - "weather"
-    - "climate"
-    - "aerospace"
-    - "materials"
-    - "molecular"
-    - "magnetohydrodynamic"
-
-  # Blacklist — hit skips
+  - weather
+  - climate
+  - aerospace
+  - materials
+  - molecular
+  - magnetohydrodynamic
   exclude:
-    - "qml"
-    - "qubit"
-    - "string theory"
-    - "photonic"
-    - "super resolution image"
-    - "recommender system"
-
-# ===== 3. Anti-Crawl Strategy =====
+  - qml
+  - qubit
+  - string theory
+  - photonic
+  - super resolution image
+  - recommender system
 anti_crawl:
-  random_ua: true                # Random User-Agent
+  random_ua: true
   random_delay:
-    base: 2.0                    # Base delay (seconds)
-    jitter: 0.5                  # Random jitter ±50%
-  max_retries: 3                 # Max retries
-  retry_delay_base: 30           # Exponential backoff base (seconds)
-  retry_http_codes: [429, 503, 403, 408, 500, 502, 520]
+    base: 2.0
+    jitter: 0.5
+  max_retries: 3
+  retry_delay_base: 30
+  retry_http_codes:
+  - 429
+  - 503
+  - 403
+  - 408
+  - 500
+  - 502
+  - 520
   proxy:
-    enable: false                # Proxy rotation (default off, needs proxy pool)
-    providers: []                # e.g. ["http://user:pass@proxy1:8080"]
+    enable: false
+    providers: []
   cookies:
-    enable: false                # Cookie pool (default off)
-
-# ===== 4. Three-Level Classification Thresholds =====
+    enable: false
 classification:
   keyword_score_high: 60
   phrase_score_high: 40
-  threshold_pass: 30             # Discard below this score
-  title_similarity_min: 0.40     # arXiv verification: trigram Jaccard lower bound
-  bert_enabled: true             # Auto-enable when GPU is available
-
-# ===== 5. Hardware Capacity Budget =====
+  threshold_pass: 30
+  title_similarity_min: 0.4
+  bert_enabled: true
 hardware:
   max_pdf_size_mb: 50
   max_pdf_count: 500
   max_md_chars: 500000
   skip_if_no_gpu:
-    - "pymupdf4llm"    # Don't install pymupdf4llm without GPU
-    - "sentence-transformers"
+  - pymupdf4llm
+  - sentence-transformers
   auto_downgrade: true
-
-# ===== 6. Budget Configuration (litellm Proxy routing) =====
 budget:
-  max_tokens: 50000000              # Unified token limit for all providers (prevents overruns)
-  max_cost_usd: 1.50             # Only applies to paid providers (max $0.50/run)
-  # - Ollama etc. local models: in/out=$0, cost check auto-skipped
-  # - DeepSeek: input=$0.28/M, output=$0.42/M
-  # - Cost limit ≈ DeepSeek one full paper analysis (30K+10K tokens)
-  #
-  # LiteLLM Proxy routing strategy:
-  # 1. Within budget → DeepSeek (high quality)
-  # 2. Exceeded/over budget → Fallback to Ollama (free, local inference)
-  # See .env for: LITELLM_PROXY, LITELLM_API_KEY
-
-# ===== 7. Wiki Integration Config =====
+  max_tokens: 50000000
+  max_cost_usd: 1.5
 wiki:
-  base_dir: "~/wiki"
-  concepts_dir: "concepts"
-  entities_dir: "entities"
-  index_file: "index.md"
-  log_file: "log.md"
-  batch_prefix: "hfpapers-"
+  base_dir: ~/wiki
+  concepts_dir: concepts
+  entities_dir: entities
+  index_file: index.md
+  log_file: log.md
+  batch_prefix: hfpapers-
   write_summary: true
-
-# ===== 7b. Knowledge Graph Config =====
 graph:
-  wiki_dir: "~/wiki"
-  cache_path: "~/.hermes/graph_cache.pkl"
+  wiki_dir: ~/wiki
+  cache_path: ~/.hermes/graph_cache.pkl
   default_limit: 200
-  topic_from_title: true           # Auto-extract TOPIC nodes from paper titles
-  max_title_topics: 3              # Max topics per paper from title
-  skip_common_phrases:             # Skip these from title→topic extraction
-    - "study of"
-    - "analysis of"
-    - "on the"
-    - "towards"
-    - "investigation"
-    - "enhanced"
-    - "novel"
-    - "new"
-    - "review"
-    - "survey"
-  geo:                             # v0.10.3: Geo enrichment (institutions, cities, countries)
-    enabled: true                  # Master switch for geo enrichment
-    cache_path: "~/.hermes/geo_cache.jsonl"  # JSONL cache for geocoding results
-    use_api: false                 # Enable Nominatim API (requires geopy, respects 1req/s)
-
-# ===== 7c. Stepping Citation Expansion Config =====
+  topic_from_title: true
+  max_title_topics: 3
+  skip_common_phrases:
+  - study of
+  - analysis of
+  - on the
+  - towards
+  - investigation
+  - enhanced
+  - novel
+  - new
+  - review
+  - survey
+  geo:
+    enabled: true
+    cache_path: ~/.hermes/geo_cache.jsonl
+    use_api: false
 stepping:
-  enabled: true                    # Enable multi-layer stepping expansion
-  api_delay: 3.5                   # S2 API request delay (free tier: 100/5min ~20/min)
-  resume: true                     # Skip completed layers on re-run
+  enabled: true
+  api_delay: 3.5
+  resume: true
   sources:
-    s2_api: true                   # Semantic Scholar API (online)
-    pdf_refs: false                # PDF→MD reference extraction (offline, requires pymupdf4llm)
-    tex_bib: false                 # TeX .bib parsing (offline)
-    person_cards: true             # wiki/people DOI+ORCID as seeds
+    s2_api: true
+    pdf_refs: false
+    tex_bib: false
+    person_cards: true
   layers:
-    - name: "QED-foundations"
-      seeds:
-        - "2405.00137"             # J-C model retrospective
-        - "2403.02402"             # Nonperturbative cavity QED
-      filter_keywords: ["Jaynes-Cummings", "vacuum Rabi", "quantum electrodyn"]
-      direction: "references"
-      max_depth: 1
-
-    - name: "cavity-qed"
-      seeds:
-        - "0912.4424"              # Single-Atom Cavity QED (Kimble)
-        - "1011.0252"              # WGM QED (Xiao & Zou)
-      filter_keywords: ["cavity quantum electrodynam", "strong coupling", "vacuum Rabi", "cavity QED", "atom-cavity"]
-      direction: "both"
-      max_depth: 1
-
-    - name: "wgm-integrated-quantum-optics"
-      seeds:
-        - "1011.0252"              # WGM QED
-        - "2107.12188"             # integrated WGM quantum dots
-        - "1811.07436"             # NV high contrast quantum imaging
-        - "2403.02868"             # user-supplied CUST
-        - "2408.13476"             # user-supplied CUST
-        - "2411.13160"             # user-supplied CUST
-        - "2511.10274"             # user-supplied CUST
-        - "10.1038/s41586-022-05335-5"   # Ren XF Nature 2023
-        - "10.1103/PhysRevLett.128.060501"    # Ren XF PRL 2022
-        - "10.1103/PhysRevLett.126.130501"    # Ren XF PRL 2021
-        - "10.1126/science.aba9772"           # Ren XF Science 2020
-        - "10.1103/PhysRevLett.129.173601"    # Ren XF PRL 2022
-        - "10.1103/PhysRevLett.127.153901"    # Ren XF PRL 2021
-        - "10.1038/ncomms11985"               # Ren XF Nat Commun 2016
-        - "10.1063/5.0246713"                 # Zhang SC APL Photonics 2025
-        - "10.1021/acsnano.4c07131"           # Zhang SC ACS Nano 2024
-        - "10.1063/5.0252580"                 # Guo GC APL 2026
-        - "10.1360/TB-2022-0118"              # Shen Z Science Bulletin
-      orcid_seeds:
-        - "0000-0003-2484-7292"    # Zou Changling
-        - "0000-0001-6559-8101"    # Ren Xifeng
-        - "0000-0002-9625-7390"    # Sun Fangwen
-        - "0000-0002-2246-4039"    # Chen Xiangdong
-        - "0000-0003-1068-5085"    # Dong Yang
-        - "0000-0002-9408-6102"    # Dong Chunhua
-        - "0000-0003-3771-9185"    # Guo Guangcan
-        - "0000-0001-8141-3816"    # Zhang Shaochun
-        - "0000-0003-2849-632X"    # Zheng Yu
-        - "0000-0002-1786-7693"    # Li Shen
-        - "0000-0002-3432-9341"    # Guo Guangcan (old)
-      filter_keywords:
-        - "WGM"
-        - "whispering gallery"
-        - "microring"
-        - "microcavity"
-        - "integrated quantum"
-        - "NV"
-        - "diamond"
-        - "quantum sensing"
-        - "quantum dot"
-      filter_authors:
-        - "Zou"
-        - "Ren X"
-        - "Sun F"
-        - "Xiao Y"
-        - "Dong C"
-        - "Shen Z"
-        - "Chen X"
-        - "Dong Y"
-        - "Zhang S"
-        - "Zheng Y"
-        - "Li S"
-        - "Guo G"
-      direction: "references"
-      max_depth: 1
-
-    - name: "optomechanical-crystals"
-      source: "existing"
-      refs_path: "data/references/refs.jsonl"
-
-    - name: "cavity-magnomechanics"
-      seeds:
-        - "2303.30693"              # enhanced magnon-photon-phonon entanglement
-        - "2404.15111"              # Hybrid cavity-magnon optomechanics
-        - "2506.02463"              # Controlling photon-magnon coupling
-      filter_keywords: ["magnomechanic", "magnon", "YIG", "cavity magnon"]
-      direction: "references"
-      max_depth: 1
-
-# ===== 8. Output Paths =====
+  - name: QED-foundations
+    seeds:
+    - '2405.00137'
+    - '2403.02402'
+    filter_keywords:
+    - Jaynes-Cummings
+    - vacuum Rabi
+    - quantum electrodyn
+    direction: references
+    max_depth: 1
+  - name: cavity-qed
+    seeds:
+    - '0912.4424'
+    - '1011.0252'
+    filter_keywords:
+    - cavity quantum electrodynam
+    - strong coupling
+    - vacuum Rabi
+    - cavity QED
+    - atom-cavity
+    direction: both
+    max_depth: 1
+  - name: wgm-integrated-quantum-optics
+    seeds:
+    - '1011.0252'
+    - '2107.12188'
+    - '1811.07436'
+    - '2403.02868'
+    - '2408.13476'
+    - '2411.13160'
+    - '2511.10274'
+    - 10.1038/s41586-022-05335-5
+    - 10.1103/PhysRevLett.128.060501
+    - 10.1103/PhysRevLett.126.130501
+    - 10.1126/science.aba9772
+    - 10.1103/PhysRevLett.129.173601
+    - 10.1103/PhysRevLett.127.153901
+    - 10.1038/ncomms11985
+    - 10.1063/5.0246713
+    - 10.1021/acsnano.4c07131
+    - 10.1063/5.0252580
+    - 10.1360/TB-2022-0118
+    orcid_seeds:
+    - 0000-0003-2484-7292
+    - 0000-0001-6559-8101
+    - 0000-0002-9625-7390
+    - 0000-0002-2246-4039
+    - 0000-0003-1068-5085
+    - 0000-0002-9408-6102
+    - 0000-0003-3771-9185
+    - 0000-0001-8141-3816
+    - 0000-0003-2849-632X
+    - 0000-0002-1786-7693
+    - 0000-0002-3432-9341
+    filter_keywords:
+    - WGM
+    - whispering gallery
+    - microring
+    - microcavity
+    - integrated quantum
+    - NV
+    - diamond
+    - quantum sensing
+    - quantum dot
+    filter_authors:
+    - Zou
+    - Ren X
+    - Sun F
+    - Xiao Y
+    - Dong C
+    - Shen Z
+    - Chen X
+    - Dong Y
+    - Zhang S
+    - Zheng Y
+    - Li S
+    - Guo G
+    direction: references
+    max_depth: 1
+  - name: optomechanical-crystals
+    source: existing
+    refs_path: data/references/refs.jsonl
+  - name: cavity-magnomechanics
+    seeds:
+    - '2303.30693'
+    - '2404.15111'
+    - '2506.02463'
+    filter_keywords:
+    - magnomechanic
+    - magnon
+    - YIG
+    - cavity magnon
+    direction: references
+    max_depth: 1
 paths:
-  data_dir: "data"
-  pdf_dir: "data/pdfs"
-  md_dir: "data/md_extracts"
-  log_dir: "logs"
-  crawled_db: "crawled.json"
-  # Dedup record — absolute path or relative to wiki.base_dir
-  global_dedup: "~/wiki/raw/papers/hfpapers-crawled.json"
-
-# ===== 9. Download Pipeline Config =====
+  data_dir: data
+  pdf_dir: data/pdfs
+  md_dir: data/md_extracts
+  log_dir: logs
+  crawled_db: crawled.json
+  global_dedup: ~/wiki/raw/papers/hfpapers-crawled.json
 db:
-  path: "data/arxiv_meta.db"       # arXiv metadata SQLite database
-
+  path: data/arxiv_meta.db
 download:
   oai:
     enable: true
-    base_url: "https://export.arxiv.org/oai2"
-    rate_limit: 2.0                # Request interval (seconds), arXiv recommends >=2s
-    batch_write: 500               # Records per batch write to DB
-    user_agent: "HFPClawer/0.2.0 (mailto:lishen@example.com)"
-    tier1_only: false              # Download all categories by default
+    base_url: https://export.arxiv.org/oai2
+    rate_limit: 2.0
+    batch_write: 500
+    user_agent: HFPClawer/0.2.0 (mailto:dev@example.com)
+    tier1_only: false
   kaggle:
-    enable: true                   # Kaggle CLI download of full arXiv dataset
-    dataset: "Cornell-University/arxiv"
-    jsonl: "data/arxiv_metadata.jsonl"   # Decompressed JSONL file
+    enable: true
+    dataset: Cornell-University/arxiv
+    jsonl: data/arxiv_metadata.jsonl

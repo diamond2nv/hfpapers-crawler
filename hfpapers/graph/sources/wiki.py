@@ -147,7 +147,7 @@ def _extract_name_from_h1(text: str) -> str | None:
 def _kebab_to_name(stem: str) -> str:
     """Convert a kebab-case filename stem to a name.
 
-    E.g. ``chen-xiangdong`` → ``chen-xiangdong`` (keep as-is for parsing)
+    E.g. ``zhao-weiyu`` → ``zhao-weiyu`` (keep as-is for parsing)
     """
     return stem
 
@@ -255,12 +255,12 @@ def _split_name(name: str) -> tuple[str, str]:
 
     Handles:
 
-    - ``Li Shen`` → (``Shen``, ``Li``) — English "First Last" convention
+    - ``Jane Doe`` → (``Doe``, ``Jane``) — English "First Last" convention
     - ``Smith, John`` → (``Smith``, ``John``) — "Last, First" convention
-    - ``Xiang-Dong Chen`` → (``Chen``, ``Xiang-Dong``) — hyphenated first name
-    - ``Chen Xiangdong`` → (``Chen``, ``Xiangdong``) — Chinese "Last First" convention
-    - ``陈向东`` → (``陈向东``, ``＂) — Chinese name (no split possible)
-    - ``chen-xiangdong`` → (``chen-xiangdong``, ``＂) — kebab-case
+    - ``Wei-Yu Zhao`` → (``Zhao``, ``Wei-Yu``) — hyphenated first name
+    - ``Zhao Weiyu`` → (``Zhao``, ``Weiyu``) — Chinese "Last First" convention
+    - ``张三`` → (``张三``, ``＂) — Chinese name (no split possible)
+    - ``zhao-weiyu`` → (``zhao-weiyu``, ``＂) — kebab-case
 
     Uses a heuristic: if a space exists, the LAST word is the surname
     (covers both ``First Last`` English and ``Last First`` Chinese pinyin).

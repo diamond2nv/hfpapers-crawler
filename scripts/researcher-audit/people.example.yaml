@@ -1,0 +1,18 @@
+# ─────────────────────────────────────────────────────────
+# 研究者论文审计配置 — 模板 (EXAMPLE)
+# ⛔ 真实 people.yaml 含研究者姓名/Google Scholar ID, 已 gitignore:
+#    只在本机 + NAS 私有网络共享, 不进公网仓库。
+#    复制本文件为 people.yaml 并填入真实研究者即可使用。
+# ─────────────────────────────────────────────────────────
+
+researchers:
+  - name_cn: "<研究者中文名>"
+    name_en: "<Researcher Name>"
+    affiliation: "<Institution>"
+    google_scholar_id: "<SCHOLAR_ID>"
+    orcid: ""                      # 未公开
+    since_year: 2018
+    max_papers: 100
+    keywords: []                   # 留空=全领域扫描
+
+  # 添加新 researcher 条目即可扩展

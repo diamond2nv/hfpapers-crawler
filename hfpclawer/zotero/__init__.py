@@ -71,7 +71,7 @@ def get_zotero_url() -> str:
     """Get the Zotero base URL, resolved once per process.
 
     Resolution order:
-      1. ZOTERO_API_URL environment variable (e.g. http://192.168.0.103:23120)
+      1. ZOTERO_API_URL environment variable (e.g. http://<windows-host-lan-ip>:23120)
       2. Default: http://localhost:23119
 
     ZOTERO_API_URL can be set via:

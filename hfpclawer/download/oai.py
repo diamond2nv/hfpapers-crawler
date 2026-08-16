@@ -193,7 +193,7 @@ class OaiPmhDownloader(BaseDownloader):
         super().__init__(db_path, progress_cb)
         self.db = ArxivMetaDB(self.db_path)
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "HFPClawer/0.2.0 (mailto:lishen@example.com)"})
+        self.session.headers.update({"User-Agent": "HFPClawer/0.2.0 (mailto:dev@example.com)"})
         self._last_request = 0.0
         self._stats = {"total_fetched": 0, "total_new": 0, "skipped": 0, "errors": 0}
 

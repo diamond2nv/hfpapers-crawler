@@ -508,7 +508,7 @@ def _query_nominatim_geopy(name: str, cache: GeoCache) -> Optional[dict]:
         from geopy.geocoders import Nominatim
 
         _NOMINATIM = Nominatim(
-            user_agent="hfpclawer/0.10.3 (knowledge-graph-geo-enrichment; mailto:lishen@example.com)",
+            user_agent="hfpclawer/0.10.3 (knowledge-graph-geo-enrichment; mailto:dev@example.com)",
         )
         _NOMINATIM_RATE_LIMITED = RateLimiter(
             _NOMINATIM.geocode,

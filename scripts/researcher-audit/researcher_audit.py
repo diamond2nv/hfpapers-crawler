@@ -65,8 +65,8 @@ class Researcher:
 @dataclass
 class PaperRecord:
     """Audit result for a single paper."""
-    researcher: str                           # e.g. "董春华"
-    researcher_en: str                        # e.g. "Chun-Hua Dong"
+    researcher: str                           # e.g. "张三"
+    researcher_en: str                        # e.g. "San Zhang"
     title: str
     year: int
     venue: str = ""

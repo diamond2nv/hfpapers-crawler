@@ -5,7 +5,7 @@ description: >
   SymPy roundtrip → Wolfram CAS comparison → dimensional consistency.
   Supports single FID and batch verification with LaTeX report generation.
 category: research
-author: Li Shen
+author: HFPClawer Maintainers
 version: 1.0.0
 metadata:
   hermes:
@@ -14,6 +14,12 @@ metadata:
 ---
 
 # hfpclawer Formula Cross-Validation
+
+> 🔒 **Sanitization**: This skill ships in the public repo. Never embed private
+> LAN IPs, real person names, or machine codenames in examples — use
+> `<placeholder>` / `Jane Doe` / `dev@example.com`. Real values live in the
+> repo's gitignored `.hermes/internal-guide.md`. See repo AGENTS.md
+> "Public-Release Sanitization".
 
 Verify that a LaTeX formula is syntactically valid, algebraically
 self-consistent, and dimensionally sound, by running it through a
