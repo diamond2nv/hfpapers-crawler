@@ -68,7 +68,11 @@ working on this project. It describes the project structure, key patterns, pitfa
 6. **Before `git push origin` / release**: run
    `git ls-files | xargs grep -nE "192\.168\.|/home/<real>|HUAWEI|Speaker"` and
    confirm zero hits (excluding pyproject.toml authors).
-7. **Commit hygiene**: sensitive-only changes → push to `local` (NAS), not
+7. **Commit messages are public too**: never put real person names, private IPs,
+   or internal emails in commit messages (subject or body). Use neutral wording
+   ("fix division-by-zero in researcher audit", not names). Rewrite with
+   `git commit --amend` before pushing to `origin` if a sensitive name slipped in.
+8. **Commit hygiene**: sensitive-only changes → push to `local` (NAS), not
    `origin`. Public release is a separate, deliberate step.
 
 ## Environment & Connectivity
