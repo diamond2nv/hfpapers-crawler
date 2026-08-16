@@ -245,7 +245,7 @@ class OAIDownloader:
     def __init__(self, db: ArxivMetaDB = None):
         self.db = db or ArxivMetaDB()
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "HermesAgent/1.0 (mailto:lishen@example.com)"})
+        self.session.headers.update({"User-Agent": "HermesAgent/1.0 (mailto:dev@example.com)"})
         self._last_request = 0.0
         self._stats = {"total_fetched": 0, "total_new": 0, "skipped": 0, "errors": 0}
         self._interrupted = False

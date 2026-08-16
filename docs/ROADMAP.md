@@ -13,7 +13,7 @@ visualizable knowledge graph.
 
 The result: instead of searching individual papers or people, you can ask
 "who in our network publishes in this journal?" or "show me all collaborators
-within 2 hops of Li Shen" or "which cities do our research partners cluster in?"
+within 2 hops of Jane Doe" or "which cities do our research partners cluster in?"
 
 ```
 v0.9.x                  v0.10.x
@@ -115,14 +115,14 @@ A full rule engine (business-rules, durable_rules, json-rules-engine) would add:
 **Improvement path:** If conditional post-processing is ever needed (e.g. "if score≥60 AND has_code → high_priority"),
 add a 5-line `post_rules` section in `RelevanceDetector`, not a rule engine.
 
-*Reviewed and signed off by lishen, 2026-07-09.*
+*Reviewed and signed off by the project maintainer, 2026-07-09.*
 
 ---
 
 ## v0.11.x and Beyond
 
 Future planning moved to wiki:
-→ [wiki: `concepts/hfpclawer-v0.11x-plan.md`](https://192.168.0.25:11443/doku.php?id=concepts:hfpclawer-v0.11x-plan)
+→ [wiki: `concepts/hfpclawer-v0.11x-plan.md`](https://<nas-dokuwiki>/doku.php?id=concepts:hfpclawer-v0.11x-plan)
 (Local copy: `~/wiki/concepts/hfpclawer-v0.11x-plan.md`)
 
 Topics covered in the wiki page:
@@ -188,8 +188,8 @@ hfpclawer graph stats                          # Summary statistics
 hfpclawer graph stats --detail                 # Per-type counts
 
 # Query
-hfpclawer graph person "Li Shen"               # Ego network
-hfpclawer graph person "Li Shen" --depth 2     # 2-hop neighbors
+hfpclawer graph person "Jane Doe"               # Ego network
+hfpclawer graph person "Jane Doe" --depth 2     # 2-hop neighbors
 hfpclawer graph community                      # Louvain communities
 hfpclawer graph path "Person A" "Person B"     # Shortest collaboration path
 

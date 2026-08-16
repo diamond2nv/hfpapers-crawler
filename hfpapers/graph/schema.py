@@ -81,8 +81,8 @@ def node_id(ntype: NodeType, key: str) -> str:
     Format: ``{type_name}:{slugified_key}``
 
     Examples:
-        >>> node_id(NodeType.PERSON, "Li Shen")
-        'person:li-shen'
+        >>> node_id(NodeType.PERSON, "Jane Doe")
+        'person:jane-doe'
         >>> node_id(NodeType.PAPER, "2501.01934")
         'paper:2501.01934'
         >>> node_id(NodeType.INSTITUTION, "University of Science and Technology of China")

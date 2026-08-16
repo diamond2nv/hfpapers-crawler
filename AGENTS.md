@@ -34,17 +34,54 @@ working on this project. It describes the project structure, key patterns, pitfa
 
 > Templates and installer: `~/.hermes/skills/software-development/version-management/`
 
+## Public-Release Sanitization (MANDATORY)
+
+> ⛔ This repo has a **public origin** (Aliyun Codeup `Token-Arena/hfpapers-crawler`)
+> and is published to PyPI. Anything committed to `main` may become public.
+> The NAS remote (`local`, ssh://192.168.0.25:222) is private — push sensitive
+> changes there only, never to `origin`.
+
+### What must NEVER appear in tracked files
+
+| Category | Rule | Example placeholder |
+|----------|------|---------------------|
+| Private LAN IPs | `192.168.0.x`, `10.x`, `172.16-31.x` | `<windows-host-lan-ip>` / `<nas-dokuwiki>` |
+| Zotero user_id | Real local API user id | see `.hermes/internal-guide.md` |
+| Real person names | Real researcher/owner names in examples/docs | `Jane Doe` / `张三` / `HFPClawer Maintainers` |
+| Personal emails | `*@example.com` must not carry real usernames | `dev@example.com` |
+| Machine home paths | `/home/<real-user>/...` | `os.path.expanduser("~/.local/...")` |
+| Internal machine codenames | HUAWEI / Speaker / WSL hostnames in public docs | generic "LAN peers" |
+
+### Rules
+
+1. **Examples use neutral names**: docstrings/schema examples → `Jane Doe`,
+   `Smith, John`, `张三` — never real researchers or the repo owner's name.
+2. **Real values live in `.hermes/internal-guide.md`** (gitignored, LAN-only) —
+   placeholders in tracked files point there.
+3. **Config files with real identity**: `scripts/researcher-audit/people.yaml`
+   is gitignored (real scholars + Google Scholar IDs); the tracked file is
+   `people.example.yaml` with `<placeholder>` entries.
+4. **pyproject.toml `authors` is the maintainer's public attribution** — keep
+   the real name there (it is intentional public authorship, not a leak).
+5. **User-Agent strings** must use `dev@example.com` unless a real public
+   contact is intended.
+6. **Before `git push origin` / release**: run
+   `git ls-files | xargs grep -nE "192\.168\.|/home/<real>|HUAWEI|Speaker"` and
+   confirm zero hits (excluding pyproject.toml authors).
+7. **Commit hygiene**: sensitive-only changes → push to `local` (NAS), not
+   `origin`. Public release is a separate, deliberate step.
+
 ## Environment & Connectivity
 
 Zotero local API runs on localhost:23119 (both machines). See `.hermes/internal-guide.md` for machine-specific details (WSL IPs, GPU/CPU tables).
 
 ### Zotero LAN Access (WSL Windows-side, 2026-08-16)
 
-WSL's Windows-host Zotero is shared to LAN via netsh portproxy (listen 0.0.0.0:23121 → 127.0.0.1:23119). HUAWEI/Speaker can query it without running Zotero locally:
+WSL's Windows-host Zotero can be shared to LAN peers via netsh portproxy (listen 0.0.0.0:<LAN_PORT> → 127.0.0.1:23119). LAN peers can query it without running Zotero locally:
 
-- Endpoint: `http://192.168.0.103:23121/api/` (Zotero 9.0.6, user_id 4278549, ~94.5K items)
+- Endpoint: `http://<windows-host-lan-ip>:<LAN_PORT>/api/` (Zotero 9.0.6; user_id and item count: see `.hermes/internal-guide.md`)
 - **Must send `Host: localhost:23119` header** (Zotero 9+ validates Host) + `Zotero-API-Version: 3`
-- Firewall allows only RFC1918 (192.168/16, 10/8, 172.16/12) — no public access
+- Firewall allows only RFC1918 private ranges — no public access
 - `connectors/ping` returns 404 "No endpoint found" on 9.x — use `/api/users/0/items?limit=1` to verify
 - Full docs: wiki `concepts/zotero-integration-research.md` §局域网接入; skill `zotero-local-api` 场景 C
 

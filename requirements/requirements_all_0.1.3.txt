@@ -46,7 +46,7 @@ h11==0.16.0
 h2==3.2.0
 hf-xet==1.5.0
 # Editable Git install with no remote (hfpclawer==0.2.0)
--e /home/lishen/Gitlab/Agentic4Sci/hfpapers-clawler
+-e /home/<user>/Gitlab/Agentic4Sci/hfpapers-clawler
 hpack==3.0.0
 httpcore==1.0.9
 httpx==0.28.1

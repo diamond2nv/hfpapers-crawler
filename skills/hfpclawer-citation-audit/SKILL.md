@@ -6,7 +6,7 @@ description: >
   Supports single citation checks and batch reference-list audits.
   No external API keys required for basic usage.
 category: research
-author: Li Shen
+author: HFPClawer Maintainers
 version: 1.0.0
 metadata:
   hermes:
@@ -15,6 +15,12 @@ metadata:
 ---
 
 # hfpclawer Citation Audit
+
+> 🔒 **Sanitization**: This skill ships in the public repo. Never embed private
+> LAN IPs, real person names, or machine codenames in examples — use
+> `<placeholder>` / `Jane Doe` / `dev@example.com`. Real values live in the
+> repo's gitignored `.hermes/internal-guide.md`. See repo AGENTS.md
+> "Public-Release Sanitization".
 
 Verify whether a cited academic paper actually exists, using a three-tier
 pipeline that degrades gracefully when local data or remote APIs are unavailable.

@@ -57,3 +57,4 @@ raw_pdfs/
 
 # ── CodeGraph index (generated) ──
 .codegraph/
+scripts/researcher-audit/people.yaml

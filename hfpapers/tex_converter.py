@@ -18,6 +18,7 @@ Usage:
 """
 
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -73,8 +74,8 @@ def _find_pandoc() -> Optional[str]:
     """Locate pandoc binary (bundled with Quarto or system)."""
     candidates = [
         # Quarto bundled (v1.10+)
-        "/home/shenli/.local/share/quarto/1.10.2/bin/tools/x86_64/pandoc",
-        "/home/shenli/.local/quarto-1.10.2/bin/tools/x86_64/pandoc",
+        os.path.expanduser("~/.local/share/quarto/1.10.2/bin/tools/x86_64/pandoc"),
+        os.path.expanduser("~/.local/quarto-1.10.2/bin/tools/x86_64/pandoc"),
         # System
         "pandoc",
     ]

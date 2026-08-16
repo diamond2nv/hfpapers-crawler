@@ -6,7 +6,7 @@ description: >
   and generate a structured integrity report. Designed for researchers,
   reviewers, and literature-survey authors.
 category: research
-author: Li Shen
+author: HFPClawer Maintainers
 version: 1.0.0
 metadata:
   hermes:
@@ -18,6 +18,12 @@ metadata:
 ---
 
 # hfpclawer Academic Integrity Audit
+
+> 🔒 **Sanitization**: This skill ships in the public repo. Never embed private
+> LAN IPs, real person names, or machine codenames in examples — use
+> `<placeholder>` / `Jane Doe` / `dev@example.com`. Real values live in the
+> repo's gitignored `.hermes/internal-guide.md`. See repo AGENTS.md
+> "Public-Release Sanitization".
 
 Take a paper draft (text, URL, or PDF) and verify every citation against
 local FTS5 → Semantic Scholar → OpenAlex. Spot fabricated references,
