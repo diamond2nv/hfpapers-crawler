@@ -38,6 +38,16 @@ working on this project. It describes the project structure, key patterns, pitfa
 
 Zotero local API runs on localhost:23119 (both machines). See `.hermes/internal-guide.md` for machine-specific details (WSL IPs, GPU/CPU tables).
 
+### Zotero LAN Access (WSL Windows-side, 2026-08-16)
+
+WSL's Windows-host Zotero is shared to LAN via netsh portproxy (listen 0.0.0.0:23121 → 127.0.0.1:23119). HUAWEI/Speaker can query it without running Zotero locally:
+
+- Endpoint: `http://192.168.0.103:23121/api/` (Zotero 9.0.6, user_id 4278549, ~94.5K items)
+- **Must send `Host: localhost:23119` header** (Zotero 9+ validates Host) + `Zotero-API-Version: 3`
+- Firewall allows only RFC1918 (192.168/16, 10/8, 172.16/12) — no public access
+- `connectors/ping` returns 404 "No endpoint found" on 9.x — use `/api/users/0/items?limit=1` to verify
+- Full docs: wiki `concepts/zotero-integration-research.md` §局域网接入; skill `zotero-local-api` 场景 C
+
 ### Zotero UA Constraint
 
 Zotero local API rejects `Mozilla/5.0` User-Agent (403). pyzotero's default urllib UA works fine.
