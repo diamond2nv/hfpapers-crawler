@@ -1105,6 +1105,8 @@ def graph(
     report_fmt: str = typer.Option(
         "markdown", "--report-format", help="Report format: markdown | qmd | json"
     ),
+    audit_path: str = typer.Option("", "--audit", help="Audit JSONL path (expand-hub: rank-training trail)"),
+    community: bool = typer.Option(False, "--community", help="SimClusters 2-hop community mode (expand-hub)"),
 ):
     """Knowledge graph operations (v0.10.3).
 
@@ -1164,13 +1166,15 @@ def graph(
             max_depth=int(arg or "2"), max_seeds=int(arg2 or "10"), direction="both"
         )
     elif action == "expand-hub":
-        # expand-hub [seeds_csv] [max_layers]  (--checkpoint PATH --top-k N)
+        # expand-hub [seeds_csv] [max_layers]  (--checkpoint PATH --top-k N --audit PATH --community)
         cmd_expand_hub(
             seeds=arg or "",
             max_layers=int(arg2 or "3"),
             top_k=top_n,
             direction="both",
             checkpoint=src or "",
+            audit_path=audit_path,
+            community=community,
         )
     elif action == "analyze":
         cmd_analyze(
