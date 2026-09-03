@@ -378,6 +378,34 @@ pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出�
 | **COVERAGE_FLOOR ratchet**（黄金集只升不降）| 0.16.2 正例池升级为 **ratchet 门禁**：覆盖/召回基线只升不降，回归即失败——比"自举扩大"更严 |
 | **确定性谓词链 > 学权重**（LTR 软融合被拒）| 0.16.2 推荐精排=硬谓词链（venue 白名单/年份窗/相关性阈值）——**独立佐证 roadmap 拒绝清单**（医疗高错误代价域同样弃用统计排序）|
 
+### 2b. 信号源鲁棒性分层（2026-09-03 用户设计约束——Zotero 缺失不影响搜广推）
+
+> 约束：搜广推信号与精度（verification）信号必须**第一方本地化于 paper_store.db**；
+> Zotero local API 只是**可选增强适配器**——用户无 Zotero 时功能 100% 可用。
+
+```
+信号分层（本地优先，鲁棒性由设计保证）:
+┌─ 第一方本地信号（paper_store.db + config.yaml，零外部依赖）──────────┐
+│ ① search.queries（config——6 年查询历史 + weight）  → 召回种子       │
+│ ② relevance 字段（打分——relevance_set_at 时间戳权威）→ 排序输入      │
+│ ③ 行为信号（本地落库）：zotero_pushed_at（推送=兴趣）+                │
+│    DownloadQueue 记录（下载=强兴趣）→ 需补 download_at 回写           │
+│ ④ 精度信号（v0.16 state）：audit_level / suspect / stale              │
+│    → 推荐门禁：suspect 不推 · stale 降权 · verified 优先               │
+└──────────────────────────────────────────────────────────────────┘
+┌─ 可选增强（adapter 模式，缺失降级无损）───────────────────────────────┐
+│ Zotero local API（zotero-local-api 场景 C）：                          │
+│   Favor 标签/Extra 备注 → 同步**回写** paper_store（favorited 列，     │
+│   v0.16.1 加）→ 增强排序；无 Zotero → 仅用第一方信号，功能不减          │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+- 设计原则（承 Mirobody 可移植性）：**主路径零外部依赖**——embedding/Zotero 均为 opt-in 建议层
+- 方向修正：现有 zotero_pushed_at 只记录"我们→Zotero"单向推送；缺"Zotero→我们"读回（Favor 落点）——0.16.1 补 `favorited`/`favorited_at` 列 + `zotero sync-back` 命令
+- 推荐管线边界：recommend 一期只用第一方信号（queries×similarity+relevance+精度门禁）——**不阻塞于 Zotero**
+
+
+
 **Hermes 侧（零代码，部署配置）**——保留原 Pantheon 段：
 
 ```
