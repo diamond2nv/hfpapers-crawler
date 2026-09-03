@@ -58,3 +58,8 @@ raw_pdfs/
 # ── CodeGraph index (generated) ──
 .codegraph/
 scripts/researcher-audit/people.yaml
+
+# ── Profiles (sensitive — real user interest must NEVER be public) ──
+.hfpclawer/
+*_profile.yaml
+profile.yaml
