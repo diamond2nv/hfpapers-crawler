@@ -1697,9 +1697,7 @@ def pool(
             console.print("[yellow]No exportable rows (empty pool or all filtered)[/yellow]")
             return
         out_path = out or "data/pool_train.jsonl"
-        from pathlib import Path as _P
-
-        _P(out_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
         import json as _json
 
         with open(out_path, "w", encoding="utf-8") as f:
