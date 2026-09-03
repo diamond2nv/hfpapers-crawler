@@ -1248,9 +1248,7 @@ def fetch(
 
     from hfpapers.arxiv_transport import (
         FetchResult,
-        fetch_with_fallback,
         log_acquisition,
-        quic_fetch,
         tcp_fetch,
     )
 
