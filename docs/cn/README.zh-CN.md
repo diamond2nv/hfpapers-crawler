@@ -13,6 +13,14 @@
 多源学术论文爪取器，专为 PDE / 神经算子 / 物理信息机器学习领域设计。
 内置 SQLite Paper Store、Crossref 交叉验证、反爬 Scrapy 管道和 MCP 服务器。
 
+## ✨ 特性
+
+- **科研级论文发现**：arXiv / OpenReview / Semantic Scholar 多源抓取 + 相关性打分 + 引文图谱分析 + **SimClusters 式社区引导 2 跳扩展**（`graph expand-hub --community`：seed → Louvain 社区 → 社区 hub 论文——忠实映射 x-algorithm SimClusters）——主题聚焦的"以文找文"
+- **可审计学术网络推荐**：每次扩展可输出 JSONL **审计轨迹**（哪些论文被采纳进 frontier/hub 分/社区标签）；可选学习层 `hfpclawer rank train`（lightgbm）在该轨迹上训练，树特征重要性即解释。符号层 0-token 默认，学习层 opt-in（`hfpclawer[rank]`）
+- **验证状态机（v0.16+）**：每篇论文带显式派生状态 `pending → verified / stale / suspect`——元数据冲突（如 DOI 解析到的 arXiv ID 与库中不同）由符号化 0-LLM 检查标记 **suspect**，须人工裁决——无静默污染、无 LLM 判决
+- **第一方推荐信号**：查询历史 × 文本相似度 + 相关性 + 验证状态门禁，全本地计算——**零外部依赖**（离线可用，无需 Zotero）；Zotero 仅在存在时为可选增强适配器——只有带 DOI/arXiv 的学术条目同步回写为兴趣信号（pydantic 契约 `hfpapers/contracts.py`）
+- **0-token 就绪**：确定性变化检测 + cron/monitor 分层（见 Hermes Agent 集成技能）
+
 ---
 
 ## 快速开始

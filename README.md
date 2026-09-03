@@ -20,9 +20,10 @@ Built with SQLite paper_store, Crossref cross-validation, anti-crawl Scrapy pipe
 
 ## ✨ Features
 
-- **Research-engineered paper discovery** — arXiv / OpenReview / Semantic Scholar multi-source clawling with relevance scoring, citation-graph analysis, and hub-guided layered expansion (`graph expand-hub`, SimClusters-inspired) for "find papers like this one" exploration.
+- **Research-engineered paper discovery** — arXiv / OpenReview / Semantic Scholar multi-source clawling with relevance scoring, citation-graph analysis, and **SimClusters-style community-guided 2-hop expansion** (`graph expand-hub --community`: seed → its Louvain communities → community hub papers, faithfully mapped from x-algorithm SimClusters) for topic-focused "papers like this one" exploration.
+- **Auditable scholarly-network recommendations** — every expansion run can emit a JSONL **audit trail** (which papers were adopted into the frontier, hub scores, community labels), and the optional learned layer (`hfpclawer rank train`, lightgbm → native model) trains on that trail with tree feature importance as the explanation. Heuristic layer stays 0-token default; learning is opt-in (`hfpclawer[rank]`).
 - **Verification status machine (v0.16+)** — every paper carries an explicit, derived state: `pending → verified / stale / suspect`. Metadata conflicts (e.g. a DOI resolving to a different arXiv ID than recorded) are flagged **suspect** by symbolic 0-LLM checks and require human adjudication — no silent corruption, no LLM-judged verdicts.
-- **First-party recommendation signals** — search history × text similarity + relevance scoring + verification-state gating, all computed from your local store. **No external dependency**: works fully offline, no Zotero required. Zotero (when present) is an optional enhancement adapter — only DOI/arXiv-bearing scholarly items from your library sync back as interest signals.
+- **First-party recommendation signals** — search history × text similarity + relevance scoring + verification-state gating, all computed from your local store. **No external dependency**: works fully offline, no Zotero required. Zotero (when present) is an optional enhancement adapter — only DOI/arXiv-bearing scholarly items sync back as interest signals (pydantic contract `hfpapers/contracts.py`).
 - **Zero-token operation ready** — deterministic change detection + cron/monitor layering keeps routine monitoring at 0 LLM cost (see Hermes Agent integration skills).
 
 ---
