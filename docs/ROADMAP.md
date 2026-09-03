@@ -369,6 +369,15 @@ pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出�
 | **一致性路由**（TTPO/无教师对齐：判断"一致性"优于判断"正确性"）| 多源元数据（arXiv/OpenAlex/Crossref）**冲突 = suspect 标记**（不进 verified 计数）——citation-audit 三源审计已做交叉，升级为状态字段而非一次性审计 | `citation-audit` → 状态回写 |
 | **无教师自监督评估**（Self-OPD 思想）| golden set 自举：经人工 review 确认的论文自动沉淀为**正例池** → recall 基线随使用自动扩大（非一次性 50 对）| `tests/` golden → `data/golden_positive.jsonl` 增量 |
 
+**Mirobody 光谱佐证**（wiki: survey-mirobody-nlp-spectrum-2026——封闭受控词表+高错误代价域的符号化设计——与论文元数据核验同构）：
+
+| 光谱原则 | hfpapers 落点升级 |
+|:--|:--|
+| **符号决策/LLM 感知分界**（"model shouldn't be trusted to recite a code system"）| suspect/verified 判定=**硬谓词多源比对**（字段级精确比较），LLM 不参与元数据裁决——LLM 只做开放理解（摘要蒸馏输出结构化 JSON）|
+| **abstain 一级状态**（refused ≠ 空）| 三态中 `suspect` = 显式 abstain 语义（audit 无法判定 → suspect，非"未验证"空态）——强化 0.16.0 |
+| **COVERAGE_FLOOR ratchet**（黄金集只升不降）| 0.16.2 正例池升级为 **ratchet 门禁**：覆盖/召回基线只升不降，回归即失败——比"自举扩大"更严 |
+| **确定性谓词链 > 学权重**（LTR 软融合被拒）| 0.16.2 推荐精排=硬谓词链（venue 白名单/年份窗/相关性阈值）——**独立佐证 roadmap 拒绝清单**（医疗高错误代价域同样弃用统计排序）|
+
 **Hermes 侧（零代码，部署配置）**——保留原 Pantheon 段：
 
 ```
