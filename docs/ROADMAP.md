@@ -463,7 +463,7 @@ L3 余额对账（兜底校验）: cc-switch 式余额查询——llm-api-balanc
 │      编码器可插拔（默认 ModernBERT onnx CPU；中文用户可换 bge——meta 锁）  │
 │  L2b 图自监督嵌入【降级远期——当前不 build】                               │
 │      LightGCN/SGL 需要真 user-item 交互——citation 图是同质图（无 user）    │
-│      硬套=人造 user=违反"学习数据不造假"；<1k 节点图信号弱=过拟合玩具      │
+│      硬套=人造 user 维度=假信号(spurious)——伪关联无真实语义      │
 │      等: ① store >10k 论文 或 ② recommend 采纳/忽略 feedback 积累         │
 │      （(虚拟用户,论文) 交互 → LightGCN 才有数据基础）                       │
 └─ L3 状态层（v0.16.0 已有）────────────────────────────────────────────┘
@@ -471,8 +471,8 @@ L3 余额对账（兜底校验）: cc-switch 式余额查询——llm-api-balanc
 ```
 
 - **可审计性契约**：推荐输出必带 `why`（symbolic: hub 分数/路径 → tree: 特征贡献 top-3 → 图: 嵌入邻居）——hub 启发式从"探索策略"升级为"可审计体系的确定性骨架"
-- **学习数据不造假**：正例 = 扩展实际采纳（真用户轨迹：谁被 seed 扩展选中）；负例 = frontier 截断丢弃的（假阴性有限——标注纪律同 0.16.2 golden）
-- Transformer 融入定位（2026-09-03 光谱对齐修正——承 §2c 地图）：① ModernBERT/bge 编码器 = L2a 语义建议特征（零训练，meta 锁防错配）；② GNN/LightGCN = L2b 远期（等 >10k 节点或真实交互——同质图无 user 维度=现在不造假不硬套）；③ 序列/BERT4Rec 数据到位前不做——hub 骨架让 Transformer 故事有据可依（引用网络=结构化先验，非生搬）；④ 所有概率层输出只做 suggest/特征，L0 符号 gate 与状态裁决永不被学习层替代（Mirobody 神经符号分界：LLM/模型=感知建议，符号=控制器）
+- **训练信号纯净性（no spurious signals）**：正例 = 扩展实际采纳（真用户轨迹：谁被 seed 扩展选中）；负例 = frontier 截断丢弃的（假阴性有限——标注纪律同 0.16.2 golden）；人造维度产生的伪关联（假信号）不入训练集
+- Transformer 融入定位（2026-09-03 光谱对齐修正——承 §2c 地图）：① ModernBERT/bge 编码器 = L2a 语义建议特征（零训练，meta 锁防错配）；② GNN/LightGCN = L2b 远期（等 >10k 节点或真实交互——同质图无 user 维度=不引入假信号、不硬套）；③ 序列/BERT4Rec 数据到位前不做——hub 骨架让 Transformer 故事有据可依（引用网络=结构化先验，非生搬）；④ 所有概率层输出只做 suggest/特征，L0 符号 gate 与状态裁决永不被学习层替代（Mirobody 神经符号分界：LLM/模型=感知建议，符号=控制器）
 - 0.16.1 build 范围：L0 审计输出（expand-hub --audit）+ L1 `rank train`（lightgbm→ONNX）+ `recommend --rank` 双模式
 
 **Hermes 侧（零代码，部署配置）**——保留原 Pantheon 段：
