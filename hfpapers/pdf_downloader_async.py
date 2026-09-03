@@ -49,13 +49,13 @@ class AsyncPdfDownloader:
         return dict(self._stats)
 
     async def download_batch(self, papers: list[dict]) -> list[dict]:
-        """Batch download PDFs
+        """Batch download PDFs.
 
-        Args:
-            papers: [{"arxiv_id", "title", "abstract", ...}, ...]
-
-        Returns:
-            [{"arxiv_id", "success", "pdf_path", "md_path", "error"}, ...]
+        TCP phase runs first (1 attempt per paper — on CN networks a TCP
+        reset is deterministic, retries only waste the batch window); every
+        TCP failure is then re-fetched in ONE quic_batch_fetch call (single
+        connection, N concurrent HTTP/3 streams — amortised congestion-window
+        ramp instead of N handshakes).
         """
         logger.info(f"📥 Batch download: {len(papers)} papers, {self.max_concurrent} concurrent")
 
@@ -69,10 +69,15 @@ class AsyncPdfDownloader:
             headers={"User-Agent": "Mozilla/5.0"},
             timeout=aiohttp.ClientTimeout(total=120),
         ) as session:
-            tasks = []
-            for paper in papers:
-                tasks.append(self._download_one(session, paper))
+            tasks = [
+                self._download_one(session, paper, attempts=1) for paper in papers
+            ]
             results = await asyncio.gather(*tasks)
+
+        # QUIC re-fetch of every TCP failure (one connection, many streams)
+        failed = [r for r in results if not r["success"]]
+        if failed:
+            results = await self._quic_refetch(failed, papers)
 
         success = sum(1 for r in results if r["success"])
         logger.info(
@@ -81,8 +86,66 @@ class AsyncPdfDownloader:
         )
         return results
 
-    async def _download_one(self, session, paper: dict) -> dict:
-        """Download one PDF + convert to MD"""
+    async def _quic_refetch(
+        self, failed: list[dict], papers: list[dict]
+    ) -> list[dict]:
+        """Batch QUIC fallback for papers that lost the TCP phase."""
+        try:
+            from hfpapers.arxiv_transport import quic_batch_fetch
+        except ImportError:
+            return failed  # quic extra missing — leave results as-is
+
+        # Filter failed results that still have no pdf on disk
+        retry_papers = []
+        for r in failed:
+            if not r["pdf_path"]:
+                aid = r["arxiv_id"]
+                src = next((p for p in papers if p["arxiv_id"] == aid), {})
+                if src:
+                    retry_papers.append((aid, "pdf"))
+        if not retry_papers:
+            return failed
+
+        logger.info(f"🔁 QUIC re-fetch batch: {len(retry_papers)} papers")
+        try:
+            fetched = quic_batch_fetch(retry_papers, timeout=180.0)
+        except Exception as e:
+            logger.warning(f"  QUIC batch failed: {e}")
+            return failed
+
+        restored = {}
+        for (aid, _kind), fr in zip(retry_papers, fetched):
+            restored[aid] = fr
+
+        final = []
+        for r in failed:
+            aid = r["arxiv_id"]
+            fr = restored.get(aid)
+            if fr is not None and fr.ok:
+                src = next((p for p in papers if p["arxiv_id"] == aid), {})
+                title = src.get("title", aid)
+                pdf_path = self.pdf_dir / f"{aid}.pdf"
+                md_path = self.md_dir / f"{aid}.md"
+                pers = await self._persist_pdf(
+                    aid, title, pdf_path, md_path, fr.data, "quic"
+                )
+                final.append(pers)
+            else:
+                self._stats["failed"] += 1
+                r["error"] = (fr.error if fr is not None else "quic refetch skipped") or r["error"]
+                final.append(r)
+        return final
+
+    async def _download_one(
+        self, session, paper: dict, attempts: int = 3, quic_fallback: bool = True
+    ) -> dict:
+        """Download one PDF + convert to MD.
+
+        attempts: retry budget for the transport phase (batch passes 1 —
+        CN TCP resets are deterministic and retries waste the batch window).
+        quic_fallback: per-paper HTTP/3 retry on TCP failure (batch disables
+        it and re-fetches ALL failures in one quic_batch_fetch connection).
+        """
         aid = paper["arxiv_id"]
         title = paper.get("title", aid)
         pdf_path = self.pdf_dir / f"{aid}.pdf"
@@ -102,7 +165,7 @@ class AsyncPdfDownloader:
             return result
 
         async with self.sem:
-            for attempt in range(3):
+            for attempt in range(attempts):
                 try:
                     try:
                         async with session.get(f"https://arxiv.org/pdf/{aid}") as resp:
@@ -112,8 +175,12 @@ class AsyncPdfDownloader:
                             data = await resp.read()
                             transport = "tcp"
                     except Exception as e:
-                        # CN-network fallback: TCP to arXiv is reset at the
-                        # TLS-SNI layer; QUIC (UDP 443) is not. Try HTTP/3 once.
+                        if not quic_fallback:
+                            # batch mode: no per-paper QUIC — the unified
+                            # _quic_refetch handles all TCP failures together
+                            raise ConnectionError(f"tcp-fail ({e})") from e
+                        # Single-paper CN fallback: TCP to arXiv is reset at
+                        # the TLS-SNI layer; QUIC (UDP 443) is not.
                         self._last_error = f"tcp-fail ({e}); trying quic"
                         from hfpapers.arxiv_transport import async_quic_fetch
 
@@ -122,7 +189,7 @@ class AsyncPdfDownloader:
                         )
                         if not q.ok:
                             self._last_error = q.error or "quic-fail"
-                            raise ConnectionError(self._last_error)
+                            raise ConnectionError(self._last_error) from None
                         data = q.data
                         transport = "quic"
                         self._quic_used = getattr(self, "_quic_used", 0) + 1
@@ -131,50 +198,13 @@ class AsyncPdfDownloader:
                         self._last_error = "PDF too small (<5KB)"
                         raise ConnectionError(self._last_error)
 
-                    # Write PDF (sync open — aiofiles is optional; PDFs are
-                    # small enough that a short blocking write is acceptable)
-                    pdf_path.write_bytes(data)
-
-                    self._stats["downloaded"] += 1
-                    logger.info(
-                        f"  PDF: {aid} ({len(data) // 1024}KB via {transport})"
+                    return await self._persist_pdf(
+                        aid, title, pdf_path, md_path, data, transport
                     )
-
-                    # Acquisition audit row (transport chain evidence)
-                    try:
-                        from hfpapers.arxiv_transport import (
-                            FetchResult,
-                            log_acquisition,
-                        )
-
-                        log_acquisition(
-                            FetchResult(
-                                ok=True, kind="pdf",
-                                url=f"https://arxiv.org/pdf/{aid}",
-                                transport=transport, data=data,
-                                tls_verified=True,
-                            ).audit_row(aid)
-                        )
-                    except Exception:
-                        pass  # audit must never block the download
-
-                    # Convert to MD
-                    md_path = await self._convert_to_md(pdf_path, md_path, title, aid)
-
-                    result = {
-                        "arxiv_id": aid,
-                        "success": True,
-                        "pdf_path": str(pdf_path),
-                        "md_path": str(md_path) if md_path else "",
-                        "error": "",
-                    }
-                    if self.progress_cb:
-                        self.progress_cb(result)
-                    return result
 
                 except (asyncio.TimeoutError, Exception) as e:
                     self._last_error = str(e)
-                    if attempt < 2:
+                    if attempt < attempts - 1:
                         await asyncio.sleep(2**attempt)
                     else:
                         self._stats["failed"] += 1
@@ -191,13 +221,54 @@ class AsyncPdfDownloader:
                         return result
 
         self._stats["failed"] += 1
-        err = getattr(self, "_last_error", "failed after 3 retries")
+        err = getattr(self, "_last_error", f"failed after {attempts} retries")
         result = {
             "arxiv_id": aid,
             "success": False,
             "pdf_path": "",
             "md_path": "",
             "error": err,
+        }
+        if self.progress_cb:
+            self.progress_cb(result)
+        return result
+
+    async def _persist_pdf(
+        self, aid: str, title: str, pdf_path, md_path, data: bytes, transport: str
+    ) -> dict:
+        """Write PDF + stats + acquisition audit + MD conversion (shared by
+        the single-paper path and the batch QUIC refetch path)."""
+        # Write PDF (sync open — aiofiles is optional; PDFs are small enough
+        # that a short blocking write is acceptable)
+        pdf_path.write_bytes(data)
+
+        self._stats["downloaded"] += 1
+        logger.info(f"  PDF: {aid} ({len(data) // 1024}KB via {transport})")
+
+        # Acquisition audit row (transport chain evidence)
+        try:
+            from hfpapers.arxiv_transport import FetchResult, log_acquisition
+
+            log_acquisition(
+                FetchResult(
+                    ok=True, kind="pdf",
+                    url=f"https://arxiv.org/pdf/{aid}",
+                    transport=transport, data=data,
+                    tls_verified=True,
+                ).audit_row(aid)
+            )
+        except Exception:
+            pass  # audit must never block the download
+
+        # Convert to MD
+        md_path = await self._convert_to_md(pdf_path, md_path, title, aid)
+
+        result = {
+            "arxiv_id": aid,
+            "success": True,
+            "pdf_path": str(pdf_path),
+            "md_path": str(md_path) if md_path else "",
+            "error": "",
         }
         if self.progress_cb:
             self.progress_cb(result)
