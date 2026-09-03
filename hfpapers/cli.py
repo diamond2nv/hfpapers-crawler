@@ -1450,7 +1450,7 @@ def ledger(
     llm_cost must come from a REAL usage response (L1 direct), never guessed;
     Hermes-attribution & balance reconciliation are tracked outside the repo.
     """
-    from hfpapers.config import load_config, get
+    from hfpapers.config import get, load_config
     from hfpapers.ledger import log as _log
     from hfpapers.ledger import recent, stats
 
@@ -1499,7 +1499,7 @@ def check_new(
     Output is IDENTICAL when nothing changed → safe to use as a Hermes cron
     monitor: unchanged output skips the LLM entirely (0-token operation).
     """
-    from hfpapers.config import load_config, get
+    from hfpapers.config import get, load_config
     from hfpapers.ledger import check_new as _check
     from hfpapers.paper_store import get_store
 
@@ -1587,7 +1587,7 @@ def recommend(
     weighted query hits; verification gate keeps suspect out, prefers verified.
     Each row shows why (layer + query) — auditable by design.
     """
-    from hfpapers.config import load_config, get
+    from hfpapers.config import get, load_config
     from hfpapers.paper_store import get_store
     from hfpapers.recommend import recommend as _recommend
 
@@ -1617,7 +1617,7 @@ def recommend(
 
 @app.command()
 def pool(
-    action: str = typer.Argument(..., help="ingest | ingest-verified | sync-favorited | add | stats | export"),
+    action: str = typer.Argument(..., help="ingest | ingest-verified | sync-favorited | add | ingest-profile | stats | export"),
     arg: str = typer.Argument("", help="aid for 'add'; audit path for 'ingest'"),
     out: str = typer.Option("", "--out", help="export: output JSONL path"),
     reason: str = typer.Option("", "--reason", help="add: why this paper is a positive example"),
@@ -1637,9 +1637,9 @@ def pool(
       pool stats                           layer distribution / label balance
       pool export --out <train.jsonl>      live-gated rows → rank train input
     """
+    from hfpapers import pool as _pool
     from hfpapers.config import load_config
     from hfpapers.paper_store import get_store
-    from hfpapers import pool as _pool
 
     load_config()
     store = get_store() if action in ("ingest-verified", "sync-favorited", "add", "stats", "export") else None
@@ -1667,6 +1667,15 @@ def pool(
             console.print(f"[red]❌ {result['error']}[/red]")
             raise typer.Exit(1)
         console.print(f"[green]✅ manual positive added[/green]  {arg} (sf_id={result['sf_id']})  → {pp}")
+    elif action == "ingest-profile":
+        # Fold active paper-level accept declarations (REPO_USER.md v2) → manual layer
+        from hfpapers.profile import detect_profile
+
+        profile = detect_profile(".")
+        result = _pool.sync_profile_accepted(store, profile, pool=pp)
+        console.print(f"[green]✅ profile accepts folded[/green]  +{result['manual']}  → {pp}")
+        for e in result["errors"][:5]:
+            console.print(f"[yellow]  ⚠ {e}[/yellow]")
     elif action == "stats":
         st = _pool.stats(pool=pp, store=store)
         if st["total"] == 0:
