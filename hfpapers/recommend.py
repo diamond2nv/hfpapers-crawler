@@ -84,12 +84,12 @@ def recommend(
         return []
 
     # L0b reject gate (REPO_USER.md v2 declarations — hard filter before scoring).
-    # Active method-level reject keywords from repo + machine profiles; a paper
-    # whose title/abstract hits any keyword is never recommended (symbolic gate —
-    # same spirit as suspect exclusion; superseded/revoked declarations inert).
+    # Only scope=topic-exclusion rejects filter papers: self-constraint
+    # declarations ("WE don't use X") document repo choices and must never
+    # exclude papers ABOUT X (category error — fixed 2026-09-03 audit).
     reject_kws = set()
-    reject_kws.update(detect_profile(repo_dir).reject_keywords())
-    reject_kws.update(user_profile().reject_keywords())
+    reject_kws.update(detect_profile(repo_dir).reject_keywords(scope="topic-exclusion"))
+    reject_kws.update(user_profile().reject_keywords(scope="topic-exclusion"))
     reject_kws = {kw.lower() for kw in reject_kws if kw and kw.strip()}
 
     scores: dict[int, float] = {}
@@ -117,7 +117,12 @@ def recommend(
                 del scores[sf_id]  # suspect never recommended
                 why.pop(sf_id, None)
             elif status == "stale":
-                scores[sf_id] *= stale_penalty
+                # Mechanical 180-day window must NOT bury human-vetted classics:
+                # audit_level>=2 (content verified / human-approved) papers keep
+                # full weight — hub-heavy foundational papers are usually old
+                # (2026-09-03 audit: stale gate fought the hub signal).
+                if st.get("audit_level", 0) < 2:
+                    scores[sf_id] *= stale_penalty
             elif status == "unknown":
                 del scores[sf_id]
                 why.pop(sf_id, None)

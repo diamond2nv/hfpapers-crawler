@@ -888,6 +888,9 @@ def zotero(
     dry_run: bool = typer.Option(
         False, "--dry-run", "-n", help="Show what would be pushed without sending"
     ),
+    revoke: bool = typer.Option(
+        False, "--revoke", help="sync-back: revert favorites whose Zotero Favor tag vanished (opt-in)"
+    ),
     dedup: bool = typer.Option(
         True,
         "--dedup/--no-dedup",
@@ -1055,7 +1058,7 @@ def zotero(
         )
     elif action == "sync-back":
         # Zotero Favor → paper_store interest signal (Layer 2, optional adapter)
-        cmd_sync_back(tag=tag or "Favor", limit=limit, dry_run=dry_run)
+        cmd_sync_back(tag=tag or "Favor", limit=limit, dry_run=dry_run, revoke=revoke)
     else:
         console.print(f"[red]❌ Unknown zotero action: {action}[/red]")
 

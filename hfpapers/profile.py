@@ -108,10 +108,17 @@ class ProfileVerdict:
     evidence: dict = field(default_factory=dict)     # {file: str, lines: [int]}
     reasons: str = ""
     since: str = ""
+    # scope distinguishes TWO different reject meanings (2026-09-03 audit):
+    #   topic-exclusion — papers on this topic should not surface here (L0 gate)
+    #   self-constraint — WE don't use this technique; it says nothing about
+    #                     papers ABOUT it (documentation only, NO gate effect)
+    # Default topic-exclusion keeps backward compatibility with v0.16.9.
+    scope: str = "topic-exclusion"
 
 
 VERDICT_STATES = ("active", "superseded", "revoked")
 VERDICT_TYPES = ("paper", "method", "domain", "code")
+VERDICT_SCOPES = ("topic-exclusion", "self-constraint")
 
 
 def _norm_verdict(verdict: str, raw) -> ProfileVerdict:
@@ -130,6 +137,8 @@ def _norm_verdict(verdict: str, raw) -> ProfileVerdict:
     v.type = raw.get("type", "method") if raw.get("type") in VERDICT_TYPES else "method"
     st = raw.get("state", "active")
     v.state = st if st in VERDICT_STATES else "active"
+    sc = raw.get("scope", "topic-exclusion")
+    v.scope = sc if sc in VERDICT_SCOPES else "topic-exclusion"
     try:
         v.version = int(raw.get("version", 1) or 1)
     except (TypeError, ValueError):
@@ -197,9 +206,13 @@ class RepoProfile:
         """All active accept+reject declarations (superseded/revoked excluded)."""
         return [v for v in self.accepts + self.rejects if v.state == "active"]
 
-    def reject_keywords(self) -> list[str]:
+    def reject_keywords(self, scope: str | None = None) -> list[str]:
         """Active method-level reject vocabulary (L0 gate — hard filter).
 
+        scope=None → all active rejects (backward compat); pass
+        scope="topic-exclusion" to exclude self-constraint declarations
+        (those document OUR choices, they must not filter papers ABOUT
+        the topic — category error fixed 2026-09-03).
         Placeholders (angle-bracket templates) and empty keywords skipped —
         an unfilled REPO_USER.md template must never filter anything.
         """
@@ -207,6 +220,7 @@ class RepoProfile:
             kw
             for v in self.rejects
             if v.state == "active" and v.type == "method"
+            and (scope is None or v.scope == scope)
             for kw in v.keywords
             if kw.strip() and "<" not in kw and ">" not in kw
         ]

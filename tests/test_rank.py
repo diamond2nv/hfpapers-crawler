@@ -46,10 +46,24 @@ def test_load_audit(tmp_path):
 def test_build_dataset_shapes(tmp_path):
     p = tmp_path / "audit.jsonl"
     _write_synthetic_audit(p)
-    X, y = build_dataset(load_audit(p))
-    assert len(X) == len(y)
+    X, y, w = build_dataset(load_audit(p))  # noqa: N806
+    assert len(X) == len(y) == len(w)
     assert len(X[0]) == len(FEATURES)
     assert set(y) == {0, 1}
+    assert w == [1.0] * len(y)  # synthetic rows carry no weight → default 1.0
+
+
+def test_build_dataset_carries_row_weights(tmp_path):
+    """Pool layer weights (manual 3.0 / verified 2.0) are real training signal."""
+    p = tmp_path / "audit.jsonl"
+    with open(p, "w") as f:
+        f.write(json.dumps({"arxiv_id": "2609.01001", "adopted": True,
+                            "hub_score": 0.9, "degree": 5}) + "\n")
+        f.write(json.dumps({"arxiv_id": "2609.01002", "adopted": False,
+                            "hub_score": 0.1, "degree": 1, "weight": 3.0}) + "\n")
+    X, y, w = build_dataset(load_audit(p))  # noqa: N806
+    assert y == [1, 0]
+    assert w == [1.0, 3.0]
 
 
 def test_train_learns_pattern(tmp_path):
