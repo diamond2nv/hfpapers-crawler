@@ -482,6 +482,51 @@ L3 余额对账（兜底校验）: cc-switch 式余额查询——llm-api-balanc
 - 0.16.1「ledger」：run --ledger（llm_cost 追踪）+ check-new 命令
 - 0.16.2「assess」：golden set 自举正例池 + recall 基线自动化
 
+### 2e. 开源通用正例池（2026-09-03 用户设计约束——repo 开源 MIT，必须通用化）
+
+> 早期构想（§2b/378 行）是单用户 golden 视角（人工 review 沉淀）。开源版升级约束：
+> **无标注 · 无个人画像 · 数据不进 git · 无遥测回传** —— 任何 clone 用户零配置自举。
+
+```
+正例池 = data/positive_pool.jsonl（gitignored，append-only，每行一条样本）
+行: {"arxiv_id", "label": +1|0, "layer", "weight", "ts", "source_run", "features"}
+
+标签来源分层（权重=可信度，与用户/repo 解耦）:
+  verified   +1  w=2.0  store 里 audit_level=3 / verified 状态论文   ← 任何用户 import+核验即有
+  manual     +1  w=3.0  `pool add --via manual`（用户显式正例，最强）
+  favorited  +1  w=1.5  Zotero sync-back 兴趣信号（可选——无 Zotero 不影响）
+  adopted    +1  w=1.0  hub 启发式采纳（audit 行 adopted=true）——弱标签（行为克隆）
+  truncated   0  w=1.0  同层截断候选（启发式拒绝）——弱负例
+  suspect 论文永不入池（abstain ≠ 负例——状态语义硬门禁）
+
+活门禁（防池污染——Mirobody COVERAGE_FLOOR ratchet 实现）:
+  ① 入池：identifier 冲突检测不过 → 拒（store 已 suspect 的论文不入池）
+  ② 训练时活过滤：池保留 append-only（可审计），导出时剔除当前 status==suspect
+     的论文（状态可逆——清白后可复用，池不删行）
+  ③ 标签裁决：同 arxiv_id 正负冲突（跨 run 决策翻转）→ 按层优先级裁决
+     verified > manual > favorited > adopted > truncated——冲突不再沉默
+  ④ COVERAGE_FLOOR：训练前最小样本数 + 正负双类必须齐全，回归即失败
+
+CLI（零配置自举路径）:
+  pool ingest --audit <jsonl>      audit 行汇入（adopted→+1/truncated→0；幂等去重）
+  pool ingest-verified             store 里 audit_level=3 → +1 verified 层
+  pool sync-favorited              favorited=1 论文 → +1 favorited 层（与 sync-back 闭环）
+  pool add <aid> --via manual --reason "..."    显式正例
+  pool stats                       分层分布/正负比/池大小（ratchet 可视化）
+  pool export --out <train.jsonl>  活过滤后导出 → rank train 标准输入
+  rank train --pool                （替代/补充 --audit：吃池导出）
+
+开源通用性论证:
+  1. 零配置自举链: import → graph expand-hub --audit → pool ingest → pool ingest-verified
+     → pool stats → rank train —— 无标签/无画像/Zotero 全不需要
+  2. 画像零耦合: verified/manual/adopted 层源自 store 状态与启发式决策——与 repo 无关
+     （favorited 层才带兴趣，且可选）
+  3. 数据安全: data/ 已 gitignored——池 100% 本地；开源不泄露用户读什么
+  4. 社区可回馈: 不收集遥测——池纯本地；未来发布训练集 = 显式 `export` + 脱敏后人工决定
+
+拒绝清单（承 §2d）: 不做在线学习（池小——每 run 全量重训足够）；不做跨用户联邦/遥测；
+不做自动 prune（append-only + 训练活过滤足够——删行破坏可审计性）
+
 ### 3. 参照系与边界
 
 - Deep Research 四步闭环（Act→Observe→Optimize→Remember）= 我们已有 GOAL 三 loop + TrajectoryStore + 验证门禁——**不新增抽象**，hfpapers 只承担 Observe 数据层
