@@ -18,6 +18,31 @@
 
 # CHANGELOG
 
+## [2026-09-03] fix | v0.16.10 — critical-audit round: four design defects fixed
+> Independent self-audit (adversarial) of the v0.16 recommendation stack found 6 concrete
+> failure scenarios; four were fixed in this round, two are recorded as known limitations.
+- **scope discipline** (`profile.py`/`recommend.py`) — reject declarations now carry
+  `scope: topic-exclusion | self-constraint`. Only topic-exclusion feeds the L0 gate;
+  self-constraint ("WE don't use X") is documentation and MUST NOT filter papers ABOUT X
+  (previous category error: "no telemetry here" hard-filtered telemetry research papers).
+  `profile` CLI shows `[gate]` vs `[doc-only]`.
+- **stale gate vs classics** (`recommend.py`) — the mechanical 180-day stale penalty now
+  exempts `audit_level>=2` papers (content-verified): human-vetted foundational papers
+  keep full weight instead of being buried by recency bias.
+- **layer weights are real** (`rank.py`) — `build_dataset` returns `(X, y, w)` and
+  training passes `sample_weight` to lightgbm. Pool layer confidence (manual 3.0 /
+  verified 2.0 / favorited 1.5) previously existed only in documentation — the model
+  treated all rows equally.
+- **interest-signal revocation** (`sync_back.py`, `paper_store.clear_favorited`) —
+  `zotero sync-back --revoke` reverts favorites whose Zotero Favor tag vanished
+  (opt-in: the local API has no total-count, so revocation is never automatic —
+  a truncated pull must not wipe live favorites).
+- **A** `tests/` — 6 new tests (75 total): revoke×3, scope gate-vs-doc regression,
+  stale-exemption, weight carrier.
+- Known limitations (design-level, tracked): rank behavior-cloning loop (hub teaches
+  itself; needs an independent golden set) · L0 substring recall has zero synonym
+  handling (structural ceiling; L2a semantic layer is the roadmap fix).
+
 ## [2026-09-03] feat | v0.16.9 — REPO_USER.md v2: declarations as explicit feedback (SKILL.state)
 - **A** `hfpapers/profile.py` — `ProfileVerdict`: one accept/reject declaration with explicit state machine (`active` consumed / `superseded` / `revoked` kept for audit — append-only decision history). Formatter: `type` (paper/method/domain/code) + `version` + `identifiers` {arxiv, doi} dual channel + `keywords` (L0 gate vocabulary) + `evidence` {file, lines} tex/markdown anchors + `reasons`.
 - **M** `hfpapers/profile.py` — `RepoProfile.accepts/rejects` parsed in both AGENTS.md/REPO_USER.md and `~/.hfpclawer/profile.yaml` paths; `reject_keywords()` = active method-level vocabulary (placeholder-inert).

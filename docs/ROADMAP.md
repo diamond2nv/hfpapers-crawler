@@ -541,6 +541,36 @@ CLI（零配置自举路径）:
 拒绝清单（承 §2d）: 不做在线学习（池小——每 run 全量重训足够）；不做跨用户联邦/遥测；
 不做自动 prune（append-only + 训练活过滤足够——删行破坏可审计性）
 
+### 2f. 批判审计与已知缺陷（2026-09-03 adversarial round——六场景四修复两记录）
+
+> 对 v0.16 推荐栈的对抗式自审计（每个缺陷附"体系给出错误结论的具体场景"）。
+> 已修复 → CHANGELOG v0.16.10；未修复=已知缺陷（有触发条件与修复路径）。
+
+**已修复（v0.16.10）**：
+1. reject scope 混淆——"我们不用遥测"曾硬滤"关于遥测的论文"（自约束 vs 主题排斥
+   范畴错误）→ `scope: topic-exclusion | self-constraint` 字段，仅前者进 L0 gate
+2. stale 机械 180 天窗压经典——hub 高分奠基论文（天然偏老）被降权 vs 新劣质 follow-up
+   被推荐 → `audit_level>=2` 豁免惩罚（人审内容保权）
+3. pool 分层 weight 是文档谎言——manual 3.0/verified 2.0 从未进训练 → build_dataset
+   返回 sample_weight + train 真用（LGBMClassifier.fit sample_weight）
+4. favorited 单向同步——Zotero 删 Favor 永不回写，已撤回兴趣永久加权 →
+   `sync-back --revoke` 显式撤销通道（local API 无 total-count——永不自动撤——
+   截断拉取不能静默清活收藏）
+
+**已知缺陷（未修复——设计级）**：
+5. rank 行为克隆循环——正例=hub 采纳（hub 教自己），无独立 golden set 可回归；
+   启发式系统性偏误（机构自引圈）被学习层放大成"更自信的偏误"
+   → 修复路径：独立 golden set（人工策展 50-100 对）评估 recall 基线（COVERAGE_FLOOR
+   才有参照物）——需人工标注，未排期
+6. L0 召回=子串 LIKE 零同义处理——"permanent magnet fusion" 召回不到
+   "permanent-magnet stellarator"（无 fusion 字面）；漏在召回层=静默（门禁精排
+   修不了没看见的东西）→ 修复路径：L2a 语义嵌入建议层（roadmap 近期项——meta.json
+   模型锁纪律已定）
+7. 【记录级】stale 豁免注释写 "human-vetted" 但 audit_level=2 可由自动化 verify
+   达成——措辞与机制偏差；语义收紧需区分"自动 content-verified"与"真人工 review"
+8. 【记录级】`--revoke` 对账假设 favorited 唯一写入源=sync-back——未来若加第二源
+   （如 manual favorited）需按来源拆分撤销，否则会误撤他人所标
+
 ### 3. 参照系与边界
 
 - Deep Research 四步闭环（Act→Observe→Optimize→Remember）= 我们已有 GOAL 三 loop + TrajectoryStore + 验证门禁——**不新增抽象**，hfpapers 只承担 Observe 数据层
