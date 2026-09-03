@@ -122,6 +122,28 @@ Design lineage: SKILL.state (explicit mutable state over append-only history) fo
 status machine; Mirobody spectrum (symbolic over learned ranking in high-error-cost
 domains) for the verdict predicates; zero-token monitor layering for cost control.
 
+**Expansion & learned ranking (v0.16.1–v0.16.2)** — the graph-side analogue:
+
+```
+HubGuidedExpander
+├─ run()                  hub truncation: expand → PageRank+degree top-k frontier
+│                         (diffusion-control discipline inspired by SimClusters)
+├─ community_guided_run() faithful SimClusters 2-hop: seed → Louvain community
+│                         → community hub papers (topic-focused frontier);
+│                         audit rows carry a `community` feature
+└─ audit trail (JSONL)    every run can write per-candidate rows
+                          (arxiv_id/adopted/hub_score/degree/layer[/community])
+        ↓
+hfpapers/rank.train()     lightgbm on that trail: adopted = positive,
+                          truncated = negative; feature importance = audit
+                          (optional `hfpclawer[rank]`; native model artifact)
+```
+
+Contract models (`hfpapers/contracts.py`, pydantic) exist ONLY at API/JSON
+boundaries — ZoteroItem encodes the scholarly filter (DOI/arXiv identifier
+judgment) for sync-back; the mechanical layer stays plain-dict with defensive
+reads (repo discipline: no pydantic inside 0-token pipelines).
+
 ## Anti-Crawl Strategy
 
 6-layer Scrapy middleware chain:
