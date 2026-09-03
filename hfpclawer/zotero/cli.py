@@ -93,20 +93,26 @@ def cmd_check(**kwargs) -> None:
         console.print("  Make sure Zotero is running and 'Allow other applications' is enabled.")
 
 
-def cmd_sync_back(tag: str = "Favor", limit: int = 300, dry_run: bool = False) -> None:
+def cmd_sync_back(tag: str = "Favor", limit: int = 300, dry_run: bool = False,
+                  revoke: bool = False) -> None:
     """Zotero Favor tag → paper_store interest signal (Layer 2 sync-back).
 
     Only DOI/arXiv-bearing scholarly items are considered (contract filter);
     matching local papers get favorited=1 — the interest signal the learned
     ranker consumes. Zotero is optional: Layer 1 never depends on this.
+
+    --revoke: also revert favorites whose Favor tag vanished from Zotero
+    (opt-in — the local API reports no total count, so revocation must be
+    explicitly requested after a full pull; never automatic).
     """
     from hfpapers.paper_store import get_store
     from hfpapers.sync_back import sync_back
 
     zc = _get_client()
     mode = "[dim](dry-run — nothing written)[/dim]" if dry_run else ""
-    console.print(f"[cyan]↩ Sync-back Zotero tag '{tag}' → paper_store {mode}[/cyan]")
-    st = sync_back(zc, get_store(), tag=tag, limit=limit, mark=not dry_run)
+    rev = "[dim](revoke mode — vanished favorites reverted)[/dim]" if revoke else ""
+    console.print(f"[cyan]↩ Sync-back Zotero tag '{tag}' → paper_store {mode} {rev}[/cyan]")
+    st = sync_back(zc, get_store(), tag=tag, limit=limit, mark=not dry_run, revoke=revoke)
 
     console.print(f"  total items (tag={tag}):       {st['total']}")
     console.print(f"  scholarly (DOI/arXiv):         {st['scholarly']}  "
@@ -114,6 +120,8 @@ def cmd_sync_back(tag: str = "Favor", limit: int = 300, dry_run: bool = False) -
     console.print(f"  matched in paper_store:        {st['in_store']}  "
                   f"(not in store: {st['skipped_not_in_store']})")
     console.print(f"  newly favorited:               {st['newly_favorited']}")
+    if st["revoked_favorites"]:
+        console.print(f"  [yellow]revoked (Favor tag gone):    {st['revoked_favorites']}[/yellow]")
     if st["errors"]:
         console.print(f"  parse errors:                  {st['errors']}")
     if st["total"] == 0:

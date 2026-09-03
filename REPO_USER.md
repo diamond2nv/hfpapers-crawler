@@ -45,6 +45,7 @@ hfpclawer:
       state: active
       version: 1
       name: online-learning
+      scope: topic-exclusion     # papers on this topic don't serve this repo (L0 gate)
       keywords: [online learning, incremental learning, online recommender, lifelong learning]
       since: "2026-09-03"
       reasons: "no behavior-data scale — full retrain per run is enough (§2d/§2e)"
@@ -53,6 +54,7 @@ hfpclawer:
       state: active
       version: 1
       name: collaborative-filtering
+      scope: topic-exclusion
       keywords: [collaborative filtering, matrix factorization, user-item, implicit feedback]
       since: "2026-09-03"
       reasons: "no user-item interaction data at this scale (§2e) — would be spurious signal"
@@ -61,6 +63,7 @@ hfpclawer:
       state: active
       version: 1
       name: federated-telemetry
+      scope: self-constraint     # WE don't telemetry — does NOT filter papers about it
       keywords: [federated learning, telemetry, user tracking]
       since: "2026-09-03"
       reasons: "open-source zero-telemetry discipline (§2e)"

@@ -23,11 +23,19 @@ def sync_back(
     tag: str = "Favor",
     limit: int = 300,
     mark: bool = True,
+    revoke: bool = False,
 ) -> dict:
     """Pull tag items from Zotero and favorite matching local papers.
 
+    Revocation (2026-09-03 audit): interest signals need an expiration
+    channel — one-way sync would weight withdrawn favorites forever. BUT
+    revocation is OPT-IN (revoke=True): the local API gives no total count,
+    so a pull capped at `limit` is indistinguishable from a complete pull,
+    and auto-revoking on a truncated pull would silently wipe live
+    favorites. Explicit --revoke after a full pull is the safe form.
+
     Returns stats:
-      total / scholarly / in_store / newly_favorited /
+      total / scholarly / in_store / newly_favorited / revoked_favorites /
       skipped_non_scholarly / skipped_not_in_store / errors
     """
     stats = {
@@ -35,6 +43,7 @@ def sync_back(
         "scholarly": 0,
         "in_store": 0,
         "newly_favorited": 0,
+        "revoked_favorites": 0,
         "skipped_non_scholarly": 0,
         "skipped_not_in_store": 0,
         "errors": 0,
@@ -44,6 +53,7 @@ def sync_back(
     except Exception:
         return stats  # Zotero unreachable → empty stats, never raises
 
+    current_matched: set[int] = set()  # sf_ids still Favor-tagged this run
     for item in items or []:
         stats["total"] += 1
         if not isinstance(item, dict):
@@ -68,7 +78,17 @@ def sync_back(
             stats["skipped_not_in_store"] += 1
             continue
         stats["in_store"] += 1
+        current_matched.add(paper.sf_id)
         if mark:
             store.mark_favorited(paper.sf_id)
             stats["newly_favorited"] += 1
+
+    # Revocation diff: favorites whose Zotero Favor tag vanished this run are
+    # reverted — ONLY when explicitly requested (revoke=True) and writing
+    # (mark=True). Dry-run/truncated pulls never revoke.
+    if mark and revoke:
+        prev_favorited = {p.sf_id for p in store.get_all_papers() if p.favorited}
+        for sf_id in prev_favorited - current_matched:
+            store.clear_favorited(sf_id)
+            stats["revoked_favorites"] += 1
     return stats

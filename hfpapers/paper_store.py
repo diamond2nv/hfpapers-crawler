@@ -895,6 +895,19 @@ class PaperStore:
                 (now, sf_id),
             )
 
+    def clear_favorited(self, sf_id: int) -> None:
+        """Revoke a favorited signal (Favor tag removed in Zotero — sync-back diff).
+
+        Interest signals need a revocation channel: a paper whose Zotero Favor
+        tag disappears must stop weighting recommendations (2026-09-03 audit).
+        """
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                "UPDATE papers SET favorited=0, favorited_at='', "
+                "updated_at=datetime('now') WHERE sf_id=? AND favorited=1",
+                (sf_id,),
+            )
+
     # ─── State Semantics (v0.16+ — SKILL.state: explicit mutable state) ───
     #
     # Verification states (derived, single source of truth):

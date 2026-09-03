@@ -119,3 +119,37 @@ def test_favorited_idempotent_keeps_first_timestamp(store):
     first = store.get_paper_by_id(sf).favorited_at
     sync_back(FakeClient(items), store)
     assert store.get_paper_by_id(sf).favorited_at == first  # earliest kept
+
+
+def test_favor_revoked_when_tag_disappears(store):
+    """Favor tag removed in Zotero → local favorited signal reverted (explicit --revoke)."""
+    sf = _insert(store, "2609.00007", "Gone Paper", doi="10.3333/gone.2026.1")
+    items = [_zot_item("JJJJ1", "journalArticle", "Gone Paper", doi="10.3333/gone.2026.1")]
+    sync_back(FakeClient(items), store)
+    assert store.get_paper_by_id(sf).favorited == 1
+    # next run: user cleaned the tag → item absent → revoke (opt-in)
+    st = sync_back(FakeClient([]), store, revoke=True)
+    assert st["revoked_favorites"] == 1
+    assert store.get_paper_by_id(sf).favorited == 0
+    assert store.get_paper_by_id(sf).favorited_at == ""
+
+
+def test_revocation_never_automatic(store):
+    """Without explicit revoke=True nothing is ever reverted (truncation-safe)."""
+    sf = _insert(store, "2609.00008", "Keep Paper", doi="10.4444/keep.2026.1")
+    items = [_zot_item("KKKK1", "journalArticle", "Keep Paper", doi="10.4444/keep.2026.1")]
+    sync_back(FakeClient(items), store)
+    assert store.get_paper_by_id(sf).favorited == 1
+    # item vanished but no --revoke → signal untouched (pull may be truncated)
+    st = sync_back(FakeClient([]), store)
+    assert st["revoked_favorites"] == 0
+    assert store.get_paper_by_id(sf).favorited == 1  # untouched
+
+
+def test_revocation_dry_run_never_writes(store):
+    sf = _insert(store, "2609.00009", "Dry Gone", doi="10.5555/drygone.2026.1")
+    items = [_zot_item("LLLL1", "journalArticle", "Dry Gone", doi="10.5555/drygone.2026.1")]
+    sync_back(FakeClient(items), store)
+    st = sync_back(FakeClient([]), store, mark=False, revoke=True)
+    assert st["revoked_favorites"] == 0  # dry-run counts nothing written
+    assert store.get_paper_by_id(sf).favorited == 1
