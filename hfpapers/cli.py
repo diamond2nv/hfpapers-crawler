@@ -1570,8 +1570,11 @@ def profile(
         color = "green" if verdict.verdict == "accept" else "red"
         name = verdict.name or next(iter(verdict.identifiers.values()), "")
         extra = f" (kw: {', '.join(verdict.keywords)})" if verdict.keywords else ""
+        scope = ""
+        if verdict.verdict == "reject" and verdict.scope:
+            scope = " |gate" if verdict.scope == "topic-exclusion" else " |doc-only"
         console.print(f"  [{color}]{mark} {verdict.verdict}[/{color}] "
-                      f"[{verdict.type}] {name}{extra}")
+                      f"{verdict.type}{scope}: {name}{extra}")
     inactive = [v for v in prof.accepts + prof.rejects if v.state != "active"]
     if inactive:
         console.print(f"  [dim]  (inactive/superseded: {len(inactive)} — kept for audit)[/dim]")
