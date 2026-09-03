@@ -18,6 +18,22 @@
 
 # CHANGELOG
 
+## [2026-09-03] feat | v0.16.7 — Zotero sync-back: Favor tag → favorited interest signal (Layer 2 adapter)
+- **A** `hfpapers/paper_store.py` — Migration v4: `favorited` / `favorited_at` columns (idempotent — earliest sync timestamp kept). `PaperRecord` + `_row_to_record` carry the fields (guarded for pre-migration DBs).
+- **A** `hfpapers/sync_back.py` — Favor-tag items → `ZoteroItem` contract → scholarly filter (DOI/arXiv only — web pages/programs/reports dropped BEFORE any lookup) → identifier match → `mark_favorited`. Zotero unreachable = empty stats, never raises (Layer 1 offline intact).
+- **M** `hfpclawer/zotero/cli.py` — `cmd_sync_back` + `hfpclawer zotero sync-back [--tag Favor] [--dry-run]` (dry-run counts but writes nothing).
+- **A** `tests/test_sync_back.py` — 6 tests: non-scholarly-only library, DOI match favorites, arXiv archiveID match, scholarly-not-in-store, dry-run, idempotent first-timestamp.
+- **Validation** — WSL-side real run (192.168.0.103:23121 portproxy): 300 Favor items → 236 non-scholarly filtered → 64 scholarly → 5 matched & favorited (MUSE stellarator ×2, optomechanical crystal, single-agent LLMs — all on-profile).
+
+## [2026-09-03] feat | v0.16.6 — REPO_USER.md template (repo-scoped interest profile)
+- **A** `hfpapers/cli.py` — `init` / `init --quick` generate `REPO_USER.md` template (never overwrites): neutral placeholder + built-in public-repo caution (real interests → `~/.hfpclawer/profile.yaml`, never committed).
+- **M** `hfpapers/profile.py` — placeholder queries (`<...>`) excluded from `query_tuples` (unfilled template = empty profile, never pollutes recommendations); `REPO_USER.md` preferred over AGENTS.md.
+
+## [2026-09-03] feat | v0.16.5 — Profile → recommendation pipeline (repo = virtual user)
+- **A** `hfpapers/recommend.py` — fused query pool (config global + REPO_USER.md/AGENTS.md repo layer + `~/.hfpclawer/profile.yaml` machine user layer) → text-similarity recall → verification gate (suspect dropped, stale halved) → top-N with per-hit `why` provenance (layer + query).
+- **A** `hfpapers/cli.py` — `hfpclawer recommend [--limit N] [--path repo_dir]`.
+- **A** `tests/test_recommend.py` — 5 tests: pool fusion layering, gates (suspect drop/stale half-weight), why provenance, dry layers, docstring/signature smoke.
+
 ## [2026-09-03] feat | v0.16.3 — pydantic contract boundary: ZoteroItem model
 - **A** `hfpapers/contracts.py` — Pydantic contract models at API/JSON boundaries only (mechanical layer stays plain-dict): `ZoteroItem` encodes the scholarly-item filter discipline (roadmap §2b) as a single source of truth — `scholarly` ⇔ carries a DOI or an arXiv ID (itemType whitelist is only a fast path; Zotero type fields unreliable for preprint-shaped items). `paper_identifier` → ("arxiv"|"doi", id) for paper_store matching. Handles `DOI`-cased JSON keys, `doi:`/`arXiv:` prefixes, archiveID extraction.
 - **A** `pyproject.toml` — `pydantic>=2.7` moved to core dependencies.
