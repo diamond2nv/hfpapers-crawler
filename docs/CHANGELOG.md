@@ -18,6 +18,14 @@
 
 # CHANGELOG
 
+## [2026-09-03] feat | v0.16.9 — REPO_USER.md v2: declarations as explicit feedback (SKILL.state)
+- **A** `hfpapers/profile.py` — `ProfileVerdict`: one accept/reject declaration with explicit state machine (`active` consumed / `superseded` / `revoked` kept for audit — append-only decision history). Formatter: `type` (paper/method/domain/code) + `version` + `identifiers` {arxiv, doi} dual channel + `keywords` (L0 gate vocabulary) + `evidence` {file, lines} tex/markdown anchors + `reasons`.
+- **M** `hfpapers/profile.py` — `RepoProfile.accepts/rejects` parsed in both AGENTS.md/REPO_USER.md and `~/.hfpclawer/profile.yaml` paths; `reject_keywords()` = active method-level vocabulary (placeholder-inert).
+- **A** `hfpapers/recommend.py` — L0 reject gate: candidate whose title/abstract hits any active reject keyword is hard-filtered (repo + machine profile vocabularies; superseded/revoked inert) — declared rejections never surface.
+- **M** `hfpapers/cli.py` — `init` REPO_USER.md template v2 (`schema: 2` + declarations skeleton); `profile` lists ✓/✗ declarations with state.
+- **FIX** fence extraction rewritten as `_extract_yaml_fences()` (pure `str.find`, backslash-free): the editor/patch layer had escaped `\s` into `\\s` in the regex, silently breaking AGENTS.md parsing (masked by stale `__pycache__`; reproduced under `python -B`). Backslash-free patterns are immune to this class of tooling corruption.
+- **A** `tests/test_verdicts.py` — 10 tests: v2 block parse, active-only consumption, vocabulary, placeholder inertness, identifiers, evidence anchors, reject-gate e2e.
+
 ## [2026-09-03] feat | v0.16.8 — open-source positive-example pool (roadmap §2e)
 - **A** `hfpapers/pool.py` — append-only JSONL pool (`data/positive_pool.jsonl`, gitignored, zero telemetry). Layered weak labels decoupled from any user/repo: `verified` (audit_level≥1, w=2.0 — any clone user has these) / `manual` (w=3.0, explicit) / `favorited` (w=1.5, Zotero optional) / `adopted` (w=1.0, hub heuristic behavior cloning) / `truncated` (0, w=1.0 weak negatives). Suspect papers NEVER enter (abstain ≠ negative).
 - **A** live gates — entry: store-suspect rejected at ingest/add; export: current-suspect papers filtered (pool kept append-only, verdicts reversible); adjudication: same arxiv_id conflicting layers → highest priority wins (verified > manual > favorited > adopted > truncated).
