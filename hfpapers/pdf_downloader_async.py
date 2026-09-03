@@ -104,37 +104,73 @@ class AsyncPdfDownloader:
         async with self.sem:
             for attempt in range(3):
                 try:
-                    async with session.get(f"https://arxiv.org/pdf/{aid}") as resp:
-                        if resp.status != 200:
-                            self._last_error = f"HTTP {resp.status}"
-                            continue
-                        data = await resp.read()
-                        if len(data) < 5000:
-                            self._last_error = "PDF too small (<5KB)"
-                            continue  # Too small to be a valid PDF
+                    try:
+                        async with session.get(f"https://arxiv.org/pdf/{aid}") as resp:
+                            if resp.status != 200:
+                                self._last_error = f"HTTP {resp.status}"
+                                raise ConnectionError(self._last_error)
+                            data = await resp.read()
+                            transport = "tcp"
+                    except Exception as e:
+                        # CN-network fallback: TCP to arXiv is reset at the
+                        # TLS-SNI layer; QUIC (UDP 443) is not. Try HTTP/3 once.
+                        self._last_error = f"tcp-fail ({e}); trying quic"
+                        from hfpapers.arxiv_transport import async_quic_fetch
 
-                        # Write PDF
-                        import aiofiles
+                        q = await async_quic_fetch(
+                            f"https://arxiv.org/pdf/{aid}", "pdf", timeout=90.0
+                        )
+                        if not q.ok:
+                            self._last_error = q.error or "quic-fail"
+                            raise ConnectionError(self._last_error)
+                        data = q.data
+                        transport = "quic"
+                        self._quic_used = getattr(self, "_quic_used", 0) + 1
 
-                        async with aiofiles.open(pdf_path, "wb") as f:
-                            await f.write(data)
+                    if len(data) < 5000:
+                        self._last_error = "PDF too small (<5KB)"
+                        raise ConnectionError(self._last_error)
 
-                        self._stats["downloaded"] += 1
-                        logger.info(f"  PDF: {aid} ({len(data) // 1024}KB)")
+                    # Write PDF (sync open — aiofiles is optional; PDFs are
+                    # small enough that a short blocking write is acceptable)
+                    pdf_path.write_bytes(data)
 
-                        # Convert to MD
-                        md_path = await self._convert_to_md(pdf_path, md_path, title, aid)
+                    self._stats["downloaded"] += 1
+                    logger.info(
+                        f"  PDF: {aid} ({len(data) // 1024}KB via {transport})"
+                    )
 
-                        result = {
-                            "arxiv_id": aid,
-                            "success": True,
-                            "pdf_path": str(pdf_path),
-                            "md_path": str(md_path) if md_path else "",
-                            "error": "",
-                        }
-                        if self.progress_cb:
-                            self.progress_cb(result)
-                        return result
+                    # Acquisition audit row (transport chain evidence)
+                    try:
+                        from hfpapers.arxiv_transport import (
+                            FetchResult,
+                            log_acquisition,
+                        )
+
+                        log_acquisition(
+                            FetchResult(
+                                ok=True, kind="pdf",
+                                url=f"https://arxiv.org/pdf/{aid}",
+                                transport=transport, data=data,
+                                tls_verified=True,
+                            ).audit_row(aid)
+                        )
+                    except Exception:
+                        pass  # audit must never block the download
+
+                    # Convert to MD
+                    md_path = await self._convert_to_md(pdf_path, md_path, title, aid)
+
+                    result = {
+                        "arxiv_id": aid,
+                        "success": True,
+                        "pdf_path": str(pdf_path),
+                        "md_path": str(md_path) if md_path else "",
+                        "error": "",
+                    }
+                    if self.progress_cb:
+                        self.progress_cb(result)
+                    return result
 
                 except (asyncio.TimeoutError, Exception) as e:
                     self._last_error = str(e)

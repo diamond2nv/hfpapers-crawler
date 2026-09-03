@@ -1230,6 +1230,71 @@ def config():
 
 
 @app.command()
+def fetch(
+    arxiv_id: str = typer.Argument(..., help="arXiv ID (e.g. 2502.05171)"),
+    kind: str = typer.Option("pdf", "--kind", "-k", help="pdf | source (tex tar.gz)"),
+    out_dir: str = typer.Option("", "--out", "-o", help="Output dir (default: pdfs/ or sources/)"),
+    transport: str = typer.Option(
+        "auto", "--transport", "-t", help="tcp | quic | auto (tcp→quic→browser-hint)"
+    ),
+):
+    """Fetch one paper payload via the CN-aware transport chain.
+
+    Chain: tcp → quic (aioquic, UDP 443 survives the arXiv TCP reset) →
+    browser-hint echo. Success is logged to the acquisition audit JSONL
+    (data/download_audit.jsonl) with transport + sha256 evidence.
+    """
+    from rich.console import Console
+
+    from hfpapers.arxiv_transport import (
+        FetchResult,
+        fetch_with_fallback,
+        log_acquisition,
+        quic_fetch,
+        tcp_fetch,
+    )
+
+    console = Console()
+    out_dir = out_dir or ("pdfs" if kind == "pdf" else "sources")
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+
+    result: FetchResult
+    if transport == "tcp":
+        from hfpapers.arxiv_transport import arxiv_url
+
+        result = tcp_fetch(arxiv_url(arxiv_id, kind), kind, timeout=60.0)
+    elif transport == "quic":
+        from hfpapers.arxiv_transport import arxiv_url
+
+        # tex source bundles can run multi-MB; QUIC single-stream throughput
+        # on CN UDP measures ~100 KB/s — give sources a longer budget.
+        result = quic_fetch(
+            arxiv_url(arxiv_id, kind), kind,
+            timeout=180.0 if kind == "source" else 90.0,
+        )
+    else:
+        result = fetch_with_fallback(arxiv_id, kind)
+
+    if result.ok:
+        suffix = ".pdf" if kind == "pdf" else ".tar.gz"
+        target = Path(out_dir) / f"{arxiv_id}{suffix}"
+        target.write_bytes(result.data)
+        log_acquisition(result.audit_row(arxiv_id))
+        console.print(
+            f"[green]✅ {kind} {arxiv_id}[/green] via [bold]{result.transport}[/bold] "
+            f"→ {target} ({len(result.data)//1024}KB, "
+            f"sha256:{result.sha256[:12]}, {int(result.ms)}ms, tls:{result.tls_verified})"
+        )
+        return
+    # Failed attempts are acquisition-chain facts too — record them.
+    log_acquisition(result.audit_row(arxiv_id))
+    console.print(f"[red]❌ {kind} {arxiv_id} — all transports failed[/red]")
+    console.print(f"   {result.transport}: {result.error or 'n/a'}")
+    if result.hint:
+        console.print(f"   💡 {result.hint}")
+
+
+@app.command()
 def store(
     action: str = typer.Argument("stats", help="stats | ensure | search | export | verify | ids | status | conflicts | suspect | clear-suspect"),
     arg: str = typer.Argument("", help="Argument: keyword(for search) / format(for export)"),
