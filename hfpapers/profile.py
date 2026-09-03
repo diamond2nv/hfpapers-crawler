@@ -83,6 +83,82 @@ def find_profile_file(start: str | Path | None = None) -> Path | None:
 
 
 @dataclass
+class ProfileVerdict:
+    """One accept/reject declaration (SKILL.state semantics: explicit state).
+
+    state ∈ {active, superseded, revoked} — only `active` is consumed by
+    recommend/gates; superseded/revoked entries stay for audit (append-only
+    decision history, mirror of the suspect-state design).
+
+    Granularity (formatter): type ∈ {paper, method, domain, code}.
+    - paper:  identifiers {arxiv, doi} (normative dual channel)
+    - method: name + keywords = L0 gate vocabulary
+    - domain: name (category-level)
+    - code:   pyproject-extracted dependency adoption (automatic)
+    evidence: {file, lines} — tex/markdown line anchors proving the decision.
+    """
+
+    verdict: str = "accept"       # accept | reject
+    type: str = "method"          # paper | method | domain | code
+    state: str = "active"         # active | superseded | revoked
+    version: int = 1              # entry revision (bump on change, keep history)
+    name: str = ""                # method/domain name or paper title
+    identifiers: dict = field(default_factory=dict)  # {arxiv|doi: value}
+    keywords: list = field(default_factory=list)     # reject/accept match vocabulary
+    evidence: dict = field(default_factory=dict)     # {file: str, lines: [int]}
+    reasons: str = ""
+    since: str = ""
+
+
+VERDICT_STATES = ("active", "superseded", "revoked")
+VERDICT_TYPES = ("paper", "method", "domain", "code")
+
+
+def _norm_verdict(verdict: str, raw) -> ProfileVerdict:
+    """Normalize a shorthand (str) or full (dict) declaration entry.
+
+    Defensive: unknown shapes produce a best-effort entry, never raise —
+    a profile must never break repo tooling.
+    """
+    v = ProfileVerdict(verdict=verdict)
+    if isinstance(raw, str):
+        v.name = raw
+        v.type = "method"
+        return v
+    if not isinstance(raw, dict):
+        return v
+    v.type = raw.get("type", "method") if raw.get("type") in VERDICT_TYPES else "method"
+    st = raw.get("state", "active")
+    v.state = st if st in VERDICT_STATES else "active"
+    try:
+        v.version = int(raw.get("version", 1) or 1)
+    except (TypeError, ValueError):
+        v.version = 1
+    v.name = str(raw.get("name", raw.get("id", "")))
+    v.reasons = str(raw.get("reasons", raw.get("reason", "")))
+    v.since = str(raw.get("since", ""))
+    if isinstance(raw.get("identifiers"), dict):
+        v.identifiers = dict(raw["identifiers"])
+    if isinstance(raw.get("keywords"), list):
+        v.keywords = [str(k) for k in raw["keywords"] if str(k).strip()]
+    ev = raw.get("evidence")
+    if isinstance(ev, dict):
+        v.evidence = {k: ev[k] for k in ("file", "lines") if k in ev}
+    return v
+
+
+def _norm_verdicts(verdict: str, raw) -> list[ProfileVerdict]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [_norm_verdict(verdict, r) for r in raw]
+    if isinstance(raw, dict):
+        # single entry declared as inline dict
+        return [_norm_verdict(verdict, raw)]
+    return []
+
+
+@dataclass
 class RepoProfile:
     """Parsed hfpclawer interest profile from a repo AGENTS.md."""
 
@@ -91,10 +167,12 @@ class RepoProfile:
     categories: list[str] = field(default_factory=list)
     from_wiki: str = ""
     agents_path: str = ""
+    accepts: list[ProfileVerdict] = field(default_factory=list)
+    rejects: list[ProfileVerdict] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
-        return not self.queries and not self.categories
+        return not self.queries and not self.categories and not self.accepts and not self.rejects
 
     def query_tuples(self) -> list[tuple[str, int]]:
         """(query, weight) pairs — default weight 1 when absent.
@@ -115,6 +193,42 @@ class RepoProfile:
             out.append((text, w))
         return out
 
+    def active_verdicts(self) -> list[ProfileVerdict]:
+        """All active accept+reject declarations (superseded/revoked excluded)."""
+        return [v for v in self.accepts + self.rejects if v.state == "active"]
+
+    def reject_keywords(self) -> list[str]:
+        """Active method-level reject vocabulary (L0 gate — hard filter).
+
+        Placeholders (angle-bracket templates) and empty keywords skipped —
+        an unfilled REPO_USER.md template must never filter anything.
+        """
+        return [
+            kw
+            for v in self.rejects
+            if v.state == "active" and v.type == "method"
+            for kw in v.keywords
+            if kw.strip() and "<" not in kw and ">" not in kw
+        ]
+
+
+def _extract_yaml_fences(text: str) -> list[str]:
+    """Pull ```yaml / ```yml fence bodies — NO regex escapes (tool-safe:
+    backslash-free, immune to editor/JSON escaping of \\s patterns)."""
+    blocks: list[str] = []
+    for marker in ("```yaml", "```yml"):
+        start = 0
+        while True:
+            i = text.find(marker, start)
+            if i == -1:
+                break
+            j = text.find("```", i + len(marker))
+            if j == -1:
+                break
+            blocks.append(text[i + len(marker) : j])
+            start = j + 3
+    return blocks
+
 
 def parse_agents_profile(agents_path: str | Path) -> RepoProfile:
     """Extract the hfpclawer: YAML block from an AGENTS.md.
@@ -131,8 +245,8 @@ def parse_agents_profile(agents_path: str | Path) -> RepoProfile:
     if not _HFPCLAWER_RE.search(text):
         return profile
 
-    # Extract the yaml block containing the hfpclawer: root key
-    blocks = re.findall(r"```(?:yaml|yml)\s*\n(.*?)```", text, re.DOTALL)
+    # Extract the yaml fence bodies containing the hfpclawer: root key
+    blocks = _extract_yaml_fences(text)
     for block in blocks:
         try:
             data = yaml.safe_load(block)
@@ -147,6 +261,8 @@ def parse_agents_profile(agents_path: str | Path) -> RepoProfile:
         profile.queries = h.get("queries", []) or []
         profile.categories = h.get("categories", []) or []
         profile.from_wiki = str(h.get("from_wiki", ""))
+        profile.accepts = _norm_verdicts("accept", h.get("accepts"))
+        profile.rejects = _norm_verdicts("reject", h.get("rejects"))
         break
     return profile
 
@@ -193,6 +309,8 @@ def user_profile() -> RepoProfile:
         prof.queries = h.get("queries", []) or []
         prof.categories = h.get("categories", []) or []
         prof.from_wiki = str(h.get("from_wiki", ""))
+        prof.accepts = _norm_verdicts("accept", h.get("accepts"))
+        prof.rejects = _norm_verdicts("reject", h.get("rejects"))
     return prof
 
 

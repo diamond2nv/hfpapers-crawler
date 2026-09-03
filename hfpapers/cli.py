@@ -1562,6 +1562,16 @@ def profile(
         console.print(f"  from_wiki: {prof.from_wiki}")
     for q, w in prof.query_tuples():
         console.print(f"  [{w}] {q}")
+    for verdict in prof.active_verdicts():
+        mark = "✓" if verdict.verdict == "accept" else "✗"
+        color = "green" if verdict.verdict == "accept" else "red"
+        name = verdict.name or next(iter(verdict.identifiers.values()), "")
+        extra = f" (kw: {', '.join(verdict.keywords)})" if verdict.keywords else ""
+        console.print(f"  [{color}]{mark} {verdict.verdict}[/{color}] "
+                      f"[{verdict.type}] {name}{extra}")
+    inactive = [v for v in prof.accepts + prof.rejects if v.state != "active"]
+    if inactive:
+        console.print(f"  [dim]  (inactive/superseded: {len(inactive)} — kept for audit)[/dim]")
 
 
 @app.command()
@@ -1981,6 +1991,7 @@ REPO_USER_TEMPLATE = """# REPO_USER.md — {project} interest profile (hfpclawer
 
 ```yaml
 hfpclawer:
+  schema: 2                     # declaration schema version (formatter)
   profile: {project}
   queries:
     - query: "<your research keyword>"
@@ -1989,6 +2000,20 @@ hfpclawer:
       weight: 2
   categories: [<topic>, <subtopic>]
   from_wiki: concepts/<your-wiki-concept-page>
+  # ── Declarations = explicit feedback (v2, SKILL.state) ──────────────────
+  # state: active (consumed) | superseded | revoked (kept for audit)
+  # type: paper (identifiers: arxiv/doi) | method (+keywords = L0 filter
+  #       vocabulary) | domain | code (pyproject, auto)
+  # evidence.file/lines = tex/markdown anchor proving the decision.
+  accepts: []
+  rejects:
+    - type: method
+      state: active
+      name: "<declared-rejected-method>"
+      keywords: ["<keyword-a>", "<keyword-b>"]   # papers hitting these never surface
+      since: ""
+      reasons: "<why this repo rejects it>"
+      evidence: {file: "<docs path>", lines: []}
 ```
 """
 

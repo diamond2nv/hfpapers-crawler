@@ -21,6 +21,12 @@ from hfpapers.profile import detect_profile, user_profile
 DEFAULT_RELEVANCE = 50  # unscored papers (relevance=0) treated as mid
 
 
+def _hits_reject(paper, reject_kws: set[str]) -> bool:
+    """True when title/abstract contains any active reject keyword (case-insensitive)."""
+    hay = f"{(getattr(paper, 'title', '') or '')}\n{(getattr(paper, 'abstract', '') or '')}".lower()
+    return any(kw in hay for kw in reject_kws)
+
+
 def _config_queries() -> list[tuple[str, int, str]]:
     """Global baseline from config.yaml search.queries."""
     try:
@@ -77,6 +83,15 @@ def recommend(
     if not pool:
         return []
 
+    # L0b reject gate (REPO_USER.md v2 declarations — hard filter before scoring).
+    # Active method-level reject keywords from repo + machine profiles; a paper
+    # whose title/abstract hits any keyword is never recommended (symbolic gate —
+    # same spirit as suspect exclusion; superseded/revoked declarations inert).
+    reject_kws = set()
+    reject_kws.update(detect_profile(repo_dir).reject_keywords())
+    reject_kws.update(user_profile().reject_keywords())
+    reject_kws = {kw.lower() for kw in reject_kws if kw and kw.strip()}
+
     scores: dict[int, float] = {}
     why: dict[int, list[tuple[str, str]]] = {}
     for q, w, layer in pool:
@@ -85,6 +100,8 @@ def recommend(
         except Exception:
             continue
         for p in papers:
+            if reject_kws and _hits_reject(p, reject_kws):
+                continue  # declared-rejected topic — never surfaces
             rel = p.relevance if getattr(p, "relevance", 0) else DEFAULT_RELEVANCE
             base = max(rel, 1) / 100.0
             scores[p.sf_id] = scores.get(p.sf_id, 0.0) + w * base
