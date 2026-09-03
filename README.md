@@ -7,6 +7,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/hfpclawer)](https://pypi.org/project/hfpclawer/)
 [![Python versions](https://img.shields.io/pypi/pyversions/hfpclawer)](https://pypi.org/project/hfpclawer/)
 [![License](https://img.shields.io/github/license/diamond2nv/hfpapers-crawler)](https://github.com/diamond2nv/hfpapers-clawler/blob/master/LICENSE)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/diamond2nv/hfpapers-crawler)
 
 > **Naming philosophy**: `claw` (sharp grasp) ≠ `crawl` (creep).
 > `hfpclawer` = **H**ugging**F**ace **P**apers + **claw** + **er**
@@ -223,6 +224,14 @@ This project incorporates code adapted from:
   - `hfpclawer/citation_audit_s2.py` — Semantic Scholar API client (architecture reference)
   - `hfpclawer/citation_audit_oa.py` — OpenAlex API client (architecture reference)
   Licensed under CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/)
+
+- **mirobody** by thetahealth
+  (https://github.com/thetahealth/mirobody)
+  - Design inspiration only (no code reuse): the controlled-vocabulary alignment
+    spectrum (symbolic decision over learned ranking in high-error-cost domains),
+    abstain-as-first-class-state, and COVERAGE_FLOOR ratchet discipline shaped the
+    v0.16 metadata verification & self-assessment roadmap.
+  Licensed under its own terms (https://github.com/thetahealth/mirobody)
 
 ## Links
 
