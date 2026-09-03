@@ -441,13 +441,18 @@ def _score_map(graph, sources_filter: str = "") -> dict[str, tuple[float, int]]:
 
 
 class HubGuidedExpander:
-    """Layered citation expansion with hub-guided frontier truncation.
+    """Layered citation expansion with frontier truncation.
 
-    Inspired by xAI x-algorithm SimClusters: instead of blind BFS (which
-    explodes exponentially and stalls on API rate limits), expand one layer
-    at a time, rank new papers by hub score (PageRank + degree), keep only
-    the top-N as the next frontier, and checkpoint after each layer so the
-    run can be resumed.
+    Two modes:
+    - run(): hub-guided truncation — expand one layer at a time, rank new
+      papers by hub score (PageRank + degree), keep top-N as next frontier,
+      checkpoint per layer. The per-layer ranking+truncation discipline is
+      *inspired by* x-algorithm SimClusters' diffusion control (keep the
+      frontier bounded instead of exponential BFS).
+    - community_guided_run(): faithful SimClusters-style 2-hop expansion —
+      seed (user) → its Louvain communities (clusters) → community hub papers
+      (producers). Frontier stays topic-focused (same community as seed),
+      which the plain hub run (global ranking) does not guarantee.
     """
 
     def __init__(
@@ -559,6 +564,125 @@ class HubGuidedExpander:
             frontier = layer_stat["frontier"]
 
         result = {
+            "layers": layers,
+            "layers_completed": len(layers),
+            "max_layers": max_layers,
+            "final_nodes": graph.number_of_nodes(),
+            "final_edges": graph.number_of_edges(),
+            "top_hub": layers[-1]["hub"] if layers else [],
+        }
+        if audit_path:
+            result["audit_path"] = audit_path
+        return result
+
+    def community_guided_run(
+        self,
+        graph,
+        seeds: list[str],
+        max_layers: int = 3,
+        direction: str = "both",
+        audit_path: str = "",
+        max_communities: int = 3,
+    ) -> dict:
+        """SimClusters-style 2-hop expansion: seed → Louvain community → community hub.
+
+        Faithful mapping of x-algorithm SimClusters (user → top-N clusters →
+        top-M producers) onto the citation graph:
+            seed paper (user) → its Louvain communities (clusters) →
+            top hub papers inside those communities (producers)
+
+        Unlike the plain hub run (global PageRank+degree truncation), this
+        keeps the frontier TOPIC-FOCUSED: candidates must belong to a community
+        the seed itself belongs to (or a neighbor community of it). Audit rows
+        carry the community id so the learned layer can use it as a feature.
+        """
+        import json
+        import time
+
+        from hfpapers.graph.analyze.communities import louvain as louvain_communities
+
+        frontier = list(seeds)
+        audit_rows: list[dict] = []
+        layers = []
+        for layer in range(1, max_layers + 1):
+            t0 = time.time()
+            stats = self.expander.expand_from_seeds(
+                seed_arxiv_ids=frontier,
+                graph=graph,
+                max_depth=1,
+                direction=direction,
+                label_source="s2_hub",
+            )
+            # 1) community detection (papers only are a subset — louvain runs on
+            #    the full graph; membership is looked up per seed node id)
+            communities = louvain_communities(graph)
+            # 2) resolve seed arxiv ids → node ids → their communities
+            seed_comm_ids: list[int] = []
+            for seed_aid in frontier:
+                nid = f"paper:{seed_aid}".lower()
+                for i, comm in enumerate(communities):
+                    if nid in comm or any(
+                        str(n).lower() == nid for n in comm
+                    ):
+                        seed_comm_ids.append(i)
+                        break
+            seed_comm_ids = sorted(set(seed_comm_ids))[:max_communities]
+            # 3) candidates = paper nodes inside seed communities, ranked by hub
+            score_map = _score_map(graph, sources_filter=self.sources_filter)
+            candidates: list[tuple[float, int, str, str]] = []  # (score, deg, aid, comm)
+            seen: set[str] = set()
+            for ci in seed_comm_ids:
+                for nid in communities[ci]:
+                    if not str(nid).startswith("paper:"):
+                        continue
+                    aid = str(nid)[6:].lower()
+                    if aid in seen:
+                        continue
+                    score, degree = score_map.get(aid, (0.0, 0))
+                    candidates.append((score, degree, aid, f"comm{ci}"))
+                    seen.add(aid)
+            candidates.sort(key=lambda x: -x[0])
+            top = candidates[: self.top_k]
+            adopted = {aid for _, _, aid, _ in top}
+            for score, degree, aid, comm in candidates:
+                audit_rows.append(
+                    {
+                        "layer": layer,
+                        "arxiv_id": aid,
+                        "adopted": aid in adopted,
+                        "hub_score": round(score, 4),
+                        "degree": degree,
+                        "community": comm,
+                        "seed_depth": 1,
+                        "source": "s2_hub",
+                    }
+                )
+            layer_stat = {
+                "layer": layer,
+                "papers_found": stats.get("papers_found", 0)
+                if not isinstance(stats.get("papers_found"), list)
+                else len(stats.get("papers_found", [])),
+                "api_calls": stats.get("api_calls", 0),
+                "elapsed_s": round(time.time() - t0, 1),
+                "communities": [f"comm{i}" for i in seed_comm_ids],
+                "candidates": len(candidates),
+                "frontier": [aid for _, _, aid, _ in top],
+                "hub": [(aid, round(score, 2)) for score, _, aid, _ in top[:8]],
+                "audit_count": len(audit_rows),
+            }
+            layers.append(layer_stat)
+
+            if audit_path and audit_rows:
+                with open(audit_path, "w") as f:
+                    for row in audit_rows:
+                        f.write(json.dumps(row) + "\n")
+
+            if not layer_stat["frontier"]:
+                break
+            frontier = layer_stat["frontier"]
+
+        result = {
+            "mode": "simclusters-community",
             "layers": layers,
             "layers_completed": len(layers),
             "max_layers": max_layers,

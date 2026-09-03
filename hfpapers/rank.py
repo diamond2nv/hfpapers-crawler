@@ -41,14 +41,14 @@ def build_dataset(rows: list[dict]) -> tuple[list[list[float]], list[int]]:
     Returns (X, y) where X columns follow FEATURES order.
     Rows missing any feature column are skipped (defensive).
     """
-    X: list[list[float]] = []
+    X: list[list[float]] = []  # noqa: N806 (ML convention)
     y: list[int] = []
     for r in rows:
         try:
             x = [float(r.get(f, 0.0) or 0.0) for f in FEATURES]
         except (TypeError, ValueError):
             continue
-        X.append(x)
+        X.append(x)  # noqa: N806
         y.append(1 if r["adopted"] else 0)
     return X, y
 
@@ -65,7 +65,7 @@ def train(audit_path: str | Path, out_model: str = "", n_estimators: int = 200,
     rows = load_audit(audit_path)
     if not rows:
         raise ValueError(f"no audit rows in {audit_path}")
-    X, y = build_dataset(rows)
+    X, y = build_dataset(rows)  # noqa: N806 (ML convention)
     if len(X) < 4 or len(set(y)) < 2:
         raise ValueError(
             f"need ≥4 rows with both classes for training (got {len(X)} rows, "

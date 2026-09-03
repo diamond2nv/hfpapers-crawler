@@ -835,13 +835,17 @@ def cmd_expand_hub(
     top_k: int = 15,
     direction: str = "both",
     checkpoint: str = "",
+    audit_path: str = "",
+    community: bool = False,
 ) -> None:
-    """Expand the graph layer-by-layer with hub-guided frontier truncation.
+    """Expand the graph layer-by-layer with frontier truncation.
 
-    Inspired by xAI x-algorithm SimClusters: after each layer, rank new
-    papers by hub score (PageRank + degree), keep only the top-k as the
-    next frontier. Avoids exponential blowup of blind BFS and survives
-    S2 rate limits via per-layer checkpoints.
+    Two modes:
+    - hub (default): rank papers by hub score (PageRank + degree) after each
+      layer, keep top-k as next frontier (diffusion-control discipline inspired
+      by x-algorithm SimClusters).
+    - community: faithful SimClusters 2-hop — seed → Louvain communities →
+      community hub papers (topic-focused frontier).
 
     Args:
         seeds: Comma-separated arXiv IDs to start from. Empty = auto-select
@@ -850,6 +854,8 @@ def cmd_expand_hub(
         top_k: Papers kept per layer (frontier size).
         direction: 'references', 'citations', or 'both'.
         checkpoint: Path to JSON checkpoint file (empty = none).
+        audit_path: Optional JSONL audit trail for rank training (L1).
+        community: Use SimClusters community 2-hop mode.
     """
     from hfpapers.graph import GraphBuilder
 
@@ -887,6 +893,8 @@ def cmd_expand_hub(
             top_k=top_k,
             direction=direction,
             checkpoint=checkpoint,
+            audit_path=audit_path,
+            community_guided=community,
         )
     except Exception as e:
         console.print(f"[red]❌ Hub-guided expansion failed: {e}[/red]")
@@ -895,6 +903,7 @@ def cmd_expand_hub(
 
     builder.save()
 
+    mode = "SimClusters-community" if community else "hub-guided"
     for layer in result["layers"]:
         console.print(
             f"[green]Layer {layer['layer']}: +{layer['papers_found']} papers, "
@@ -902,6 +911,10 @@ def cmd_expand_hub(
         )
         for aid, score in layer["hub"][:5]:
             console.print(f"   hub {aid} score={score}")
+    if result.get("mode") == "simclusters-community":
+        for layer in result["layers"]:
+            console.print(f"   communities: {', '.join(layer.get('communities', []))} "
+                          f"({layer.get('candidates', 0)} candidates)")
 
     console.print(f"[green]✅ Done: {result['layers_completed']}/{result['max_layers']} layers[/green]")
     console.print(f"   Graph now: {result['final_nodes']} nodes, {result['final_edges']} edges")

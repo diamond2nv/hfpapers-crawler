@@ -890,13 +890,17 @@ class GraphBuilder:
         label_source: str = "s2_hub",
         filter_keywords: list[str] | None = None,
         checkpoint: str = "",
+        audit_path: str = "",
+        community_guided: bool = False,
     ) -> dict:
         """Expand the graph layer-by-layer, truncating the frontier by hub score.
 
-        Inspired by xAI x-algorithm SimClusters: rank papers after each layer
-        by PageRank + degree, keep only the top-k as the next frontier. Avoids
-        the exponential blowup of blind BFS and survives S2 rate limits via
-        checkpoints.
+        Two modes:
+        - hub (default): rank papers after each layer by PageRank + degree,
+          keep top-k as next frontier (diffusion-control discipline inspired
+          by x-algorithm SimClusters).
+        - community_guided=True: faithful SimClusters 2-hop — seed → its
+          Louvain communities → community hub papers (topic-focused frontier).
 
         Args:
             seed_arxiv_ids: arXiv IDs to start from.
@@ -906,6 +910,9 @@ class GraphBuilder:
             label_source: Source tag for new nodes.
             filter_keywords: Optional keywords to keep only matching papers.
             checkpoint: Path to JSON checkpoint file (empty = no checkpoint).
+            audit_path: Optional JSONL audit trail (adopted/features) for
+                rank training (L1) & explainability.
+            community_guided: Use SimClusters community 2-hop mode.
 
         Returns:
             Dict with per-layer stats and final hub list.
@@ -921,5 +928,10 @@ class GraphBuilder:
             sources_filter=label_source,
             checkpoint=checkpoint,
         )
+        if community_guided:
+            return hub.community_guided_run(
+                self.G, seeds=seed_arxiv_ids, max_layers=max_layers,
+                direction=direction, audit_path=audit_path,
+            )
         return hub.run(self.G, seeds=seed_arxiv_ids, max_layers=max_layers,
-                       direction=direction)
+                       direction=direction, audit_path=audit_path)
