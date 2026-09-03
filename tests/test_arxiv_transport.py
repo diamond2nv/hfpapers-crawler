@@ -27,7 +27,9 @@ from hfpapers.arxiv_transport import (  # noqa: E402
     acquisition_log_path,
     arxiv_url,
     browser_hint,
+    fetch_resumable,
     fetch_with_fallback,
+    file_sha256,
     log_acquisition,
     quic_fetch,
     scan_acquisitions,
@@ -236,6 +238,89 @@ class TestAcquisitionAudit:
         lines = [json.loads(l) for l in acquisition_log_path(tmp_path).read_text().splitlines()]
         assert len(lines) == 3
         assert all(x["event"] == "acquisition" for x in lines)
+
+
+# ── Resumable fetch + file integrity ─────────────────────────────────────
+
+class TestResumable:
+    def test_full_body_hash_mismatch_rejects(self, tmp_path, monkeypatch):
+        """Corrupted full-body transfer → file dropped, no false success."""
+        import hfpapers.arxiv_transport as at
+
+        dest = tmp_path / "x.pdf"
+        calls = {"n": 0}
+
+        def fake_quic(url, kind, timeout=60.0, range_from=0):
+            calls["n"] += 1
+            assert range_from == 0
+            # Simulated corruption: data passes magic but sha mismatchs
+            return FetchResult(
+                ok=True, kind=kind, url=url, transport="quic",
+                data=b"%PDF-corp", tls_verified=True,
+                sha256="0" * 64,  # deliberately wrong
+            )
+
+        monkeypatch.setattr(at, "quic_fetch", fake_quic)
+        r = at.fetch_resumable("2502.05171", dest=dest, max_rounds=2)
+        assert not r.ok
+        assert "sha256 mismatch" in r.error
+        assert not dest.exists()  # corrupted file dropped
+
+    def test_partial_then_resume_completes(self, tmp_path, monkeypatch):
+        """Round 1 times out mid-body (partial kept) → round 2 resumes via
+        Range and the assembled file matches on-disk sha256."""
+        import hfpapers.arxiv_transport as at
+
+        dest = tmp_path / "x.pdf"
+        full = PDF_SAMPLE
+        mid = 3000  # interrupt after 3KB of a 6KB+ body
+        calls = {"n": 0}
+
+        def fake_quic(url, kind, timeout=60.0, range_from=0):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                assert range_from == 0
+                # incomplete round: partial bytes + not-finished error
+                return FetchResult(
+                    ok=False, kind=kind, url=url, transport="quic",
+                    data=full[:mid], tls_verified=True,
+                    error="HTTP 200 (incomplete — timed out mid-transfer)",
+                )
+            # resume round: Range from committed offset, rest arrives
+            assert range_from == mid
+            return FetchResult(
+                ok=True, kind=kind, url=url, transport="quic",
+                data=full[mid:], tls_verified=True,
+                error="",
+            )
+
+        monkeypatch.setattr(at, "quic_fetch", fake_quic)
+        r = at.fetch_resumable("2502.05171", dest=dest, timeout=1.0, max_rounds=3)
+        assert r.ok
+        assert dest.exists()
+        assert dest.read_bytes() == full  # assembled exactly
+        assert r.sha256 == _sha256(full)  # integrity hash == expected
+        assert not dest.with_name("x.pdf.part").exists()  # .part renamed away
+
+    def test_hard_failure_surfaces(self, tmp_path, monkeypatch):
+        """Non-incomplete failures (e.g. connection refused) surface directly."""
+        import hfpapers.arxiv_transport as at
+
+        dest = tmp_path / "x.pdf"
+
+        def fake_quic(url, kind, timeout=60.0, range_from=0):
+            return FetchResult(ok=False, kind=kind, url=url, transport="quic",
+                               error="no response from server")
+
+        monkeypatch.setattr(at, "quic_fetch", fake_quic)
+        r = at.fetch_resumable("2502.05171", dest=dest, max_rounds=3)
+        assert not r.ok
+        assert "no response" in r.error
+
+    def test_file_sha256(self, tmp_path):
+        p = tmp_path / "f.bin"
+        p.write_bytes(PDF_SAMPLE)
+        assert file_sha256(p) == _sha256(PDF_SAMPLE)
 
 
 # ── AsyncPdfDownloader QUIC fallback (integration, mocked) ──────────────

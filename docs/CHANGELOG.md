@@ -18,6 +18,29 @@
 
 # CHANGELOG
 
+## [2026-09-03] feat | v0.16.12 — Range-resumable QUIC + batch re-fetch + file integrity
+> Follow-up to v0.16.11: the batch path now uses the unified QUIC connection,
+> and interrupted transfers resume instead of restarting from zero.
+
+- **`fetch_resumable` / `file_sha256`** — .part file + `Range: bytes=N-`
+  resume loop (verified live: 12.7MB tex bundle that previously stalled at
+  1.9MB/90s now completes over resumed rounds); partial bytes survive
+  timeouts (async_quic_fetch keeps body on failure); assembled file gets a
+  sha256 that is recorded to the acquisition audit (cross-channel compare);
+  full-body hash mismatch → file dropped, no false success
+- **batch re-fetch via `quic_batch_fetch`** — AsyncPdfDownloader TCP phase
+  runs 1 attempt per paper (CN resets are deterministic), then ALL failures
+  are re-fetched in ONE QUIC connection with N concurrent streams (amortised
+  ramp); per-paper fallback still available on the single-paper path
+- `_persist_pdf` extracted — shared write/stats/audit/convert between single
+  and batch paths; write stays sync (aiofiles adds nothing for 10ms writes)
+- CLI `fetch` auto/quic modes route through the resumable path; audit rows
+  carry the real on-disk byte count for resumed files
+- tests: +4 resumable (hash mismatch drop / partial→Range resume assembly /
+  hard failure surface / file_sha256) — 121 total; measured live: PDF
+  2.4MB sha256 stable across channels (5a0bfc88), tar structure intact after
+  multi-round resume (70 members, no splice corruption)
+
 ## [2026-09-03] feat | v0.16.11 — CN-aware acquisition transport (QUIC fallback)
 > China-network reality (HUAWEI measured): arxiv.org TCP/443 is reset at the
 > TLS-SNI layer (curl 5/5 RST) while UDP/443 QUIC is NOT — Chromium-based

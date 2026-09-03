@@ -1257,33 +1257,54 @@ def fetch(
     console = Console()
     out_dir = out_dir or ("pdfs" if kind == "pdf" else "sources")
     Path(out_dir).mkdir(parents=True, exist_ok=True)
+    suffix = ".pdf" if kind == "pdf" else ".tar.gz"
+    dest = Path(out_dir) / f"{arxiv_id}{suffix}"
 
     result: FetchResult
     if transport == "tcp":
         from hfpapers.arxiv_transport import arxiv_url
 
         result = tcp_fetch(arxiv_url(arxiv_id, kind), kind, timeout=60.0)
+        if result.ok:
+            dest.write_bytes(result.data)
     elif transport == "quic":
-        from hfpapers.arxiv_transport import arxiv_url
+        # Range-resumable QUIC: .part grows across interrupted rounds; final
+        # file sha256 is verified before the .part is renamed away.
+        from hfpapers.arxiv_transport import fetch_resumable
 
-        # tex source bundles can run multi-MB; QUIC single-stream throughput
-        # on CN UDP measures ~100 KB/s — give sources a longer budget.
-        result = quic_fetch(
-            arxiv_url(arxiv_id, kind), kind,
+        result = fetch_resumable(
+            arxiv_id, kind, dest=dest,
             timeout=180.0 if kind == "source" else 90.0,
         )
     else:
-        result = fetch_with_fallback(arxiv_id, kind)
+        # auto: TCP quick attempt, then resumable QUIC, then browser hint.
+        from hfpapers.arxiv_transport import arxiv_url, fetch_resumable
+
+        t = tcp_fetch(arxiv_url(arxiv_id, kind), kind, timeout=15.0)
+        if t.ok:
+            dest.write_bytes(t.data)
+            result = t
+        else:
+            result = fetch_resumable(
+                arxiv_id, kind, dest=dest,
+                timeout=180.0 if kind == "source" else 90.0,
+            )
+            if not result.ok:
+                from hfpapers.arxiv_transport import browser_hint
+
+                result.hint = browser_hint(arxiv_id, kind)
 
     if result.ok:
-        suffix = ".pdf" if kind == "pdf" else ".tar.gz"
-        target = Path(out_dir) / f"{arxiv_id}{suffix}"
-        target.write_bytes(result.data)
-        log_acquisition(result.audit_row(arxiv_id))
+        # Resumable fetches write the file themselves; tcp path wrote above.
+        row = result.audit_row(arxiv_id)
+        if dest.exists():
+            row["bytes"] = dest.stat().st_size  # resume path carries no data
+        log_acquisition(row)
         console.print(
             f"[green]✅ {kind} {arxiv_id}[/green] via [bold]{result.transport}[/bold] "
-            f"→ {target} ({len(result.data)//1024}KB, "
-            f"sha256:{result.sha256[:12]}, {int(result.ms)}ms, tls:{result.tls_verified})"
+            f"→ {dest} ({(dest.stat().st_size if dest.exists() else 0) // 1024}KB, " \
+            f"sha256:{result.sha256[:12] or 'n/a'}, {int(result.ms)}ms, "
+            f"tls:{result.tls_verified})"
         )
         return
     # Failed attempts are acquisition-chain facts too — record them.

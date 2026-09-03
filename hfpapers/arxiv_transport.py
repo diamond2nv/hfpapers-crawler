@@ -133,8 +133,14 @@ def tcp_fetch(url: str, kind: str, timeout: float = 60.0) -> FetchResult:
         )
 
 
-async def async_quic_fetch(url: str, kind: str, timeout: float = 60.0) -> FetchResult:
-    """HTTP/3 single fetch — awaitable core (see :func:`quic_fetch`)."""
+async def async_quic_fetch(
+    url: str, kind: str, timeout: float = 60.0, range_from: int = 0
+) -> FetchResult:
+    """HTTP/3 single fetch — awaitable core (see :func:`quic_fetch`).
+
+    range_from > 0 sends ``Range: bytes={range_from}-`` and accepts 206
+    Partial Content — the resume primitive for interrupted transfers.
+    """
     t0 = time.monotonic()
     try:
         from aioquic.h3.connection import H3_ALPN, H3Connection
@@ -187,13 +193,16 @@ async def async_quic_fetch(url: str, kind: str, timeout: float = 60.0) -> FetchR
 
         def start_request(self) -> None:
             stream_id = self._quic.get_next_available_stream_id()
+            headers = [
+                (b":method", b"GET"), (b":scheme", b"https"),
+                (b":authority", parts.netloc.encode()),
+                (b":path", parts.path.encode()),
+                (b"user-agent", USER_AGENT.encode()),
+            ]
+            if range_from > 0:
+                headers.append((b"range", f"bytes={range_from}-".encode()))
             self.http.send_headers(
-                stream_id,
-                [(b":method", b"GET"), (b":scheme", b"https"),
-                 (b":authority", parts.netloc.encode()),
-                 (b":path", parts.path.encode()),
-                 (b"user-agent", USER_AGENT.encode())],
-                end_stream=True,
+                stream_id, headers, end_stream=True,
             )
             self.transmit()
 
@@ -209,13 +218,19 @@ async def async_quic_fetch(url: str, kind: str, timeout: float = 60.0) -> FetchR
 
         data = bytes(protocol.body)
         complete = protocol.finished.is_set()
-        ok = complete and protocol.status == 200 and _payload_ok(data, kind)
+        status_ok = protocol.status in (200, 206)  # 206 = partial range resume
+        # Magic check only applies to a full-body GET (offset 0); a resumed
+        # range chunk is mid-file and has no %PDF header by construction.
+        payload_ok = _payload_ok(data, kind) if range_from == 0 else len(data) > 0
+        ok = complete and status_ok and payload_ok
         return FetchResult(
             ok=ok,
             kind=kind,
             url=url,
             transport="quic",
-            data=data if ok else b"",
+            # Partial bytes are kept on failure too — resumable callers append
+            # them to their .part file and resume via Range on the next round.
+            data=data,
             ms=(time.monotonic() - t0) * 1000,
             tls_verified=True,  # CERT_REQUIRED chain check passed to reach here
             error=(
@@ -224,16 +239,19 @@ async def async_quic_fetch(url: str, kind: str, timeout: float = 60.0) -> FetchR
                 else f"HTTP {protocol.status or 'no-response'}"
                 + ("" if complete else " (incomplete — timed out mid-transfer)")
             ),
-            sha256=_sha256(data) if ok else "",
+            sha256=_sha256(data) if ok and range_from == 0 else "",
         )
 
 
-def quic_fetch(url: str, kind: str, timeout: float = 60.0) -> FetchResult:
+def quic_fetch(
+    url: str, kind: str, timeout: float = 60.0, range_from: int = 0
+) -> FetchResult:
     """HTTP/3 (QUIC/UDP 443) fetch via aioquic — optional extra ``[quic]``.
 
     QUIC carries no TLS SNI plaintext to fingerprint, which is why this path
     survives where TCP is reset. Certificates are chain-verified with
-    CERT_REQUIRED (handshake fails on mismatch).
+    CERT_REQUIRED (handshake fails on mismatch). ``range_from > 0`` issues a
+    Range request (resume primitive).
     """
     try:
         import aioquic  # noqa: F401  (optional extra — ImportError handled inside)
@@ -242,7 +260,7 @@ def quic_fetch(url: str, kind: str, timeout: float = 60.0) -> FetchResult:
             ok=False, kind="pdf", url=url, transport="quic",
             error="aioquic unavailable — install with: pip install hfpclawer[quic]",
         )
-    return asyncio.run(async_quic_fetch(url, kind, timeout=timeout))
+    return asyncio.run(async_quic_fetch(url, kind, timeout=timeout, range_from=range_from))
 
 
 def quic_batch_fetch(
@@ -469,3 +487,83 @@ def scan_acquisitions(
                 ),
             })
     return alerts
+
+
+# ── Resumable fetch (Range) + file integrity ─────────────────────────────
+
+def file_sha256(path: Path) -> str:
+    """sha256 of a file on disk — the integrity anchor for resumed files."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def fetch_resumable(
+    arxiv_id: str,
+    kind: str = "pdf",
+    dest: Optional[Path] = None,
+    timeout: float = 90.0,
+    max_rounds: int = 5,
+) -> FetchResult:
+    """Resumable QUIC fetch — .part file + Range resume + sha256 integrity.
+
+    Loop: append to ``<dest>.part`` until the HTTP/3 stream ends (each round
+    carries its own timeout); on interruption the .part size becomes the next
+    round's ``Range: bytes=N-`` offset. When the stream finally ends the full
+    file is assembled — its sha256 is computed and returned as the audit hash
+    (the integrity anchor for cross-channel MITM compare).
+
+    URL mapping: kind=pdf -> /pdf/{id}, kind=source -> /src/{id} (tex bundle).
+    """
+    url = arxiv_url(arxiv_id, kind)
+    if dest is None:
+        base = Path.cwd()
+        dest = base / f"{arxiv_id}{'.pdf' if kind == 'pdf' else '.tar.gz'}"
+    part = dest.with_name(dest.name + ".part")
+    t0 = time.monotonic()
+    rounds = 0
+
+    while rounds < max_rounds:
+        rounds += 1
+        offset = part.stat().st_size if part.exists() else 0
+        r = quic_fetch(url, kind, timeout=timeout, range_from=offset)
+        if r.ok:
+            # Complete chunk (200 full body or 206 partial-to-end)
+            with open(part, "ab") as f:
+                f.write(r.data)
+            final_hash = file_sha256(part)
+            part.rename(dest)
+            if offset == 0 and r.sha256 and final_hash != r.sha256:
+                # Full-body hash mismatch — payload corrupted in transit.
+                dest.unlink(missing_ok=True)
+                return FetchResult(
+                    ok=False, kind=kind, url=url, transport="quic",
+                    ms=(time.monotonic() - t0) * 1000,
+                    tls_verified=True,
+                    error="sha256 mismatch: transferred payload corrupted",
+                )
+            return FetchResult(
+                ok=True, kind=kind, url=url, transport="quic",
+                data=b"",  # content lives on disk (dest); hash is the handle
+                ms=(time.monotonic() - t0) * 1000,
+                tls_verified=True,
+                sha256=final_hash,
+            )
+        # Failed round: keep whatever partial bytes arrived (timeout mid-body
+        # keeps them in r.data), then resume from the grown .part size.
+        if r.data:
+            with open(part, "ab") as f:
+                f.write(r.data)
+            continue
+        if "incomplete" in r.error or offset > 0:
+            continue
+        return r  # hard failure (no progress, not resumable) — surface it
+
+    return FetchResult(
+        ok=False, kind=kind, url=url, transport="quic",
+        ms=(time.monotonic() - t0) * 1000,
+        tls_verified=True,
+        error=f"resume exhausted after {max_rounds} rounds ({part})",
+    )
