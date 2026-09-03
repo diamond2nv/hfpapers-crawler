@@ -428,6 +428,18 @@ class PaperStore:
                 except Exception:
                     pass  # Already exists
 
+            # Migration v3: suspect state (v0.16+ — SKILL.state semantics)
+            #   suspect = explicit abstain/failure state (audit conflict, unverifiable)
+            #   '' = not suspect; non-empty = human-readable reason (first-class, ≠ "unaudited")
+            for col_sql in [
+                "ALTER TABLE papers ADD COLUMN suspect TEXT DEFAULT ''",
+                "ALTER TABLE papers ADD COLUMN suspect_at TEXT DEFAULT ''",
+            ]:
+                try:
+                    conn.execute(col_sql)
+                except Exception:
+                    pass  # Already exists
+
     # ─── Paper CRUD ───────────────────────────
 
     def upsert_paper(self, record: PaperRecord) -> int:
@@ -675,6 +687,10 @@ class PaperStore:
             zotero_pushed = conn.execute(
                 "SELECT COUNT(*) FROM papers WHERE zotero_pushed_at != ''"
             ).fetchone()[0]
+            # State semantics (v0.16+)
+            suspect = conn.execute(
+                "SELECT COUNT(*) FROM papers WHERE suspect != ''"
+            ).fetchone()[0]
             return {
                 "papers_total": total,
                 "papers_verified": verified,
@@ -683,6 +699,7 @@ class PaperStore:
                 "identifiers_by_type": dict(id_types),
                 "audit_levels": dict(audit_dist),
                 "zotero_pushed": zotero_pushed,
+                "papers_suspect": suspect,
             }
 
     @staticmethod
@@ -839,6 +856,176 @@ class PaperStore:
                 "UPDATE papers SET zotero_pushed_at=?, updated_at=datetime('now') WHERE sf_id=?",
                 (now, sf_id),
             )
+
+    # ─── State Semantics (v0.16+ — SKILL.state: explicit mutable state) ───
+    #
+    # Verification states (derived, single source of truth):
+    #   pending   → audit_level == 0 and not suspect (never judged)
+    #   suspect   → suspect != ''  (explicit abstain: audit conflict / unverifiable —
+    #               FIRST-CLASS state, ≠ "unaudited"; human must adjudicate)
+    #   verified  → audit_level >= 1
+    #   stale     → verified but verified_at/audit_level_at older than stale_days
+    #
+    # Mirobody-spectrum design: verdicts are symbolic (hard predicates over
+    # audit_level / suspect / timestamps), never LLM-judged.
+
+    def mark_suspect(self, sf_id: int, reason: str) -> None:
+        """Explicitly flag a paper as suspect (audit conflict / unverifiable).
+
+        reason is stored verbatim (evidence chain preserved for human adjudication).
+        """
+        reason = (reason or "").strip()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                "UPDATE papers SET suspect=?, suspect_at=?, updated_at=datetime('now') WHERE sf_id=?",
+                (reason, now, sf_id),
+            )
+        try:
+            from hfpapers.logger import get_audit
+
+            get_audit().record(
+                arxiv_id=str(sf_id),
+                event="state_suspect",
+                meta={"sf_id": sf_id, "reason": reason},
+            )
+        except Exception:
+            pass
+
+    def clear_suspect(self, sf_id: int) -> None:
+        """Clear suspect flag after human adjudication (paper returns to pending/
+        verified per audit_level)."""
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                "UPDATE papers SET suspect='', suspect_at='', updated_at=datetime('now') WHERE sf_id=?",
+                (sf_id,),
+            )
+        try:
+            from hfpapers.logger import get_audit
+
+            get_audit().record(
+                arxiv_id=str(sf_id),
+                event="state_clear_suspect",
+                meta={"sf_id": sf_id},
+            )
+        except Exception:
+            pass
+
+    def get_status(self, sf_id: int, stale_days: int = 180) -> dict:
+        """Derive verification status for one paper.
+
+        Returns {status, reason, since, audit_level, verified, stale_days}.
+        status ∈ {pending, suspect, verified, stale}.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT audit_level, audit_level_at, suspect, suspect_at "
+                "FROM papers WHERE sf_id=?",
+                (sf_id,),
+            ).fetchone()
+        if row is None:
+            return {"status": "unknown", "reason": "sf_id not found", "since": "",
+                    "audit_level": 0, "verified": False, "stale_days": stale_days}
+        suspect = row["suspect"] if "suspect" in row.keys() else ""
+        if suspect:
+            since = row["suspect_at"] if "suspect_at" in row.keys() else ""
+            return {"status": "suspect", "reason": suspect, "since": since,
+                    "audit_level": int(row["audit_level"]), "verified": False,
+                    "stale_days": stale_days}
+        level = int(row["audit_level"])
+        if level >= 1:
+            # Stale check: age of the verification timestamp
+            ts = row["audit_level_at"] or ""
+            stale = False
+            if ts:
+                try:
+                    dt = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+                    stale = (datetime.now() - dt).days > stale_days
+                except ValueError:
+                    stale = False
+            if stale:
+                return {"status": "stale", "reason": f"verified {stale_days}+ days ago",
+                        "since": ts, "audit_level": level, "verified": True,
+                        "stale_days": stale_days}
+            return {"status": "verified", "reason": f"audit_level={level}", "since": ts,
+                    "audit_level": level, "verified": True, "stale_days": stale_days}
+        return {"status": "pending", "reason": "audit_level=0, never judged",
+                "since": "", "audit_level": 0, "verified": False,
+                "stale_days": stale_days}
+
+    def status_summary(self, stale_days: int = 180) -> dict:
+        """Count papers by derived status (pending/suspect/verified/stale).
+
+        Pure SQL + in-python stale derivation; symbolic, no LLM.
+        """
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT sf_id, audit_level, audit_level_at, suspect "
+                "FROM papers"
+            ).fetchall()
+        counts = {"pending": 0, "suspect": 0, "verified": 0, "stale": 0}
+        for r in rows:
+            suspect = r["suspect"] if "suspect" in r.keys() else ""
+            if suspect:
+                counts["suspect"] += 1
+                continue
+            level = int(r["audit_level"])
+            if level >= 1:
+                ts = r["audit_level_at"] or ""
+                stale = False
+                if ts:
+                    try:
+                        dt = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+                        stale = (datetime.now() - dt).days > stale_days
+                    except ValueError:
+                        stale = False
+                counts["stale" if stale else "verified"] += 1
+                continue
+            counts["pending"] += 1
+        return counts
+
+    def detect_identifier_conflicts(self, limit: int = 50) -> list[dict]:
+        """Cross-source identifier conflict detection (symbolic, 0-LLM).
+
+        Classic conflict: a paper's DOI (via crossref_cache) resolves to an
+        arXiv ID that differs from the arXiv ID recorded in identifiers.
+        Returns [{sf_id, title, arxiv_id, doi, doi_arxiv, reason}].
+        """
+        conflicts: list[dict] = []
+        with self._conn() as conn:
+            # papers having BOTH an arXiv identifier and a DOI crossref entry
+            rows = conn.execute(
+                """
+                SELECT p.sf_id, p.title,
+                       ia.id_value AS arxiv_id,
+                       cr.doi AS doi,
+                       cr.arxiv_id AS doi_arxiv
+                FROM papers p
+                JOIN identifiers ia ON ia.sf_id = p.sf_id AND ia.id_type = 'arxiv'
+                JOIN crossref_cache cr ON cr.doi IN (
+                    SELECT id_value FROM identifiers WHERE sf_id = p.sf_id AND id_type = 'doi'
+                )
+                WHERE cr.arxiv_id != '' AND cr.arxiv_id IS NOT NULL
+                  AND lower(cr.arxiv_id) != lower(ia.id_value)
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        for r in rows:
+            conflicts.append(
+                {
+                    "sf_id": r["sf_id"],
+                    "title": r["title"],
+                    "arxiv_id": r["arxiv_id"],
+                    "doi": r["doi"],
+                    "doi_arxiv": r["doi_arxiv"],
+                    "reason": (
+                        f"DOI {r['doi']} resolves to arXiv {r['doi_arxiv']}, "
+                        f"recorded arXiv is {r['arxiv_id']}"
+                    ),
+                }
+            )
+        return conflicts
 
 
 # ─── Crossref Client ─────────────────────────

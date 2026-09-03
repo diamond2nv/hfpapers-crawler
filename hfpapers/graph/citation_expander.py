@@ -412,6 +412,34 @@ def _hub_scores(graph, top_n: int = 15, sources_filter: str = "") -> list[tuple[
     return scored[:top_n]
 
 
+def _score_map(graph, sources_filter: str = "") -> dict[str, tuple[float, int]]:
+    """One-pass {arxiv_id.lower(): (hub_score, degree)} for all PAPER nodes.
+
+    Mirrors _hub_scores scoring: PageRank*100 + degree.
+    """
+    from hfpapers.graph.schema import NodeType
+
+    try:
+        import networkx as nx
+
+        pr = nx.pagerank(graph, alpha=0.85, max_iter=50)
+    except Exception:
+        pr = {}
+    result: dict[str, tuple[float, int]] = {}
+    for nid, data in graph.nodes(data=True):
+        if data.get("type") != NodeType.PAPER:
+            continue
+        src = str(data.get("sources", ""))
+        if sources_filter and not src.startswith(sources_filter):
+            continue
+        aid = str(data.get("arxiv_id", "")).strip().lower()
+        if not aid:
+            continue
+        score = pr.get(nid, 0.0) * 100.0 + float(graph.degree(nid))
+        result[aid] = (round(score, 4), int(graph.degree(nid)))
+    return result
+
+
 class HubGuidedExpander:
     """Layered citation expansion with hub-guided frontier truncation.
 
@@ -441,7 +469,7 @@ class HubGuidedExpander:
         self.checkpoint = checkpoint
 
     def run(self, graph, seeds: list[str], max_layers: int = 3,
-            direction: str = "both") -> dict:
+            direction: str = "both", audit_path: str = "") -> dict:
         """Run layered hub-guided expansion.
 
         Args:
@@ -449,6 +477,8 @@ class HubGuidedExpander:
             seeds: arXiv IDs to start from.
             max_layers: How many layers to walk.
             direction: 'references', 'citations', or 'both'.
+            audit_path: Optional JSONL path — per-candidate audit trail
+                (adopted / features) for rank training (L1) & explainability.
 
         Returns:
             Dict with per-layer stats and final hub list.
@@ -468,6 +498,7 @@ class HubGuidedExpander:
             except (OSError, ValueError, KeyError):
                 pass
 
+        audit_rows: list[dict] = []
         layers = []
         for layer in range(start_layer + 1, max_layers + 1):
             t0 = time.time()
@@ -480,16 +511,44 @@ class HubGuidedExpander:
             )
             top = _hub_scores(graph, top_n=self.top_k,
                               sources_filter=self.sources_filter)
+            adopted = {aid for _, _, aid in top}
+            # Per-candidate audit trail (layer L): adopted vs truncated
+            candidates = stats.get("papers_found", [])
+            if isinstance(candidates, dict):
+                candidates = list(candidates.keys()) if candidates else []
+            if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
+                candidates = [str(c.get("arxiv_id") or c.get("id") or "") for c in candidates]
+            # Single-pass score map (avoid per-candidate pagerank recompute)
+            score_map = _score_map(graph, sources_filter=self.sources_filter)
+            for cand_aid in candidates:
+                if not cand_aid:
+                    continue
+                score, degree = score_map.get(str(cand_aid).strip().lower(), (0.0, 0))
+                audit_rows.append({
+                    "layer": layer,
+                    "arxiv_id": cand_aid,
+                    "adopted": cand_aid in adopted,
+                    "hub_score": round(score, 4) if score else 0.0,
+                    "degree": degree,
+                    "seed_depth": 1,
+                    "source": "s2_hub",
+                })
             layer_stat = {
                 "layer": layer,
-                "papers_found": stats.get("papers_found", 0),
+                "papers_found": stats.get("papers_found", 0) if not isinstance(stats.get("papers_found"), list) else len(stats.get("papers_found", [])),
                 "api_calls": stats.get("api_calls", 0),
                 "elapsed_s": round(time.time() - t0, 1),
                 "frontier": [aid for _, _, aid in top],
                 "hub": [(aid, round(score, 2))
                         for _, score, aid in top[:8]],
+                "audit_count": len(audit_rows),
             }
             layers.append(layer_stat)
+
+            if audit_path and audit_rows:
+                with open(audit_path, "w") as f:
+                    for row in audit_rows:
+                        f.write(json.dumps(row) + "\n")
 
             if self.checkpoint:
                 with open(self.checkpoint, "w") as f:
@@ -499,7 +558,7 @@ class HubGuidedExpander:
                 break
             frontier = layer_stat["frontier"]
 
-        return {
+        result = {
             "layers": layers,
             "layers_completed": len(layers),
             "max_layers": max_layers,
@@ -507,3 +566,6 @@ class HubGuidedExpander:
             "final_edges": graph.number_of_edges(),
             "top_hub": layers[-1]["hub"] if layers else [],
         }
+        if audit_path:
+            result["audit_path"] = audit_path
+        return result

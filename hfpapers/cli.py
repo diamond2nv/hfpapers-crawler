@@ -1386,6 +1386,47 @@ def store(
 
 
 @app.command()
+def rank(
+    action: str = typer.Argument("train", help="train"),
+    audit: str = typer.Option("", "--audit", help="Audit JSONL path from graph expand-hub --audit"),
+    out_model: str = typer.Option("data/rank_model.txt", "--out", help="Output lightgbm model path"),
+    n_estimators: int = typer.Option(200, "--n-estimators", help="Boosting rounds"),
+):
+    """Learned re-ranking (L1, opt-in): train lightgbm on hub-expansion audit trail.
+
+    Positive = papers the hub heuristic adopted into the next frontier;
+    negative = candidates truncated at the same layer. Tree feature
+    importance = audit ("why was this ranked"). Requires hfpclawer[rank].
+    """
+    from hfpapers.rank import train as rank_train
+
+    if action == "train":
+        if not audit:
+            console.print("[red]❌ Requires --audit <audit.jsonl> (from graph expand-hub --audit)[/red]")
+            raise typer.Exit(1)
+        try:
+            res = rank_train(audit, out_model=out_model, n_estimators=n_estimators)
+        except ImportError:
+            console.print("[yellow]⚠️  lightgbm not installed — pip install hfpclawer[rank][/yellow]")
+            raise typer.Exit(1)
+        except ValueError as e:
+            console.print(f"[red]❌ {e}[/red]")
+            raise typer.Exit(1)
+        console.print(f"[green]✅ Rank model trained: {res['rows']} audit rows[/green]")
+        console.print(f"   positives={res['positives']}  negatives={res['negatives']}")
+        importance = res["feature_importance"]
+        top = sorted(importance.items(), key=lambda kv: -kv[1])
+        console.print("   feature importance (audit):")
+        for feat, imp in top:
+            console.print(f"     {feat}: {imp:.1f}")
+        if res.get("model_path"):
+            console.print(f"   model: {res['model_path']}")
+    else:
+        console.print("[red]❌ Unknown action (only: train)[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
 def sniff(
     max_papers: int = typer.Option(10, "--max-papers", "-n", help="Max papers to analyze"),
     threshold: int = typer.Option(30, "--threshold", "-t", help="Relevance threshold"),
