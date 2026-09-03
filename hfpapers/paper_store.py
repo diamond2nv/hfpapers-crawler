@@ -299,6 +299,9 @@ class PaperRecord:
     # ── Interest signals (Layer 2 — Zotero optional adapter, v0.16.7) ──
     favorited: int = 0         # 1 = Zotero Favor tag synced back (sync-back)
     favorited_at: str = ""     # '' = never favorited, else earliest sync timestamp
+    # ── Abstain state (v0.16.0 — mirror of the suspect column; get_status stays authoritative) ──
+    suspect: str = ""          # '' = not suspect; non-empty = human-readable reason
+    suspect_at: str = ""       # '' = never suspect
 
 
 @dataclass
@@ -744,6 +747,9 @@ class PaperStore:
             # v0.16.7 interest-signal fields (guard for pre-migration DBs)
             favorited=row["favorited"] if "favorited" in row_keys else 0,
             favorited_at=row["favorited_at"] if "favorited_at" in row_keys else "",
+            # v0.16.0 abstain-state mirrors (guard for pre-migration DBs)
+            suspect=row["suspect"] if "suspect" in row_keys else "",
+            suspect_at=row["suspect_at"] if "suspect_at" in row_keys else "",
         )
 
     # ─── Identifier Management ──────────────────────────
