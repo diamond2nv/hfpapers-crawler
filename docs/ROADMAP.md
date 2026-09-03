@@ -472,6 +472,13 @@ L3 余额对账（兜底校验）: cc-switch 式余额查询——llm-api-balanc
 
 - **可审计性契约**：推荐输出必带 `why`（symbolic: hub 分数/路径 → tree: 特征贡献 top-3 → 图: 嵌入邻居）——hub 启发式从"探索策略"升级为"可审计体系的确定性骨架"
 - **训练信号纯净性（no spurious signals）**：正例 = 扩展实际采纳（真用户轨迹：谁被 seed 扩展选中）；负例 = frontier 截断丢弃的（假阴性有限——标注纪律同 0.16.2 golden）；人造维度产生的伪关联（假信号）不入训练集
+- **REPO_USER.md v2 = 声明即交互（2026-09-03 用户洞察——repo docs 策展 = 显式反馈）**：repo 的 README 拒绝清单 / pyproject 依赖 / AGENTS.md 决策史 / CHANGELOG 已隐含 accept/reject 策展——v2 schema 收敛为结构化声明区（三粒度：papers 论文级 / methods 方法族 / domains 领域；code 层由 pyproject 全自动提取）：
+  ```yaml
+  hfpclawer:
+    accepts:  {methods: [lightgbm], domains: [recommendation], papers: [2502.17416]}
+    rejects:  {methods: [online-learning], domains: [], papers: [], reasons: {…}}
+  ```
+  消费分层：L0 rejects.methods 命中 → recommend 硬剔除（符号 gate 扩展）；accepts.papers → 正例池 manual 层（w=3.0 直通）；**L2b 条件② 新增达成路径**：论文级 accept/reject 声明矩阵 = explicit feedback（真实策展决策——非人造维度——无假信号），积累达阈值即可启动 LightGCN——不需要等隐式行为记录
 - Transformer 融入定位（2026-09-03 光谱对齐修正——承 §2c 地图）：① ModernBERT/bge 编码器 = L2a 语义建议特征（零训练，meta 锁防错配）；② GNN/LightGCN = L2b 远期（等 >10k 节点或真实交互——同质图无 user 维度=不引入假信号、不硬套）；③ 序列/BERT4Rec 数据到位前不做——hub 骨架让 Transformer 故事有据可依（引用网络=结构化先验，非生搬）；④ 所有概率层输出只做 suggest/特征，L0 符号 gate 与状态裁决永不被学习层替代（Mirobody 神经符号分界：LLM/模型=感知建议，符号=控制器）
 - 0.16.1 build 范围：L0 审计输出（expand-hub --audit）+ L1 `rank train`（lightgbm→ONNX）+ `recommend --rank` 双模式
 
