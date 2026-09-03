@@ -1431,6 +1431,86 @@ def rank(
 
 
 @app.command()
+def ledger(
+    action: str = typer.Argument("stats", help="log | list | stats"),
+    event: str = typer.Option("manual", "--event", help="Event name (log)"),
+    source: str = typer.Option("", "--source", help="Source tag (log)"),
+    sf_delta: int = typer.Option(0, "--delta", help="sf_id delta (log)"),
+    cost: float = typer.Option(0.0, "--cost", help="Real LLM cost USD from usage response (log)"),
+    note: str = typer.Option("", "--note", help="next_hypothesis note (log)"),
+    limit: int = typer.Option(20, "--limit", "-l", help="Rows to show (list)"),
+    days: int = typer.Option(30, "--days", help="Stats window (stats)"),
+):
+    """Run-level accounting (HL-ledger style, append-only JSONL).
+
+    llm_cost must come from a REAL usage response (L1 direct), never guessed;
+    Hermes-attribution & balance reconciliation are tracked outside the repo.
+    """
+    from hfpapers.config import load_config, get
+    from hfpapers.ledger import log as _log
+    from hfpapers.ledger import recent, stats
+
+    load_config()
+    data_dir = get("paths.data_dir", "data")
+    if action == "log":
+        row = _log(data_dir, event=event, source=source, sf_id_delta=sf_delta,
+                   llm_cost=cost, next_hypothesis=note)
+        console.print(f"[green]✅ ledger row @ {row['timestamp']}[/green]")
+        console.print(f"   event={row['event']}  source={row['source']}  "
+                      f"sf_delta={row['sf_id_delta']}  cost=${row['llm_cost']}")
+    elif action == "list":
+        rows = recent(data_dir, limit=limit)
+        if not rows:
+            console.print("[yellow]Ledger empty[/yellow]")
+            return
+        table = Table(title=f"📒 Ledger (last {len(rows)})")
+        table.add_column("Time", style="dim")
+        table.add_column("Event", style="cyan")
+        table.add_column("Source", style="white")
+        table.add_column("Δsf", justify="right")
+        table.add_column("$", justify="right")
+        for r in rows:
+            table.add_row(r.get("timestamp", "")[11:19], r.get("event", ""),
+                          r.get("source", "")[:18], str(r.get("sf_id_delta", 0)),
+                          f"{float(r.get('llm_cost', 0)):.4f}")
+        console.print(table)
+    elif action == "stats":
+        st = stats(data_dir, since_days=days)
+        console.print(f"[cyan]📊 Ledger stats (last {st['since_days']}d)[/cyan]")
+        console.print(f"   rows: {st['rows']}   sf_id delta: +{st['sf_id_delta']}")
+        console.print(f"   llm_cost total: ${st['llm_cost_total']}")
+        for ev, c in sorted(st["by_event"].items(), key=lambda kv: -kv[1]):
+            console.print(f"     {ev}: {c}")
+    else:
+        console.print("[red]❌ Unknown action (log | list | stats)[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def check_new(
+    since_minutes: int = typer.Option(0, "--since", help="Reserved window (0 = any change since last check)"),
+):
+    """0-token store change detection for cron monitor gate.
+
+    Output is IDENTICAL when nothing changed → safe to use as a Hermes cron
+    monitor: unchanged output skips the LLM entirely (0-token operation).
+    """
+    from hfpapers.config import load_config, get
+    from hfpapers.ledger import check_new as _check
+    from hfpapers.paper_store import get_store
+
+    load_config()
+    data_dir = get("paths.data_dir", "data")
+    result = _check(get_store(), data_dir, since_minutes=since_minutes)
+    if result["new_papers"] == 0:
+        console.print(f"NO_CHANGE total={result['total']} "
+                      f"(prev {result['prev_total']} @ {result['prev_checked_at'][:19]})")
+    else:
+        console.print(f"CHANGE +{result['new_papers']} new papers "
+                      f"(total {result['total']}, first_new_sf={result['first_new_id']})")
+
+
+@app.command()
 def sniff(
     max_papers: int = typer.Option(10, "--max-papers", "-n", help="Max papers to analyze"),
     threshold: int = typer.Option(30, "--threshold", "-t", help="Relevance threshold"),
@@ -1963,6 +2043,15 @@ def import_cmd(
             console.print(f"  MD:    [dim]{result.md_path}[/dim]")
         if verbose and result.steps:
             console.print(f"  Steps: {', '.join(result.steps)}")
+        # Run-level accounting (ledger): real import = +1 sf_id, 0-token append
+        try:
+            from hfpapers.config import get as cfg_get
+            from hfpapers.ledger import log as ledger_log
+
+            ledger_log(cfg_get("paths.data_dir", "data"), event="import",
+                       source="cli", sf_id_delta=1)
+        except Exception:
+            pass  # ledger is best-effort; import success must not depend on it
     elif result.status == "duplicate":
         console.print("[yellow]⏭️  Already in store[/yellow]")
         console.print(f"  sf_id: [cyan]{result.sf_id}[/cyan]")
