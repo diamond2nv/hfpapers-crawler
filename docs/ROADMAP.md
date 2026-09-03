@@ -329,3 +329,54 @@ pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出�
 ```
 
 详见 `pm-skills-localization` skill + `~/wiki/concepts/pm-skills-localization.md`。
+
+---
+
+## 2026-09: v0.15.x 搜广推增强 + v0.16.x Hermes Pantheon 适配
+
+> 原则：**change little for best**——90% 是部署/配置，代码改动最小化；
+> 已有模块复用优先，不引入新依赖、不做过度设计（拒绝清单见下）。
+
+### 0. 基线核验（2026-09-03）
+
+- ⚠️ **版本未同步**：pyproject.toml = 0.15.2，但 git 已有 `e08f922 "v0.15.3: hub-guided layered graph expansion (SimClusters inspired)"`——违反 AGENTS.md「版本号必须来自 pyproject.toml」纪律，先修
+- 已有可复用资产：`hfpclawer/_text_similarity.py` · `hfpapers/graph/`（analyze + HubGuidedExpander）· `relevance` 字段 · `config.yaml search.queries`（带 weight 的查询历史=最强隐式兴趣信号）· Zotero LAN API（zotero-local-api skill 场景 C）
+
+### 1. v0.15.x — 搜广推增强（小改动路线）
+
+| 优先级 | 项 | 内容 | 规模 |
+|:--|:--|:--|:--|
+| P0 | 版本纪律修复 | pyproject → 0.15.3 + `scripts/release.sh 0.15.3` | 分钟级 |
+| P1 | `hfpclawer recommend` 一期 | config search.queries 关键词 ✕ `_text_similarity` 标题/摘要 top-N——**纯复用零新依赖** | ~100 行 |
+| P2 | 评估框架 | golden set 50 对人工标注（相关/无关）+ recall@10 基线（tests/ 固定数据，不进库）| ~150 行 |
+| P3 | 二期（可选）| Zotero **Favor** 显式标签为隐式反馈源（复用 zotero-local-api LAN 链路）+ 推荐理由（引用关系 > 关键词 > Zotero 备注/Extra）| ~200 行 |
+
+**拒绝清单**（无行为数据规模，避免过度设计）：真 SimClusters 实现 · 协同过滤 · 在线学习 · A/B 测试框架 · 独立推荐服务化。
+
+### 2. v0.16.x — Hermes Pantheon 适配（change little for best）
+
+**原则**：hfpapers-crawler 升级为"7x24 研究员"的 90% 是 Hermes 侧部署配置（零代码），代码侧只补最小接口。
+
+**Hermes 侧（零代码，部署配置）**：
+
+```
+① cron + monitor + no_agent 0-token 分层（autonomous-agent-loops 已验证模式）:
+   脚本查新论文 ID → 无变化输出相同 → monitor 跳过 LLM（0-token）
+   有变化 → 唤醒 LLM 摘要/相关性 → 记忆去重 → 推送
+② 增量去重 = papers.db sf_id 幂等（import-cmd 已 dedup，无需新逻辑）
+③ Bot Mode / Hermes Peer = 多 Agent 协作界面（研究员 → 架构师消息链，配置级）
+④ 兴趣进化 = 用户点赞/忽略写入 Hermes MEMORY → 后续 refine search.queries weight
+   （记忆在 Hermes 侧，hfpapers 只读 config——职责分离）
+```
+
+**代码侧最小接口**（v0.16.x 候选）：
+
+- `hfpclawer check-new [source]`：输出变动论文 ID 列表（0-LLM，复用 evolved.py 探测）——monitor 分层的第一层脚本
+- MCP `recommend` 工具（可选，MCP 4 轻量 auto 纪律内）
+- `import-cmd` 已兼容（sf_id dedup/占位/OpenAlex 回填链已是 Pantheon 部署的现成底座）
+
+### 3. 参照系与边界
+
+- Deep Research 四步闭环（Act→Observe→Optimize→Remember）= 我们已有 GOAL 三 loop + TrajectoryStore + 验证门禁——**不新增抽象**，hfpapers 只承担 Observe 数据层
+- Pantheon 0-Token 研究员 = daily-weather-forecast / autonomous-agent-loops 已验证模式的论文场景复制
+- 设计约束：公开 repo 脱敏纪律不变（文档不含内部拓扑/凭据）；0.16.x 改动随 Hermes 生态稳定再定（v0.21 Pantheon 2026-08-31 刚发布）
