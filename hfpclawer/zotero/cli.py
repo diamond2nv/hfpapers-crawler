@@ -12,13 +12,19 @@ import logging
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
 
 from hfpclawer.zotero import get_zotero_url, is_zotero_remote
 
-logger = logging.getLogger("hfpclawer.cli_zotero")
+logger = logging.getLogger("zotero.cli")
+
+
+def _cfg_fallback_get(k: str, d=None):
+    """Placeholder cfg.get — replaced by real config inside cmd functions."""
+    return d
 console = Console()
 
 
@@ -77,14 +83,41 @@ def cmd_check(**kwargs) -> None:
         # Quick stats
         try:
             tags = zc.tags()
-            top_items = zc.top(limit=1)
+            zc.top(limit=1)  # connectivity probe
             console.print(f"  Tags:  {len(tags)}")
-            console.print(f"  Items: accessible (no total-count from local API)")
+            console.print("  Items: accessible (no total-count from local API)")
         except Exception:
             pass
     else:
         console.print("[red]❌ Cannot reach Zotero local API[/red]")
         console.print("  Make sure Zotero is running and 'Allow other applications' is enabled.")
+
+
+def cmd_sync_back(tag: str = "Favor", limit: int = 300, dry_run: bool = False) -> None:
+    """Zotero Favor tag → paper_store interest signal (Layer 2 sync-back).
+
+    Only DOI/arXiv-bearing scholarly items are considered (contract filter);
+    matching local papers get favorited=1 — the interest signal the learned
+    ranker consumes. Zotero is optional: Layer 1 never depends on this.
+    """
+    from hfpapers.paper_store import get_store
+    from hfpapers.sync_back import sync_back
+
+    zc = _get_client()
+    mode = "[dim](dry-run — nothing written)[/dim]" if dry_run else ""
+    console.print(f"[cyan]↩ Sync-back Zotero tag '{tag}' → paper_store {mode}[/cyan]")
+    st = sync_back(zc, get_store(), tag=tag, limit=limit, mark=not dry_run)
+
+    console.print(f"  total items (tag={tag}):       {st['total']}")
+    console.print(f"  scholarly (DOI/arXiv):         {st['scholarly']}  "
+                  f"(skipped non-scholarly: {st['skipped_non_scholarly']})")
+    console.print(f"  matched in paper_store:        {st['in_store']}  "
+                  f"(not in store: {st['skipped_not_in_store']})")
+    console.print(f"  newly favorited:               {st['newly_favorited']}")
+    if st["errors"]:
+        console.print(f"  parse errors:                  {st['errors']}")
+    if st["total"] == 0:
+        console.print("[dim]Zotero unreachable or empty tag — Layer 1 unaffected[/dim]")
 
 
 def cmd_list(
@@ -168,7 +201,6 @@ def cmd_get(key: str) -> None:
         return
 
     data = item.get("data", {})
-    meta = item.get("meta", {})
 
     console.print(f"[bold]📄 Item: {data.get('title', '(no title)')}[/bold]")
     console.print(f"  Key:      {key}")
@@ -266,7 +298,12 @@ def cmd_tag_report(
     zc = _get_client()
     console.print(f"[dim]Scanning up to {limit} Zotero items with spaCy...[/dim]")
 
-    from hfpapers.nlp.tag_analysis import analyze_library_tags, report_text, report_chart, plot_simple_wordcloud
+    from hfpapers.nlp.tag_analysis import (
+        analyze_library_tags,
+        plot_simple_wordcloud,
+        report_chart,
+        report_text,
+    )
 
     analysis = analyze_library_tags(zc, limit=limit, top_n=30)
 
@@ -380,7 +417,7 @@ def cmd_innovate(
     console.print(summary)
 
     # Show auto-tags
-    console.print(f"\n[bold cyan]🏷️ Auto-Tags:[/bold cyan]")
+    console.print("\n[bold cyan]🏷️ Auto-Tags:[/bold cyan]")
     console.print(f"  {' • '.join(auto_tags[:10])}")
 
     # Flatten innovation points for extra field
@@ -393,7 +430,7 @@ def cmd_innovate(
 
     # ── Write to Zotero extra ──
     if push and key:
-        console.print(f"\n[dim]Writing to Zotero extra field...[/dim]")
+        console.print("\n[dim]Writing to Zotero extra field...[/dim]")
         ok = zc.update_item_extra(key, extra_fields)
         if ok:
             console.print(f"[green]✅ Innovation keywords written to extra field for {key}[/green]")
@@ -402,7 +439,7 @@ def cmd_innovate(
     elif push and not key:
         console.print("[yellow]⚠️  No Zotero key found. Use --key to specify.[/yellow]")
     elif dry_run or not push:
-        console.print(f"\n[dim]--- Preview only. Add --push to write to Zotero extra. ---[/dim]")
+        console.print("\n[dim]--- Preview only. Add --push to write to Zotero extra. ---[/dim]")
         for label, value in extra_fields.items():
             console.print(f"  [cyan]{label}:[/cyan] {value}")
 
@@ -464,8 +501,8 @@ def cmd_push(
         with_pdf: Also attach the local PDF file (searched in paper_store's pdf_dir).
     """
     from hfpclawer.zotero.connector import (
-        ZoteroConnector,
         ConnectorError,
+        ZoteroConnector,
         paper_to_zotero_item,
     )
 
@@ -552,14 +589,14 @@ def cmd_push(
 
     # POST to Zotero
     uri = paper.get("url", "") or f"https://arxiv.org/abs/{resolved_id or ''}"
-    console.print(f"[dim]Sending to Zotero via /connector/saveItems...[/dim]")
+    console.print("[dim]Sending to Zotero via /connector/saveItems...[/dim]")
 
     try:
         conn = ZoteroConnector()
         result = conn.save_items([item], uri=uri)
 
         if result.get("status") == 201:
-            console.print(f"[green]✅ Pushed to Zotero![/green]")
+            console.print("[green]✅ Pushed to Zotero![/green]")
             console.print(f"  Session:  {result['session_id'][:24]}...")
             console.print(f"  Title:    {item['title'][:60]}")
             console.print(f"  Tags:     {', '.join(t['tag'] for t in item['tags'])}")
@@ -600,7 +637,7 @@ def cmd_push_batch(
         dry_run: Just show what would be pushed.
         dedup: Skip papers already in Zotero (default: True).
     """
-    from hfpclawer.zotero.connector import ZoteroConnector, ConnectorError
+    from hfpclawer.zotero.connector import ConnectorError, ZoteroConnector
     try:
         from hfpapers.paper_store import get_store
         store = get_store()
@@ -725,10 +762,10 @@ def cmd_annotate(
         color_name: Only show annotations with this color name (case-insensitive).
     """
     from hfpclawer.zotero.annotations import (
-        get_pdf_annotations,
-        format_markdown,
-        format_json,
         color_filter,
+        format_json,
+        format_markdown,
+        get_pdf_annotations,
     )
 
     if not arxiv_id and not zotero_key:
@@ -816,10 +853,6 @@ def cmd_export(
         rdf_zotero, rdf_dc, rdf_bibliontology, coins, refer,
         bookmarks, wikipedia
     """
-    import urllib.request
-    import urllib.error
-    import json
-    import urllib.parse
 
     # Validate format
     if fmt not in EXPORT_FORMATS and fmt != "list-formats":
@@ -928,7 +961,6 @@ def cmd_note(
         output: Write to file instead of stdout.
         raw: Show raw HTML instead of rendered text.
     """
-    import urllib.request
     import json
 
     # Resolve to parent key
@@ -1063,8 +1095,9 @@ def _push_after_attach(
     console: Console,
 ) -> None:
     """After metadata push, attach PDF via saveAttachment."""
-    from hfpclawer.zotero.connector import ConnectorError
     import os
+
+    from hfpclawer.zotero.connector import ConnectorError
 
     session_id = save_result["session_id"]
 
@@ -1169,7 +1202,7 @@ def _push_after_attach(
                 if rec:
                     s.set_audit_level(rec.sf_id, 2)
                     s.mark_zotero_pushed(rec.sf_id)
-                    console.print(f"  [dim]  ✓ audit_level=2, zotero_pushed recorded[/dim]")
+                    console.print("  [dim]  ✓ audit_level=2, zotero_pushed recorded[/dim]")
             except Exception as e:
                 logger.debug("audit_level promotion failed: %s", e)
         else:
@@ -1233,7 +1266,7 @@ def _mark_pushed_after_save(store, sf_id: int, arxiv_id: str, doi: str, console)
     # Step 3: mark pushed in paper_store (idempotency guard)
     try:
         store.mark_zotero_pushed(sf_id)
-        console.print(f"  [dim]  ✓ zotero_pushed_at recorded[/dim]")
+        console.print("  [dim]  ✓ zotero_pushed_at recorded[/dim]")
     except Exception as e:
         logger.warning("Failed to mark zotero_pushed for sf_id=%s: %s", sf_id, e)
 
@@ -1263,11 +1296,10 @@ def cmd_ingest(
         no_wiki: Skip wiki/raw output (only paper_store + PDF + MD)
         verbose: Print each step
     """
-    import json
     import shutil
     import ssl
-    import urllib.request
     import urllib.error
+    import urllib.request
     from datetime import datetime, timezone
     from hashlib import sha256
 
@@ -1339,7 +1371,7 @@ def cmd_ingest(
     # ── Step 3: copy PDF to hfpclawer's data dir ──
     console.print("[dim] 3/7 Copying PDF to hfpclawer storage...[/dim]")
     pdf_dir: Path
-    cfg_get = lambda k, d=None: d  # fallback if config unavailable
+    cfg_get: Any = _cfg_fallback_get  # replaced by real config below
     try:
         from hfpapers.config import get as _cfg_get
         cfg_get = _cfg_get
@@ -1360,7 +1392,7 @@ def cmd_ingest(
         try:
             shutil.copy2(zotero_pdf, str(pdf_target))
             console.print(f"  ✓ Copied → {pdf_target}")
-        except (OSError, shutil.Error) as copy_err:
+        except (OSError, shutil.Error):
             # Fallback: use copyfile if sendfile fails (e.g., special fs)
             shutil.copyfile(zotero_pdf, str(pdf_target))
             console.print(f"  ✓ Copied (fallback) → {pdf_target}")

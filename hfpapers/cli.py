@@ -963,6 +963,7 @@ def zotero(
         cmd_push,
         cmd_push_batch,
         cmd_search,
+        cmd_sync_back,
         cmd_tag_report,
         cmd_tags,
     )
@@ -1052,6 +1053,9 @@ def zotero(
             dry_run=dry_run,
             push=not dry_run and bool(key or arg),
         )
+    elif action == "sync-back":
+        # Zotero Favor → paper_store interest signal (Layer 2, optional adapter)
+        cmd_sync_back(tag=tag or "Favor", limit=limit, dry_run=dry_run)
     else:
         console.print(f"[red]❌ Unknown zotero action: {action}[/red]")
 
