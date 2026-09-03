@@ -1511,6 +1511,97 @@ def check_new(
 
 
 @app.command()
+def profile(
+    path: str = typer.Argument("", help="Path to scan from (default: CWD, walks up to AGENTS.md)"),
+    show_user: bool = typer.Option(False, "--user", "-u", help="Show ~/.hfpclawer/profile.yaml (machine-level user profile)"),
+):
+    """Repo interest profile (virtual-user picture for recommendation).
+
+    Repo profile: hfpclawer: YAML block in the nearest AGENTS.md (neutral
+    academic keywords only — repos may be public). User profile: the private
+    ~/.hfpclawer/profile.yaml under your home (real long-term + ad-hoc
+    research directions; never committed anywhere).
+    """
+    from hfpapers.profile import detect_profile, user_profile
+
+    if show_user:
+        prof = user_profile()
+        if prof.is_empty:
+            console.print("[yellow]~/.hfpclawer/profile.yaml absent or empty[/yellow]")
+            console.print("[dim]Create it with hfpclawer: queries/categories (see docs)[/dim]")
+            raise typer.Exit(0)
+        console.print(f"[dim]User profile: {prof.agents_path}[/dim]")
+        console.print(f"[green]● {prof.profile}[/green]")
+        if prof.categories:
+            console.print(f"  categories: {', '.join(prof.categories)}")
+        if prof.from_wiki:
+            console.print(f"  from_wiki: {prof.from_wiki}")
+        for q, w in prof.query_tuples():
+            console.print(f"  [{w}] {q}")
+        return
+
+    prof = detect_profile(path or None)
+    agents = prof.agents_path
+    if not agents:
+        console.print("[yellow]No AGENTS.md found — no repo profile[/yellow]")
+        console.print("[dim]Add an hfpclawer: block to the repo AGENTS.md (see docs)[/dim]")
+        raise typer.Exit(0)
+    console.print(f"[dim]Profile source: {agents}[/dim]")
+    if prof.is_empty:
+        console.print("[yellow]AGENTS.md found but no hfpclawer: profile block[/yellow]")
+        console.print("[dim]Convention: ```yaml\\nhfpclawer:\\n  queries: [...]\\n```[/dim]")
+        return
+    console.print(f"[green]● repo profile: {prof.profile or '(unnamed)'}[/green]")
+    if prof.categories:
+        console.print(f"  categories: {', '.join(prof.categories)}")
+    if prof.from_wiki:
+        console.print(f"  from_wiki: {prof.from_wiki}")
+    for q, w in prof.query_tuples():
+        console.print(f"  [{w}] {q}")
+
+
+@app.command()
+def recommend(
+    limit: int = typer.Option(10, "--limit", "-l", help="Top-N to show"),
+    path: str = typer.Option("", "--path", help="Repo dir to read profile from (default CWD)"),
+    no_gate: bool = typer.Option(False, "--no-gate", help="Disable verification state gate"),
+):
+    """First-party paper recommendations (L0 global + L0b user + L1 repo signals).
+
+    Fuses config search.queries with the repo interest profile (REPO_USER.md /
+    AGENTS.md hfpclawer block) and ~/.hfpclawer/profile.yaml; scores papers by
+    weighted query hits; verification gate keeps suspect out, prefers verified.
+    Each row shows why (layer + query) — auditable by design.
+    """
+    from hfpapers.config import load_config, get
+    from hfpapers.paper_store import get_store
+    from hfpapers.recommend import recommend as _recommend
+
+    load_config()
+    data_dir = get("paths.data_dir", "data")
+    results = _recommend(
+        get_store(), limit=limit, repo_dir=path or None,
+        status_gate=not no_gate,
+    )
+    if not results:
+        console.print("[yellow]No recommendations (empty query pool or no matches)[/yellow]")
+        raise typer.Exit(0)
+    table = Table(title=f"📚 Recommended papers (store: {data_dir})")
+    table.add_column("Score", style="cyan", justify="right")
+    table.add_column("Status", style="white")
+    table.add_column("Title", style="white")
+    table.add_column("Why", style="dim")
+    for r in results:
+        color = {"verified": "green", "pending": "yellow", "stale": "magenta"}.get(
+            r["status"], "white"
+        )
+        why = ", ".join(f"{layer}:{q[:22]}" for layer, q in r["why"])
+        table.add_row(f"{r['score']:.3f}", f"[{color}]{r['status']}[/{color}]",
+                      r["title"], why)
+    console.print(table)
+
+
+@app.command()
 def sniff(
     max_papers: int = typer.Option(10, "--max-papers", "-n", help="Max papers to analyze"),
     threshold: int = typer.Option(30, "--threshold", "-t", help="Relevance threshold"),
