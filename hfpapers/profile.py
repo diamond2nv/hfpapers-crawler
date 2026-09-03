@@ -97,13 +97,22 @@ class RepoProfile:
         return not self.queries and not self.categories
 
     def query_tuples(self) -> list[tuple[str, int]]:
-        """(query, weight) pairs — default weight 1 when absent."""
+        """(query, weight) pairs — default weight 1 when absent.
+
+        Placeholders (angle-bracket templates like <your research keyword>)
+        are skipped so an unfilled REPO_USER.md template reads as empty.
+        """
         out = []
         for q in self.queries:
             if isinstance(q, dict) and q.get("query"):
-                out.append((str(q["query"]), int(q.get("weight", 1) or 1)))
+                text, w = str(q["query"]), int(q.get("weight", 1) or 1)
             elif isinstance(q, str) and q.strip():
-                out.append((q.strip(), 1))
+                text, w = q.strip(), 1
+            else:
+                continue
+            if "<" in text or ">" in text:
+                continue  # unfilled template placeholder
+            out.append((text, w))
         return out
 
 

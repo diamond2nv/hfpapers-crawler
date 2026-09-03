@@ -1875,6 +1875,48 @@ def _import_dummy():
     pass
 
 
+REPO_USER_TEMPLATE = """# REPO_USER.md — {project} interest profile (hfpclawer recommendations)
+
+> This file is this repo's VIRTUAL-USER picture for hfpclawer: which research
+> direction consumes the paper store from here (see `hfpclawer recommend` and
+> `hfpapers/profile.py`). Hermes agents inject repo context automatically.
+>
+> ⚠️ PUBLIC-REPO CAUTION: hfpapers-crawler repos may be published to GitHub —
+> keep this file limited to NEUTRAL academic keywords only. Real personal
+> interests and ad-hoc research directions belong in ~/.hfpclawer/profile.yaml
+> (machine-level, never committed). Add this file to .gitignore when it holds
+> anything personal.
+
+```yaml
+hfpclawer:
+  profile: {project}
+  queries:
+    - query: "<your research keyword>"
+      weight: 3
+    - query: "<second topic>"
+      weight: 2
+  categories: [<topic>, <subtopic>]
+  from_wiki: concepts/<your-wiki-concept-page>
+```
+"""
+
+
+def _maybe_write_repo_user(cwd: Path, quick: bool = False) -> None:
+    """Generate a REPO_USER.md template (never overwrites an existing file)."""
+    p = cwd / "REPO_USER.md"
+    if p.exists():
+        return
+    try:
+        p.write_text(REPO_USER_TEMPLATE.format(project=cwd.name), encoding="utf-8")
+    except OSError as e:
+        console.print(f"[yellow]⚠️  REPO_USER.md template skipped: {e}[/yellow]")
+        return
+    console.print(f"[green]✅ REPO_USER.md template generated: {p}[/green]")
+    console.print("[dim]   Fill in queries/categories = this repo's recommendation profile[/dim]")
+    if quick:
+        console.print("[dim]   Public repo? Keep neutral or gitignore real interests[/dim]")
+
+
 @app.command()
 def init(
     quick: bool = typer.Option(
@@ -1947,6 +1989,7 @@ def init(
         }
         cfg_path.write_text(yaml.dump(default, default_flow_style=False, allow_unicode=True))
         console.print(f"[green]✅ config.yaml generated: {cfg_path}[/green]")
+        _maybe_write_repo_user(cwd, quick=True)
     else:
         # Interactive wizard
         console.print("[cyan]📝 hfpclawer init wizard[/cyan]")
@@ -2005,6 +2048,7 @@ def init(
             }
             cfg_path.write_text(yaml.dump(default, default_flow_style=False, allow_unicode=True))
             console.print(f"[green]✅ config.yaml generated: {cfg_path}[/green]")
+            _maybe_write_repo_user(cwd)
         except (EOFError, KeyboardInterrupt):
             console.print()
             console.print("[yellow]⚠️  Init cancelled[/yellow]")
