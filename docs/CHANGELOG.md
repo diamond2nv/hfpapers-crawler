@@ -18,6 +18,14 @@
 
 # CHANGELOG
 
+## [2026-09-03] feat | v0.16.8 — open-source positive-example pool (roadmap §2e)
+- **A** `hfpapers/pool.py` — append-only JSONL pool (`data/positive_pool.jsonl`, gitignored, zero telemetry). Layered weak labels decoupled from any user/repo: `verified` (audit_level≥1, w=2.0 — any clone user has these) / `manual` (w=3.0, explicit) / `favorited` (w=1.5, Zotero optional) / `adopted` (w=1.0, hub heuristic behavior cloning) / `truncated` (0, w=1.0 weak negatives). Suspect papers NEVER enter (abstain ≠ negative).
+- **A** live gates — entry: store-suspect rejected at ingest/add; export: current-suspect papers filtered (pool kept append-only, verdicts reversible); adjudication: same arxiv_id conflicting layers → highest priority wins (verified > manual > favorited > adopted > truncated).
+- **M** `hfpapers/paper_store.py` — `PaperRecord` gains `suspect`/`suspect_at` mirrors (v0.16.0 column existed; dataclass gap closed; get_status stays authoritative).
+- **A** `hfpapers/cli.py` — `hfpclawer pool ingest|ingest-verified|sync-favorited|add|stats|export` (export output is rank-train compatible).
+- **A** `tests/test_pool.py` — 11 tests: layered folding, idempotent re-ingest, append-only history, entry gate, live export filter + reversible, adjudication, corrupt-line skip.
+- **Validation** — real store bootstrap: verified 14 + favorited 5 = 19 positives; negatives arrive via `pool ingest --audit` after hub expansions.
+
 ## [2026-09-03] feat | v0.16.7 — Zotero sync-back: Favor tag → favorited interest signal (Layer 2 adapter)
 - **A** `hfpapers/paper_store.py` — Migration v4: `favorited` / `favorited_at` columns (idempotent — earliest sync timestamp kept). `PaperRecord` + `_row_to_record` carry the fields (guarded for pre-migration DBs).
 - **A** `hfpapers/sync_back.py` — Favor-tag items → `ZoteroItem` contract → scholarly filter (DOI/arXiv only — web pages/programs/reports dropped BEFORE any lookup) → identifier match → `mark_favorited`. Zotero unreachable = empty stats, never raises (Layer 1 offline intact).
