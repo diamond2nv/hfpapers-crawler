@@ -492,7 +492,7 @@ L3 余额对账（兜底校验）: cc-switch 式余额查询——llm-api-balanc
 行: {"arxiv_id", "label": +1|0, "layer", "weight", "ts", "source_run", "features"}
 
 标签来源分层（权重=可信度，与用户/repo 解耦）:
-  verified   +1  w=2.0  store 里 audit_level=3 / verified 状态论文   ← 任何用户 import+核验即有
+  verified   +1  w=2.0  store 里 verified 状态论文（audit_level≥1，get_status 语义）← 任何用户 import+核验即有
   manual     +1  w=3.0  `pool add --via manual`（用户显式正例，最强）
   favorited  +1  w=1.5  Zotero sync-back 兴趣信号（可选——无 Zotero 不影响）
   adopted    +1  w=1.0  hub 启发式采纳（audit 行 adopted=true）——弱标签（行为克隆）

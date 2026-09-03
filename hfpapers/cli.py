@@ -1606,6 +1606,94 @@ def recommend(
 
 
 @app.command()
+def pool(
+    action: str = typer.Argument(..., help="ingest | ingest-verified | sync-favorited | add | stats | export"),
+    arg: str = typer.Argument("", help="aid for 'add'; audit path for 'ingest'"),
+    out: str = typer.Option("", "--out", help="export: output JSONL path"),
+    reason: str = typer.Option("", "--reason", help="add: why this paper is a positive example"),
+    pool_path: str = typer.Option("", "--pool", help="Pool file (default data/positive_pool.jsonl)"),
+):
+    """Open-source positive-example pool (roadmap §2e, v0.16.8).
+
+    Accumulates learnable signal for rank training from fully local, label-free
+    sources: hub audit trails, store verification status, Zotero sync-back
+    favorites and explicit manual adds. Zero config for any clone user.
+
+    Actions:
+      pool ingest --audit <audit.jsonl>    fold expansion audit rows (adopted/truncated)
+      pool ingest-verified                 human-approved papers → verified layer
+      pool sync-favorited                  Zotero favorites → favorited layer
+      pool add <arxiv-id> --reason "..."   explicit positive example (strongest)
+      pool stats                           layer distribution / label balance
+      pool export --out <train.jsonl>      live-gated rows → rank train input
+    """
+    from hfpapers.config import load_config
+    from hfpapers.paper_store import get_store
+    from hfpapers import pool as _pool
+
+    load_config()
+    store = get_store() if action in ("ingest-verified", "sync-favorited", "add", "stats", "export") else None
+    pp = pool_path or str(_pool.default_pool_path())
+
+    if action == "ingest":
+        if not arg:
+            console.print("[red]❌ pool ingest needs an audit JSONL path argument[/red]")
+            raise typer.Exit(1)
+        added = _pool.ingest_audit(arg, pool=pp)
+        console.print(f"[green]✅ audit folded[/green]  +{added['adopted']} adopted, "
+                      f"+{added['truncated']} truncated  → {pp}")
+    elif action == "ingest-verified":
+        added = _pool.ingest_verified(store, pool=pp)
+        console.print(f"[green]✅ verified folded[/green]  +{added['verified']} (audit_level≥1)  → {pp}")
+    elif action == "sync-favorited":
+        added = _pool.sync_favorited(store, pool=pp)
+        console.print(f"[green]✅ favorited folded[/green]  +{added['favorited']}  → {pp}")
+    elif action == "add":
+        if not arg:
+            console.print("[red]❌ pool add needs an arXiv id argument[/red]")
+            raise typer.Exit(1)
+        result = _pool.add_manual(store, arg, reason=reason, pool=pp)
+        if "error" in result:
+            console.print(f"[red]❌ {result['error']}[/red]")
+            raise typer.Exit(1)
+        console.print(f"[green]✅ manual positive added[/green]  {arg} (sf_id={result['sf_id']})  → {pp}")
+    elif action == "stats":
+        st = _pool.stats(pool=pp, store=store)
+        if st["total"] == 0:
+            console.print("[yellow]Empty pool — run: pool ingest-verified / pool ingest --audit <file>[/yellow]")
+            return
+        console.print(f"[cyan]Pool: {pp}[/cyan]")
+        console.print(f"  total:      {st['total']}")
+        for layer in st["by_layer"]:
+            if st["by_layer"][layer]:
+                console.print(f"  {layer:<12} {st['by_layer'][layer]}")
+        console.print(f"  positives:  {st['positives']}  negatives: {st['negatives']}  "
+                      f"(pos/neg ratio {st['ratio_pos']})")
+        if st["suspect_pending_export_filter"]:
+            console.print(f"  [yellow]⚠ {st['suspect_pending_export_filter']} papers will be filtered "
+                          f"at export (currently suspect)[/yellow]")
+    elif action == "export":
+        rows = _pool.export_rows(pool=pp, store=store)
+        if not rows:
+            console.print("[yellow]No exportable rows (empty pool or all filtered)[/yellow]")
+            return
+        out_path = out or "data/pool_train.jsonl"
+        from pathlib import Path as _P
+
+        _P(out_path).parent.mkdir(parents=True, exist_ok=True)
+        import json as _json
+
+        with open(out_path, "w", encoding="utf-8") as f:
+            for r in rows:
+                f.write(_json.dumps(r, ensure_ascii=False) + "\n")
+        console.print(f"[green]✅ exported {len(rows)} live-gated rows → {out_path}[/green]")
+        console.print("  next: hfpclawer rank train --audit " + out_path)
+    else:
+        console.print(f"[red]❌ Unknown pool action: {action}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
 def sniff(
     max_papers: int = typer.Option(10, "--max-papers", "-n", help="Max papers to analyze"),
     threshold: int = typer.Option(30, "--threshold", "-t", help="Relevance threshold"),
