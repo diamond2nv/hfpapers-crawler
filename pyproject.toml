@@ -46,6 +46,7 @@ dependencies = [
     "spacy>=3.8.0",
     "click>=8.4.2",
     "networkx>=3.0",
+    "pydantic>=2.7",
 ]
 
 [project.urls]
