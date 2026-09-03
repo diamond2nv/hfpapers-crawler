@@ -13,6 +13,7 @@ from hfpapers.pool import (
     ingest_verified,
     stats,
     sync_favorited,
+    sync_profile_accepted,
 )
 
 
@@ -171,3 +172,33 @@ def test_default_pool_path_in_data_dir():
     p = default_pool_path()
     assert p.name == "positive_pool.jsonl"
     assert "data" in str(p)
+
+
+def test_sync_profile_accepted_folds_paper_declarations(store, tmp_path):
+    """Active paper-level accept declarations → manual pool layer (w=3.0)."""
+    from hfpapers.profile import ProfileVerdict, RepoProfile
+
+    _insert(store, "2609.00080")
+    _insert(store, "2609.00081")
+    _insert(store, "2609.00082", suspect="bad")
+    prof = RepoProfile(
+        accepts=[
+            ProfileVerdict(verdict="accept", type="paper", state="active",
+                           name="key paper", identifiers={"arxiv": "2609.00080"}),
+            ProfileVerdict(verdict="accept", type="paper", state="active",
+                           identifiers={"arxiv": "2609.00081"}),
+            ProfileVerdict(verdict="accept", type="paper", state="active",
+                           identifiers={"arxiv": "2609.00082"}),  # suspect → error
+            ProfileVerdict(verdict="accept", type="paper", state="superseded",
+                           identifiers={"arxiv": "2609.00080"}),  # inert
+            ProfileVerdict(verdict="accept", type="method", state="active",
+                           name="lightgbm"),  # not paper-type → skipped
+        ]
+    )
+    pool = tmp_path / "p.jsonl"
+    result = sync_profile_accepted(store, prof, pool=pool)
+    assert result["manual"] == 2
+    assert any("2609.00082" in e for e in result["errors"])
+    rows = export_rows(pool=pool)
+    assert len(rows) == 2
+    assert all(r["weight"] == 3.0 for r in rows)  # manual layer strength

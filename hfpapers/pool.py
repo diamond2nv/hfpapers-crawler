@@ -225,6 +225,33 @@ def add_manual(store, arxiv_id: str, reason: str = "",
 # ─── Stats / export (live gates) ─────────────────────────────────────────
 
 
+def sync_profile_accepted(store, profile, pool: str | Path | None = None) -> dict:
+    """Fold active paper-level accept declarations into the pool (manual layer).
+
+    REPO_USER.md v2 `accepts` entries of type=paper carry normative
+    identifiers ({arxiv, doi}) — a repo declaring a paper accepted is an
+    explicit positive example (w=3.0, strongest local layer). Runs after
+    explicit pool adds; suspect papers rejected by add_manual internally.
+    """
+    pool = pool or default_pool_path()
+    added = 0
+    errors = []
+    seen: set[str] = set()
+    for v in profile.accepts:
+        if v.state != "active" or v.type != "paper":
+            continue
+        aid = (v.identifiers or {}).get("arxiv") or (v.identifiers or {}).get("doi", "")
+        if not aid or aid in seen:
+            continue
+        seen.add(aid)
+        result = add_manual(store, aid, reason=f"repo accepts:{v.name or aid}", pool=pool)
+        if "error" in result:
+            errors.append(f"{aid}: {result['error']}")
+        else:
+            added += 1
+    return {"manual": added, "errors": errors}
+
+
 def stats(pool: str | Path | None = None, store=None) -> dict:
     """Layer distribution / label balance / suspect-pending count (ratchet view)."""
     pool = pool or default_pool_path()
