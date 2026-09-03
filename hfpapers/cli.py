@@ -1220,7 +1220,7 @@ def config():
 
 @app.command()
 def store(
-    action: str = typer.Argument("stats", help="stats | ensure | search | export | verify | ids"),
+    action: str = typer.Argument("stats", help="stats | ensure | search | export | verify | ids | status | conflicts | suspect | clear-suspect"),
     arg: str = typer.Argument("", help="Argument: keyword(for search) / format(for export)"),
     arxiv_id: str = typer.Option("", "--aid", "-a", help="arXiv ID"),
     title: str = typer.Option("", "--title", "-t", help="Paper title"),
@@ -1313,6 +1313,73 @@ def store(
         except ValueError as e:
             console.print(f"[yellow]{e}[/yellow]")
             raise typer.Exit(0)
+
+    elif action == "status":
+        # Single paper (--aid) or summary table (no aid)
+        if arxiv_id:
+            paper = store_obj.get_paper_by_identifier("arxiv", arxiv_id)
+            if not paper:
+                console.print(f"[red]❌ {arxiv_id} not found[/red]")
+                raise typer.Exit(1)
+            st = store_obj.get_status(paper.sf_id)
+            color = {"pending": "yellow", "suspect": "red",
+                     "verified": "green", "stale": "magenta"}.get(st["status"], "white")
+            console.print(f"[{color}]● {st['status']}[/{color}]  {paper.title[:70]}")
+            console.print(f"  reason: {st['reason']}")
+            console.print(f"  since:  {st['since'] or '-'}   audit_level={st['audit_level']}")
+        else:
+            summary = store_obj.status_summary()
+            total = sum(summary.values())
+            table = Table(title=f"📊 Verification Status ({total} papers)")
+            table.add_column("Status", style="cyan")
+            table.add_column("Count", style="white", justify="right")
+            for s in ("pending", "verified", "stale", "suspect"):
+                color = {"pending": "yellow", "verified": "green",
+                         "stale": "magenta", "suspect": "red"}[s]
+                table.add_row(f"[{color}]● {s}[/{color}]", str(summary[s]))
+            console.print(table)
+            console.print("[dim]Hint: hfpclawer store conflicts — list cross-source identifier conflicts[/dim]")
+
+    elif action == "conflicts":
+        # Cross-source identifier conflicts (symbolic, 0-LLM)
+        conflicts = store_obj.detect_identifier_conflicts(limit=50)
+        if not conflicts:
+            console.print("[green]✅ No identifier conflicts found[/green]")
+        else:
+            table = Table(title=f"⚠️ {len(conflicts)} identifier conflicts")
+            table.add_column("sf_id", style="cyan")
+            table.add_column("arxiv_id", style="white")
+            table.add_column("DOI→arXiv", style="red")
+            table.add_column("Title", style="dim")
+            for c in conflicts:
+                table.add_row(str(c["sf_id"]), c["arxiv_id"], c["doi_arxiv"], (c["title"] or "")[:50])
+            console.print(table)
+            console.print("[dim]Flag as suspect: hfpclawer store suspect <arxiv_id> \"<reason>\"[/dim]")
+
+    elif action == "suspect":
+        # Explicit abstain: flag a paper suspect with a reason
+        if not arxiv_id:
+            console.print("[red]❌ Requires --aid (arXiv ID); reason as ARG: hfpclawer store suspect --aid 2501.01934 \"<reason>\"[/red]")
+            raise typer.Exit(1)
+        reason = arg or "manual flag"
+        paper = store_obj.get_paper_by_identifier("arxiv", arxiv_id)
+        if not paper:
+            console.print(f"[red]❌ {arxiv_id} not found[/red]")
+            raise typer.Exit(1)
+        store_obj.mark_suspect(paper.sf_id, reason)
+        console.print(f"[red]⚠️ {arxiv_id} flagged suspect: {reason}[/red]")
+        console.print("[dim]Adjudicate & clear: hfpclawer store clear-suspect --aid <arxiv_id>[/dim]")
+
+    elif action == "clear-suspect":
+        if not arxiv_id:
+            console.print("[red]❌ Requires --aid: hfpclawer store clear-suspect --aid <arxiv_id>[/red]")
+            raise typer.Exit(1)
+        paper = store_obj.get_paper_by_identifier("arxiv", arxiv_id)
+        if not paper:
+            console.print(f"[red]❌ {arxiv_id} not found[/red]")
+            raise typer.Exit(1)
+        store_obj.clear_suspect(paper.sf_id)
+        console.print(f"[green]✅ {arxiv_id} suspect flag cleared (audit_level unchanged)[/green]")
 
     else:
         console.print(f"[red]❌ Unknown action: {action}[/red]")
