@@ -342,7 +342,7 @@ pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出�
 - ⚠️ **版本未同步**：pyproject.toml = 0.15.2，但 git 已有 `e08f922 "v0.15.3: hub-guided layered graph expansion (SimClusters inspired)"`——违反 AGENTS.md「版本号必须来自 pyproject.toml」纪律，先修
 - 已有可复用资产：`hfpclawer/_text_similarity.py` · `hfpapers/graph/`（analyze + HubGuidedExpander）· `relevance` 字段 · `config.yaml search.queries`（带 weight 的查询历史=最强隐式兴趣信号）· Zotero LAN API（zotero-local-api skill 场景 C）
 
-### 1. v0.15.x — 搜广推增强（小改动路线）
+### 1. v0.15.x — 版本纪律修复 + 搜广推增强（小改动路线）
 
 | 优先级 | 项 | 内容 | 规模 |
 |:--|:--|:--|:--|
@@ -353,30 +353,39 @@ pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出�
 
 **拒绝清单**（无行为数据规模，避免过度设计）：真 SimClusters 实现 · 协同过滤 · 在线学习 · A/B 测试框架 · 独立推荐服务化。
 
-### 2. v0.16.x — Hermes Pantheon 适配（change little for best）
+### 2. v0.16.x — 技术融合版（2026-09 新方法论融入，替换原 Pantheon 泛化段）
 
-**原则**：hfpapers-crawler 升级为"7x24 研究员"的 90% 是 Hermes 侧部署配置（零代码），代码侧只补最小接口。
+> 2026-09-03 优化：把最近沉淀的技术（SKILL.state / HL ledger / 0-token monitor / 一致性路由）
+> 映射到 hfpapers-crawler 的具体落点——v0.16 从"Pantheon 适配"升级为
+> **"state-ledger 融合版"**（适配只是部署侧的一部分）。
 
-**Hermes 侧（零代码，部署配置）**：
+**技术 → 落点映射**：
+
+| 新技术 | 落点 | 模块 |
+|:--|:--|:--|
+| **SKILL.state**（显式可变状态替代 append-only 历史，2608.26263）| 论文状态语义化：`pending → verified / suspect / stale` 三态显式（非 append-only 事件流）；抓取 checkpoint 显式化（graph expand-hub 已有 checkpoint——推广到 import/crawl）| `paper_store` 状态机 + `crawl` checkpoint |
+| **HL ledger**（hl_benchmark/ledger.py：git_commit+diff_identifier+llm_cost+next_hypothesis）| `hfpclawer run --ledger`：每次 run 写 ledger 行（时间戳/sf_id 增量/来源/**llm_cost**/next_hypothesis）——可审计+可复现+成本追踪 | `run` 命令 + `data/ledger.jsonl` |
+| **0-token monitor 分层**（Pantheon/deep-research 融合点）| `check-new [source]`：0-LLM 变动检测（时间戳/ID 比较）——cron monitor 第一层；有变化才唤醒 LLM | `check-new` 命令（复用 evolved.py 探测）|
+| **一致性路由**（TTPO/无教师对齐：判断"一致性"优于判断"正确性"）| 多源元数据（arXiv/OpenAlex/Crossref）**冲突 = suspect 标记**（不进 verified 计数）——citation-audit 三源审计已做交叉，升级为状态字段而非一次性审计 | `citation-audit` → 状态回写 |
+| **无教师自监督评估**（Self-OPD 思想）| golden set 自举：经人工 review 确认的论文自动沉淀为**正例池** → recall 基线随使用自动扩大（非一次性 50 对）| `tests/` golden → `data/golden_positive.jsonl` 增量 |
+
+**Hermes 侧（零代码，部署配置）**——保留原 Pantheon 段：
 
 ```
-① cron + monitor + no_agent 0-token 分层（autonomous-agent-loops 已验证模式）:
-   脚本查新论文 ID → 无变化输出相同 → monitor 跳过 LLM（0-token）
-   有变化 → 唤醒 LLM 摘要/相关性 → 记忆去重 → 推送
-② 增量去重 = papers.db sf_id 幂等（import-cmd 已 dedup，无需新逻辑）
-③ Bot Mode / Hermes Peer = 多 Agent 协作界面（研究员 → 架构师消息链，配置级）
-④ 兴趣进化 = 用户点赞/忽略写入 Hermes MEMORY → 后续 refine search.queries weight
-   （记忆在 Hermes 侧，hfpapers 只读 config——职责分离）
+① cron + monitor + no_agent 0-token 分层: check-new 无变化 → 0-token；有变化 → LLM 摘要/相关性 → 推送
+② 增量去重 = papers.db sf_id 幂等（import-cmd 已 dedup）
+③ Bot Mode / Hermes Peer = 多 Agent 协作界面（配置级）
+④ 兴趣进化 = 用户点赞/忽略写 Hermes MEMORY → refine search.queries weight（职责分离：记忆 Hermes 侧）
 ```
 
-**代码侧最小接口**（v0.16.x 候选）：
-
-- `hfpclawer check-new [source]`：输出变动论文 ID 列表（0-LLM，复用 evolved.py 探测）——monitor 分层的第一层脚本
-- MCP `recommend` 工具（可选，MCP 4 轻量 auto 纪律内）
-- `import-cmd` 已兼容（sf_id dedup/占位/OpenAlex 回填链已是 Pantheon 部署的现成底座）
+**v0.16.x 版本节奏建议**：
+- 0.16.0「state」：论文状态三态语义 + 状态回写（citation-audit 冲突→suspect）+ 旧数据迁移
+- 0.16.1「ledger」：run --ledger（llm_cost 追踪）+ check-new 命令
+- 0.16.2「assess」：golden set 自举正例池 + recall 基线自动化
 
 ### 3. 参照系与边界
 
 - Deep Research 四步闭环（Act→Observe→Optimize→Remember）= 我们已有 GOAL 三 loop + TrajectoryStore + 验证门禁——**不新增抽象**，hfpapers 只承担 Observe 数据层
-- Pantheon 0-Token 研究员 = daily-weather-forecast / autonomous-agent-loops 已验证模式的论文场景复制
-- 设计约束：公开 repo 脱敏纪律不变（文档不含内部拓扑/凭据）；0.16.x 改动随 Hermes 生态稳定再定（v0.21 Pantheon 2026-08-31 刚发布）
+- SKILL.state × HL 互补（执行时显式状态 / 迭代间记账）——hfpapers 恰好两端都要：运行时状态（papers.db）+ 迭代记账（ledger）
+- 一致性路由的工程化边界：冲突标记 suspect ≠ 自动删除（保留证据链，人工裁决——与 wiki 时间门控纪律一致）
+- 设计约束：公开 repo 脱敏纪律不变；0.16.x 随 Hermes 生态稳定再定（v0.21 Pantheon 2026-08-31 刚发布，本机 0.20.6 未升级）
