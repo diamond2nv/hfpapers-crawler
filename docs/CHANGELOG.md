@@ -18,6 +18,40 @@
 
 # CHANGELOG
 
+## [2026-09-03] feat | v0.16.11 — CN-aware acquisition transport (QUIC fallback)
+> China-network reality (HUAWEI measured): arxiv.org TCP/443 is reset at the
+> TLS-SNI layer (curl 5/5 RST) while UDP/443 QUIC is NOT — Chromium-based
+> browsers reach arXiv directly. This release gives the download pipeline the
+> same escape hatch as a browser.
+
+- **new `hfpapers/arxiv_transport.py`** — layered acquisition chain
+  `tcp (requests) → quic (aioquic, optional extra [quic]) → browser-hint echo`
+  - `quic_fetch` / `async_quic_fetch`: HTTP/3 GET with CERT_REQUIRED chain
+    verification + generous receive windows; refuses incomplete transfers
+    (sha256 only recorded on stream-ended bodies — no silent truncation)
+  - `quic_batch_fetch`: ONE connection, N concurrent streams — amortises the
+    congestion-window ramp (measured: 3 PDFs / 11.5MB+1.4MB in one window
+    where per-paper connections each took 30-90s)
+  - source kind targets `/src/{id}` (tex tar.gz); `/e-print/` 301s; rejects
+    the PDF arXiv serves when a submission has no tex bundle
+  - `fetch_with_fallback` ends with a **browser-hint** echo telling an agent
+    to use its Chromium/QUIC browser skill when every CLI transport fails
+- **acquisition audit (MITM evidence)**: every attempt → append-only
+  `data/download_audit.jsonl` (`event:"acquisition"`, transport/url/ok/ms/
+  tls_verified/**sha256**/ts — failures recorded too); `scan_acquisitions()`
+  flags **content-drift** (same paper+kind, different sha256 across channels
+  = payload swap signature). aioquic exposes no peer-cert API client-side, so
+  TLS integrity = CERT_REQUIRED chain check + cross-channel hash compare.
+- **AsyncPdfDownloader**: TCP failure → automatic per-paper QUIC fallback
+  (+ audit row); write path no longer hard-depends on optional aiofiles
+- **new CLI `hfpclawer fetch <arxiv_id> [--kind pdf|source] [-t tcp|quic|auto]`**
+  — single-paper channel test tool; saves to pdfs/ or sources/, logs audit
+- tests: 18 new (URL mapping / payload magic incl. PDF-fallback rejection /
+  tcp error mapping / fallback chain / aioquic-missing install hint /
+  downloader QUIC fallback integration / audit drift alerts) — 117 total
+- measured on CN network: PDF 2.4MB via QUIC 21s; tex bundles slower
+  (single-stream UDP ~100 KB/s) — source fetches get a 180s budget
+
 ## [2026-09-03] fix | v0.16.10 — critical-audit round: four design defects fixed
 > Independent self-audit (adversarial) of the v0.16 recommendation stack found 6 concrete
 > failure scenarios; four were fixed in this round, two are recorded as known limitations.

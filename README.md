@@ -41,6 +41,7 @@ pip install hfpclawer
 ### Dependencies
 
 - **Core** (auto-installed): pyyaml, requests, beautifulsoup4, typer, etc.
+- **QUIC transport** (optional): `pip install hfpclawer[quic]` — HTTP/3 download fallback for arXiv (TCP to arXiv is reset on CN networks; QUIC/UDP is not). `hfpclawer fetch` falls back tcp → quic automatically.
 - **LLM features** (optional): `pip install hfpclawer[llm]` — for `sniff` / `analyze` commands
 - **PDF conversion** (optional): `pip install hfpclawer[pdf]`
 - **Scrapy spiders** (optional): `pip install hfpclawer[scrapy]`
@@ -100,6 +101,8 @@ hfpclawer store verify --aid 2301.11167
 
 # Download & convert
 hfpclawer download                  # Download top-20 PDFs
+hfpclawer fetch 2502.05171          # Single paper via tcp→quic→hint chain
+hfpclawer fetch 2502.05171 -k source  # tex source bundle (tar.gz)
 hfpclawer convert                   # PDF → Markdown
 
 # MCP Server (for Hermes Agent / OpenCode)
