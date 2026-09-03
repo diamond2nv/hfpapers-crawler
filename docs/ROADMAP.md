@@ -440,7 +440,33 @@ L3 余额对账（兜底校验）: cc-switch 式余额查询——llm-api-balanc
 
 - 判定：cc-switch 余额 = 校验层（周期对账）非主源（余额含多用途误差）；L1 usage 直记最准
 
+### 2d. 学术人脉网络的可审计推荐体系（2026-09-03 refine——hub 启发式 × 学习层融合）
 
+> 叙事定位：hfpapers-crawler 的推荐 = **引用论文 + 学术人脉网络（author/affiliation 已在
+> citation graph PERSON 节点）+ 可审计体系**——每个推荐可回答"为什么"（Mirobody 光谱：
+> 可解释性 > 端点指标）。hub 启发式（v0.15.3 HubGuidedExpander）是骨架，学习层 opt-in 增强。
+
+```
+体系分层（每层保留审计轨迹）:
+┌─ L0 符号层（0-token 默认，完全可审计）──────────────────────────────┐
+│  HubGuidedExpander：PageRank+degree hub 评分 → 分层扩展              │
+│  审计输出：每 hub 附理由（score/degree/seed→hub 路径/采纳与否）      │
+│  = 引用网络的"确定性探索"——同输入必同输出，理由可复现                 │
+├─ L1 学习层（opt-in，树模型可解释）───────────────────────────────────│
+│  lightgbm 精排：正例 = hub 扩展采纳的论文；负例 = 同 frontier 未采纳  │
+│  特征 = hub 分数/文本相似度/venue/年份/图中心性 → 树特征重要性=审计    │
+├─ L2 图嵌入层（0.16.2+，自监督无标注）─────────────────────────────────│
+│  LightGCN/SGL citation-graph 嵌入（节点 dropout 对比学习）            │
+│  = "学出来的 hub"——嵌入相似度做图先验特征（非替代，喂给 L1）           │
+│  + ModernBERT 论文编码器（CPU onnx）——文本先验                        │
+└─ L3 状态层（v0.16.0 已有）────────────────────────────────────────────┘
+   suspect 论文不出现在推荐候选 · verified 优先 · 人脉节点审计留痕
+```
+
+- **可审计性契约**：推荐输出必带 `why`（symbolic: hub 分数/路径 → tree: 特征贡献 top-3 → 图: 嵌入邻居）——hub 启发式从"探索策略"升级为"可审计体系的确定性骨架"
+- **学习数据不造假**：正例 = 扩展实际采纳（真用户轨迹：谁被 seed 扩展选中）；负例 = frontier 截断丢弃的（假阴性有限——标注纪律同 0.16.2 golden）
+- Transformer 融入定位（承 §2c 地图）：① ModernBERT 编码器 = L2 文本先验；② GNN/LightGCN = L2 图先验；③ 序列/BERT4Rec 数据到位前不做——hub 骨架让 Transformer 故事有据可依（引用网络=结构化先验，非生搬）
+- 0.16.1 build 范围：L0 审计输出（expand-hub --audit）+ L1 `rank train`（lightgbm→ONNX）+ `recommend --rank` 双模式
 
 **Hermes 侧（零代码，部署配置）**——保留原 Pantheon 段：
 
