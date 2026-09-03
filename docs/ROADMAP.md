@@ -410,6 +410,36 @@ pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出�
 - 方向修正：现有 zotero_pushed_at 只记录"我们→Zotero"单向推送；缺"Zotero→我们"读回（Favor 落点）——0.16.1 补 `favorited`/`favorited_at` 列 + `zotero sync-back` 命令
 - 推荐管线边界：recommend 一期只用第一方信号（queries×similarity+relevance+精度门禁）——**不阻塞于 Zotero**
 
+### 2c. 精排可训练层 + 成本追踪三层（2026-09-03 用户设计扩展）
+
+**精排升级路径（承光谱：符号主路径不变，训练层 = opt-in 建议层）**：
+
+```
+Layer 0（默认，符号）: 召回 = config queries × _text_similarity；门禁 = 精度状态机
+Layer 1（opt-in，CPU）: lightgbm LTR 排序（正例池 = 0.16.2 golden 自举 + review 正例）
+                        特征 = 文本相似度 / 图中心性 / venue 白名单命中 / 年份新鲜度 /
+                               查询类别匹配 —— 训练秒级，导出 ONNX 推理（毫秒）
+Layer 2（远期，GPU）:   BERT 排序（需 >1k 标注才上——torch 进 [rank-gpu] extra）
+换训练模型不重调符号层（可移植性——Mirobody embedding 矩阵教训：模型文件本地导出不随 wheel 分发）
+```
+
+- pyproject 新增 extra：`rank = [lightgbm, onnxruntime]`（CPU 默认）/ `rank-gpu = [hfpclawer[rank], torch]`（远期）
+- 0.16.1 范围：`rank` extra + `hfpclawer rank train`（导 ONNX）+ `recommend --rank`（符号+精排双模式）
+
+**成本追踪三层来源（ledger.llm_cost 的真实性设计——不估算）**：
+
+```
+L1 usage 直记（主，精确）: hfpclawer 自调 LLM（litellm——sniff 等）→ 响应
+    usage.prompt_tokens/completion_tokens × config 单价 → ledger.llm_cost
+L2 Hermes 侧归因（agent 调用时）: Hermes provider token 记录 / OTel langfuse
+    trace → ledger 记 meta 链接（run_id/调用链）——不重复造轮子
+    （hermes-langfuse-integration 已落地——hfpclawer 只引用）
+L3 余额对账（兜底校验）: cc-switch 式余额查询——llm-api-balance-check skill
+    已有 6 家余额接口 → 周期对账（ledger 累计 vs 余额下降）→ 失控预警
+```
+
+- 判定：cc-switch 余额 = 校验层（周期对账）非主源（余额含多用途误差）；L1 usage 直记最准
+
 
 
 **Hermes 侧（零代码，部署配置）**——保留原 Pantheon 段：

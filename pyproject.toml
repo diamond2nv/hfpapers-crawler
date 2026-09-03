@@ -100,6 +100,14 @@ audit = [
     # hfpclawer.citation_audit_s2 / citation_audit_oa use pure stdlib (urllib).
     # No additional dependencies required.
 ]
+rank = [
+    "lightgbm>=4.0",
+    "onnxruntime>=1.18",
+]
+rank-gpu = [
+    "hfpclawer[rank]",
+    "torch>=2.2",
+]
 [project.scripts]
 hfpclawer = "hfpapers.cli:app"
 
