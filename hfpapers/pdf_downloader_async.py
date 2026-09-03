@@ -107,8 +107,11 @@ class AsyncPdfDownloader:
             return failed
 
         logger.info(f"🔁 QUIC re-fetch batch: {len(retry_papers)} papers")
+        # sinks: stream straight to each final pdf path — peak RAM stays
+        # O(streams × 512KB) instead of O(total re-fetched payload).
+        sinks = {aid: self.pdf_dir / f"{aid}.pdf" for aid, _k in retry_papers}
         try:
-            fetched = quic_batch_fetch(retry_papers, timeout=180.0)
+            fetched = quic_batch_fetch(retry_papers, timeout=180.0, sinks=sinks)
         except Exception as e:
             logger.warning(f"  QUIC batch failed: {e}")
             return failed
@@ -126,11 +129,22 @@ class AsyncPdfDownloader:
                 title = src.get("title", aid)
                 pdf_path = self.pdf_dir / f"{aid}.pdf"
                 md_path = self.md_dir / f"{aid}.md"
+                # Sunk stream: file is already complete on disk (data=b"").
+                # _persist_pdf skips the write and does stats/audit/convert.
                 pers = await self._persist_pdf(
-                    aid, title, pdf_path, md_path, fr.data, "quic"
+                    aid, title, pdf_path, md_path, fr.data or None, "quic"
                 )
                 final.append(pers)
             else:
+                # Failed sunk stream leaves an INCOMPLETE file on disk (its
+                # head was flushed during transfer) — remove it unconditionally
+                # so the skip-check (pdf_path.exists()) can't mistake a partial
+                # download for a completed one.
+                partial = self.pdf_dir / f"{aid}.pdf"
+                try:
+                    partial.unlink(missing_ok=True)
+                except OSError:
+                    pass
                 self._stats["failed"] += 1
                 r["error"] = (fr.error if fr is not None else "quic refetch skipped") or r["error"]
                 final.append(r)
@@ -234,27 +248,48 @@ class AsyncPdfDownloader:
         return result
 
     async def _persist_pdf(
-        self, aid: str, title: str, pdf_path, md_path, data: bytes, transport: str
+        self,
+        aid: str,
+        title: str,
+        pdf_path,
+        md_path,
+        data: Optional[bytes],
+        transport: str,
     ) -> dict:
         """Write PDF + stats + acquisition audit + MD conversion (shared by
-        the single-paper path and the batch QUIC refetch path)."""
-        # Write PDF (sync open — aiofiles is optional; PDFs are small enough
-        # that a short blocking write is acceptable)
-        pdf_path.write_bytes(data)
+        the single-paper path and the batch QUIC refetch path).
+
+        data=None means the file is already complete on disk (sunk QUIC
+        stream) — the write is skipped, stats/audit/convert still run.
+        """
+        if data is not None:
+            # Write PDF (sync open — aiofiles is optional; PDFs are small
+            # enough that a short blocking write is acceptable)
+            pdf_path.write_bytes(data)
 
         self._stats["downloaded"] += 1
-        logger.info(f"  PDF: {aid} ({len(data) // 1024}KB via {transport})")
+        n_bytes = len(data) if data is not None else (
+            pdf_path.stat().st_size if pdf_path.exists() else 0
+        )
+        logger.info(f"  PDF: {aid} ({n_bytes // 1024}KB via {transport})")
 
         # Acquisition audit row (transport chain evidence)
         try:
-            from hfpapers.arxiv_transport import FetchResult, log_acquisition
+            from hfpapers.arxiv_transport import FetchResult, file_sha256, log_acquisition
 
             log_acquisition(
                 FetchResult(
                     ok=True, kind="pdf",
                     url=f"https://arxiv.org/pdf/{aid}",
-                    transport=transport, data=data,
+                    transport=transport, data=data or b"",
                     tls_verified=True,
+                    # Sunk stream: content is on disk — hash the file, not the
+                    # (empty) residual, so the audit row stays meaningful.
+                    sha256=(
+                        file_sha256(pdf_path)
+                        if data is None and pdf_path.exists()
+                        else ""
+                    ),
                 ).audit_row(aid)
             )
         except Exception:

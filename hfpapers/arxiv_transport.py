@@ -97,6 +97,18 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _flush_body(sink: Path, body: bytearray) -> None:
+    """Append accumulated bytes to sink and clear — bounded-memory primitive.
+
+    Called from HTTP/3 data callbacks (sync context): a short blocking append
+    every flush_every bytes is ~0.1% duty cycle on slow links, far cheaper
+    than holding the whole transfer in RAM.
+    """
+    with open(sink, "ab") as f:
+        f.write(body)
+    body.clear()
+
+
 def arxiv_url(arxiv_id: str, kind: str = "pdf") -> str:
     base = "https://arxiv.org"
     if kind == "pdf":
@@ -134,12 +146,23 @@ def tcp_fetch(url: str, kind: str, timeout: float = 60.0) -> FetchResult:
 
 
 async def async_quic_fetch(
-    url: str, kind: str, timeout: float = 60.0, range_from: int = 0
+    url: str,
+    kind: str,
+    timeout: float = 60.0,
+    range_from: int = 0,
+    sink: Optional[Path] = None,
+    flush_every: int = 512 * 1024,
 ) -> FetchResult:
     """HTTP/3 single fetch — awaitable core (see :func:`quic_fetch`).
 
     range_from > 0 sends ``Range: bytes={range_from}-`` and accepts 206
     Partial Content — the resume primitive for interrupted transfers.
+
+    sink: optional .part file — data is flushed to it every ``flush_every``
+    bytes so peak RAM stays ~O(flush_every) instead of O(file size). The
+    residual tail (last < flush_every bytes) is returned in FetchResult.data
+    for the caller to append. sha256 is then meaningless here (content lives
+    on disk) — callers use :func:`file_sha256` on the assembled file.
     """
     t0 = time.monotonic()
     try:
@@ -178,6 +201,17 @@ async def async_quic_fetch(
             self.body = bytearray()
             self.status = 0
             self.finished = asyncio.Event()
+            self.closed = asyncio.Event()
+
+        def connection_lost(self, exc) -> None:
+            """Server closed the connection (idle timeout, FIN, error).
+
+            finished may never fire after close — wake the waiter so a
+            truncated transfer is detected immediately instead of idling
+            until the round timeout.
+            """
+            super().connection_lost(exc)
+            self.closed.set()
 
         def quic_event_received(self, event) -> None:
             """Asyncio pump feeds QUIC events here — decode H3 frames."""
@@ -188,6 +222,8 @@ async def async_quic_fetch(
                             self.status = int(v.decode())
                 elif isinstance(ev, DataReceived):
                     self.body.extend(ev.data)
+                    if sink is not None and len(self.body) >= flush_every:
+                        _flush_body(sink, self.body)
                     if ev.stream_ended:
                         self.finished.set()
 
@@ -212,7 +248,16 @@ async def async_quic_fetch(
     ) as protocol:
         protocol.start_request()
         try:
-            await asyncio.wait_for(protocol.finished.wait(), timeout=timeout)
+            # Wake on stream end OR connection close (whichever first) — a
+            # closed connection with no stream_ended is a truncated transfer.
+            done = asyncio.wait(
+                {
+                    asyncio.ensure_future(protocol.finished.wait()),
+                    asyncio.ensure_future(protocol.closed.wait()),
+                },
+                timeout=timeout, return_when=asyncio.FIRST_COMPLETED,
+            )
+            await done
         except (asyncio.TimeoutError, asyncio.CancelledError):
             pass
 
@@ -239,19 +284,25 @@ async def async_quic_fetch(
                 else f"HTTP {protocol.status or 'no-response'}"
                 + ("" if complete else " (incomplete — timed out mid-transfer)")
             ),
-            sha256=_sha256(data) if ok and range_from == 0 else "",
+            sha256=_sha256(data) if ok and range_from == 0 and sink is None else "",
         )
 
 
 def quic_fetch(
-    url: str, kind: str, timeout: float = 60.0, range_from: int = 0
+    url: str,
+    kind: str,
+    timeout: float = 60.0,
+    range_from: int = 0,
+    sink: Optional[Path] = None,
+    flush_every: int = 512 * 1024,
 ) -> FetchResult:
     """HTTP/3 (QUIC/UDP 443) fetch via aioquic — optional extra ``[quic]``.
 
     QUIC carries no TLS SNI plaintext to fingerprint, which is why this path
     survives where TCP is reset. Certificates are chain-verified with
     CERT_REQUIRED (handshake fails on mismatch). ``range_from > 0`` issues a
-    Range request (resume primitive).
+    Range request (resume primitive); ``sink`` bounds peak RAM to
+    ``flush_every`` bytes by streaming to a .part file (see async core).
     """
     try:
         import aioquic  # noqa: F401  (optional extra — ImportError handled inside)
@@ -260,11 +311,16 @@ def quic_fetch(
             ok=False, kind="pdf", url=url, transport="quic",
             error="aioquic unavailable — install with: pip install hfpclawer[quic]",
         )
-    return asyncio.run(async_quic_fetch(url, kind, timeout=timeout, range_from=range_from))
+    return asyncio.run(async_quic_fetch(
+        url, kind, timeout=timeout, range_from=range_from,
+        sink=sink, flush_every=flush_every,
+    ))
 
 
 def quic_batch_fetch(
-    paths: list[tuple[str, str]], timeout: float = 120.0
+    paths: list[tuple[str, str]],
+    timeout: float = 120.0,
+    sinks: Optional[dict[str, Path]] = None,
 ) -> list[FetchResult]:
     """HTTP/3 batch fetch — ONE connection, N concurrent streams.
 
@@ -278,6 +334,11 @@ def quic_batch_fetch(
     Args:
         paths: list of (arxiv_id, kind) — kinds map to /pdf/{id} and /src/{id}.
         timeout: per-call budget for the WHOLE batch (not per stream).
+        sinks: optional {arxiv_id: Path} — stream data is flushed to each
+            sink every 512KB, bounding peak RAM to O(streams × flush chunk)
+            instead of O(total payload). Sunk streams return data=b"" (the
+            file is complete on disk) with sha256 = file hash; failed streams
+            return their partial tail in .data for caller-side resume.
     """
     t0 = time.monotonic()
     try:
@@ -300,6 +361,7 @@ def quic_batch_fetch(
             self.bodies: dict[int, bytearray] = {}
             self.status: dict[int, int] = {}
             self.done: dict[int, asyncio.Event] = {}
+            self._sid_aid: dict[int, str] = {}
 
         def quic_event_received(self, event) -> None:
             for ev in self.http.handle_event(event):
@@ -312,14 +374,19 @@ def quic_batch_fetch(
                             self.status[sid] = int(v.decode())
                 elif isinstance(ev, DataReceived):
                     self.bodies.setdefault(sid, bytearray()).extend(ev.data)
+                    aid = self._sid_aid.get(sid)
+                    path = sinks.get(aid) if (aid and sinks) else None
+                    if path is not None and len(self.bodies[sid]) >= 512 * 1024:
+                        _flush_body(path, self.bodies[sid])
                     if ev.stream_ended:
                         self.done.setdefault(sid, asyncio.Event()).set()
 
-        def start(self, url: str) -> int:
+        def start(self, url: str, aid: str) -> int:
             from urllib.parse import urlsplit
 
             parts = urlsplit(url)
             sid = self._quic.get_next_available_stream_id()
+            self._sid_aid[sid] = aid
             self.http.send_headers(
                 sid,
                 [(b":method", b"GET"), (b":scheme", b"https"),
@@ -346,7 +413,7 @@ def quic_batch_fetch(
         async with connect(host, port, configuration=config,
                            create_protocol=_Batch) as protocol:
             urls = [arxiv_url(a, k) for a, k in paths]
-            sids = [protocol.start(u) for u in urls]
+            sids = [protocol.start(u, a) for u, (a, _k) in zip(urls, paths)]
             protocol.transmit()
             deadline = asyncio.get_running_loop().time() + timeout
             remaining = set(sids)
@@ -362,6 +429,30 @@ def quic_batch_fetch(
                 data = bytes(protocol.bodies.get(sid, b""))
                 complete = protocol.done[sid].is_set()
                 st = protocol.status.get(sid, 0)
+                sink_path = sinks.get(aid) if sinks else None
+                if sink_path is not None:
+                    # Sunk stream: flush the residual tail so the file on disk
+                    # is complete; magic check runs against the file (its head
+                    # was flushed with the first chunk), not the (empty) body.
+                    if data:
+                        _flush_body(sink_path, protocol.bodies[sid])
+                    file_ok = (
+                        complete and st == 200
+                        and sink_path.exists() and sink_path.stat().st_size >= 5000
+                    )
+                    results.append(FetchResult(
+                        ok=file_ok, kind=kind, url=url, transport="quic",
+                        data=b"",  # content lives on disk at sink_path
+                        ms=(time.monotonic() - t0) * 1000,
+                        tls_verified=True,
+                        error=(
+                            "" if file_ok else f"HTTP {st or 'no-response'}"
+                            + ("" if complete else " (incomplete — batch deadline)")
+                            + ("" if file_ok or not complete else " (file <5KB)")
+                        ),
+                        sha256=file_sha256(sink_path) if file_ok else "",
+                    ))
+                    continue
                 ok = complete and st == 200 and _payload_ok(data, kind)
                 results.append(FetchResult(
                     ok=ok, kind=kind, url=url, transport="quic",
@@ -506,6 +597,9 @@ def fetch_resumable(
     dest: Optional[Path] = None,
     timeout: float = 90.0,
     max_rounds: int = 5,
+    flush_every: int = 512 * 1024,
+    max_bytes: Optional[int] = None,
+    stale_part_after: float = 24 * 3600,
 ) -> FetchResult:
     """Resumable QUIC fetch — .part file + Range resume + sha256 integrity.
 
@@ -514,6 +608,12 @@ def fetch_resumable(
     round's ``Range: bytes=N-`` offset. When the stream finally ends the full
     file is assembled — its sha256 is computed and returned as the audit hash
     (the integrity anchor for cross-channel MITM compare).
+
+    .part lifecycle: a fresh .part resumes from its current offset; one older
+    than ``stale_part_after`` (24h default) is discarded so orphans from dead
+    sessions never accumulate. ``max_bytes`` caps the temporary file (server
+    misbehaviour / runaway body guard). Exceptions are caught and returned as
+    failed FetchResults — this function never raises.
 
     URL mapping: kind=pdf -> /pdf/{id}, kind=source -> /src/{id} (tex bundle).
     """
@@ -525,45 +625,110 @@ def fetch_resumable(
     t0 = time.monotonic()
     rounds = 0
 
-    while rounds < max_rounds:
-        rounds += 1
-        offset = part.stat().st_size if part.exists() else 0
-        r = quic_fetch(url, kind, timeout=timeout, range_from=offset)
-        if r.ok:
-            # Complete chunk (200 full body or 206 partial-to-end)
-            with open(part, "ab") as f:
-                f.write(r.data)
-            final_hash = file_sha256(part)
-            part.rename(dest)
-            if offset == 0 and r.sha256 and final_hash != r.sha256:
-                # Full-body hash mismatch — payload corrupted in transit.
-                dest.unlink(missing_ok=True)
+    try:
+        # Stale-orphan reclamation: fresh .part resumes (offset>0), stale
+        # .part is discarded so dead-session leftovers never accumulate.
+        if part.exists():
+            age = time.time() - part.stat().st_mtime
+            if age > stale_part_after:
+                part.unlink()
+                logger.info(f"  stale .part removed ({int(age)}s old): {part}")
+            elif part.stat().st_size > 0:
+                logger.info(f"  resuming .part ({part.stat().st_size // 1024}KB): {part}")
+
+        while rounds < max_rounds:
+            rounds += 1
+            offset = part.stat().st_size if part.exists() else 0
+            if max_bytes is not None and offset >= max_bytes:
                 return FetchResult(
                     ok=False, kind=kind, url=url, transport="quic",
                     ms=(time.monotonic() - t0) * 1000,
                     tls_verified=True,
-                    error="sha256 mismatch: transferred payload corrupted",
+                    error=(
+                        f"payload exceeded max_bytes={max_bytes} "
+                        f"({part.stat().st_size} bytes) — transfer aborted"
+                    ),
                 )
-            return FetchResult(
-                ok=True, kind=kind, url=url, transport="quic",
-                data=b"",  # content lives on disk (dest); hash is the handle
-                ms=(time.monotonic() - t0) * 1000,
-                tls_verified=True,
-                sha256=final_hash,
+            # sink=part: transfer flushes to the .part file every flush_every
+            # bytes (bounded RAM); r.data only ever holds the residual tail.
+            r = quic_fetch(
+                url, kind, timeout=timeout, range_from=offset,
+                sink=part, flush_every=flush_every,
             )
-        # Failed round: keep whatever partial bytes arrived (timeout mid-body
-        # keeps them in r.data), then resume from the grown .part size.
-        if r.data:
-            with open(part, "ab") as f:
-                f.write(r.data)
-            continue
-        if "incomplete" in r.error or offset > 0:
-            continue
-        return r  # hard failure (no progress, not resumable) — surface it
+            if r.ok:
+                # Complete chunk (200 full body or 206 partial-to-end)
+                with open(part, "ab") as f:
+                    f.write(r.data)
+                final_hash = file_sha256(part)
+                part.rename(dest)
+                if offset == 0 and r.sha256 and final_hash != r.sha256:
+                    # Full-body hash mismatch — payload corrupted in transit.
+                    dest.unlink(missing_ok=True)
+                    return FetchResult(
+                        ok=False, kind=kind, url=url, transport="quic",
+                        ms=(time.monotonic() - t0) * 1000,
+                        tls_verified=True,
+                        error="sha256 mismatch: transferred payload corrupted",
+                    )
+                return FetchResult(
+                    ok=True, kind=kind, url=url, transport="quic",
+                    data=b"",  # content lives on disk (dest); hash is the handle
+                    ms=(time.monotonic() - t0) * 1000,
+                    tls_verified=True,
+                    sha256=final_hash,
+                )
+            # Failed round: keep whatever partial bytes arrived (timeout
+            # mid-body keeps them in r.data), then resume from the grown
+            # .part size. A hard failure with zero progress surfaces as-is.
+            if r.data:
+                with open(part, "ab") as f:
+                    f.write(r.data)
+                if max_bytes is not None and part.stat().st_size > max_bytes:
+                    part.unlink(missing_ok=True)
+                    return FetchResult(
+                        ok=False, kind=kind, url=url, transport="quic",
+                        ms=(time.monotonic() - t0) * 1000,
+                        tls_verified=True,
+                        error=f"payload exceeded max_bytes={max_bytes} — aborted",
+                    )
+                continue
+            if "416" in r.error:
+                # Range Not Satisfiable: our offset >= resource length — the
+                # .part already holds the complete body (server closed the
+                # connection after delivering everything). Promote to success.
+                if part.exists() and part.stat().st_size >= 5000:
+                    final_hash = file_sha256(part)
+                    part.rename(dest)
+                    return FetchResult(
+                        ok=True, kind=kind, url=url, transport="quic",
+                        data=b"",
+                        ms=(time.monotonic() - t0) * 1000,
+                        tls_verified=True,
+                        sha256=final_hash,
+                    )
+            if "incomplete" in r.error or offset > 0:
+                continue
+            return r  # hard failure (no progress, not resumable)
 
-    return FetchResult(
-        ok=False, kind=kind, url=url, transport="quic",
-        ms=(time.monotonic() - t0) * 1000,
-        tls_verified=True,
-        error=f"resume exhausted after {max_rounds} rounds ({part})",
-    )
+        return FetchResult(
+            ok=False, kind=kind, url=url, transport="quic",
+            ms=(time.monotonic() - t0) * 1000,
+            tls_verified=True,
+            error=(
+                f"resume exhausted after {max_rounds} rounds — "
+                f".part kept for resumption: {part} "
+                f"({part.stat().st_size // 1024}KB)"
+            ),
+        )
+    except Exception as e:  # never raise — surface as a failed FetchResult
+        pstate = (
+            f"; .part kept: {part} ({part.stat().st_size // 1024}KB)"
+            if part.exists()
+            else ""
+        )
+        return FetchResult(
+            ok=False, kind=kind, url=url, transport="quic",
+            ms=(time.monotonic() - t0) * 1000,
+            tls_verified=True,
+            error=f"{type(e).__name__}: {e}{pstate}",
+        )

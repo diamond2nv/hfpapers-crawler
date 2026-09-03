@@ -18,6 +18,34 @@
 
 # CHANGELOG
 
+## [2026-09-03] feat | v0.16.13 — bounded-memory streaming + .part lifecycle
+> Memory-peak control and temporary-file hygiene for the QUIC path.
+
+- **incremental flush (sink)** — async_quic_fetch/quic_batch_fetch stream to
+  the target file every 512KB via `_flush_body`; peak RAM drops from
+  O(file size) to O(512KB × streams) — batch re-fetch of N multi-MB tex
+  bundles no longer buffers the whole payload in memory. (aiofiles was
+  evaluated and rejected: it is a thread-pool wrapper for blocking writes and
+  cannot be awaited inside aioquic's sync event callbacks — a sync short
+  append per flush chunk is the right tool here.)
+- **connection-close detection** — `connection_lost` now wakes the waiter
+  immediately (previously a server close mid-transfer idled until the round
+  timeout, wasting up to 90s × rounds); truncated transfers are reported as
+  incomplete right away
+- **416 promote** — resume round hitting `416 Range Not Satisfiable` means
+  the .part already holds the complete body (server closed after delivering
+  it): the file is promoted with its sha256 instead of looping (was: infinite
+  resume until rounds exhausted)
+- **.part lifecycle** — `fetch_resumable` never raises (exceptions wrapped
+  into failed FetchResults reporting the surviving .part); stale .part
+  (default >24h, `stale_part_after`) is reclaimed before a new transfer;
+  `max_bytes` caps the temporary file against runaway payloads; failed sunk
+  streams in the batch downloader remove their partial file unconditionally
+  (a >5KB partial can no longer masquerade as a completed download)
+- tests: +4 (416 promote / stale reclaim / max_bytes abort / exception wrap)
+  — 124 offline + 2 live-verified: PDF 2.4MB resume path, 12.7MB killed-
+  process .part recovered and promoted (sha recorded, no residue)
+
 ## [2026-09-03] feat | v0.16.12 — Range-resumable QUIC + batch re-fetch + file integrity
 > Follow-up to v0.16.11: the batch path now uses the unified QUIC connection,
 > and interrupted transfers resume instead of restarting from zero.
@@ -42,10 +70,10 @@
   multi-round resume (70 members, no splice corruption)
 
 ## [2026-09-03] feat | v0.16.11 — CN-aware acquisition transport (QUIC fallback)
-> China-network reality (HUAWEI measured): arxiv.org TCP/443 is reset at the
-> TLS-SNI layer (curl 5/5 RST) while UDP/443 QUIC is NOT — Chromium-based
-> browsers reach arXiv directly. This release gives the download pipeline the
-> same escape hatch as a browser.
+> China-network reality (measured on a CN connection): arxiv.org TCP/443 is
+> reset at the TLS-SNI layer (curl 5/5 RST) while UDP/443 QUIC is NOT —
+> Chromium-based browsers reach arXiv directly. This release gives the
+> download pipeline the same escape hatch as a browser.
 
 - **new `hfpapers/arxiv_transport.py`** — layered acquisition chain
   `tcp (requests) → quic (aioquic, optional extra [quic]) → browser-hint echo`

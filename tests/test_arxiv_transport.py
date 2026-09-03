@@ -13,10 +13,10 @@ Coverage (all offline — network paths are mocked):
 
 import asyncio
 import json
+import os
 import sys
+import time
 from pathlib import Path
-
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -27,7 +27,6 @@ from hfpapers.arxiv_transport import (  # noqa: E402
     acquisition_log_path,
     arxiv_url,
     browser_hint,
-    fetch_resumable,
     fetch_with_fallback,
     file_sha256,
     log_acquisition,
@@ -235,7 +234,7 @@ class TestAcquisitionAudit:
                 transport="quic", data=PDF_SAMPLE, tls_verified=True,
             ).audit_row(f"2502.0517{i}")
             log_acquisition(r, tmp_path)
-        lines = [json.loads(l) for l in acquisition_log_path(tmp_path).read_text().splitlines()]
+        lines = [json.loads(ln) for ln in acquisition_log_path(tmp_path).read_text().splitlines()]
         assert len(lines) == 3
         assert all(x["event"] == "acquisition" for x in lines)
 
@@ -250,7 +249,7 @@ class TestResumable:
         dest = tmp_path / "x.pdf"
         calls = {"n": 0}
 
-        def fake_quic(url, kind, timeout=60.0, range_from=0):
+        def fake_quic(url, kind, timeout=60.0, range_from=0, sink=None, flush_every=0):
             calls["n"] += 1
             assert range_from == 0
             # Simulated corruption: data passes magic but sha mismatchs
@@ -276,7 +275,7 @@ class TestResumable:
         mid = 3000  # interrupt after 3KB of a 6KB+ body
         calls = {"n": 0}
 
-        def fake_quic(url, kind, timeout=60.0, range_from=0):
+        def fake_quic(url, kind, timeout=60.0, range_from=0, sink=None, flush_every=0):
             calls["n"] += 1
             if calls["n"] == 1:
                 assert range_from == 0
@@ -308,7 +307,7 @@ class TestResumable:
 
         dest = tmp_path / "x.pdf"
 
-        def fake_quic(url, kind, timeout=60.0, range_from=0):
+        def fake_quic(url, kind, timeout=60.0, range_from=0, sink=None, flush_every=0):
             return FetchResult(ok=False, kind=kind, url=url, transport="quic",
                                error="no response from server")
 
@@ -321,6 +320,91 @@ class TestResumable:
         p = tmp_path / "f.bin"
         p.write_bytes(PDF_SAMPLE)
         assert file_sha256(p) == _sha256(PDF_SAMPLE)
+
+    def test_range_416_promotes_complete_part(self, tmp_path, monkeypatch):
+        """Server closed the connection after delivering the whole body; the
+        resume round gets 416 (offset >= length) — the .part is complete and
+        is promoted to the final file instead of looping forever."""
+        import hfpapers.arxiv_transport as at
+
+        dest = tmp_path / "x.pdf"
+        part = dest.with_name("x.pdf.part")
+        part.write_bytes(PDF_SAMPLE)  # full body already flushed to .part
+        calls = {"n": 0}
+
+        def fake_quic(url, kind, timeout=60.0, range_from=0, sink=None, flush_every=0):
+            calls["n"] += 1
+            assert range_from == len(PDF_SAMPLE)
+            return FetchResult(ok=False, kind=kind, url=url, transport="quic",
+                               error="HTTP 416")  # Range Not Satisfiable
+
+        monkeypatch.setattr(at, "quic_fetch", fake_quic)
+        r = at.fetch_resumable("2502.05171", dest=dest, max_rounds=3)
+        assert r.ok
+        assert calls["n"] == 1  # no resume loop
+        assert dest.exists()
+        assert dest.read_bytes() == PDF_SAMPLE
+        assert not part.exists()
+
+    def test_stale_part_reclaimed(self, tmp_path, monkeypatch):
+        """A .part older than stale_part_after is discarded (restart from 0),
+        not resumed — dead-session orphans don't accumulate."""
+        import hfpapers.arxiv_transport as at
+
+        dest = tmp_path / "x.pdf"
+        part = dest.with_name("x.pdf.part")
+        part.write_bytes(b"OLD-PARTIAL-DATA-0123456789")
+        # Simulate a stale .part (mtime far in the past)
+        old = time.time() - 100 * 3600
+        os.utime(part, (old, old))
+        offsets = []
+
+        def fake_quic(url, kind, timeout=60.0, range_from=0, sink=None, flush_every=0):
+            offsets.append(range_from)
+            return FetchResult(ok=True, kind=kind, url=url, transport="quic",
+                               data=PDF_SAMPLE, tls_verified=True,
+                               sha256=_sha256(PDF_SAMPLE))
+
+        monkeypatch.setattr(at, "quic_fetch", fake_quic)
+        r = at.fetch_resumable("2502.05171", dest=dest, max_rounds=2,
+                               stale_part_after=3600)
+        assert r.ok
+        assert offsets == [0]  # stale part dropped → started from zero
+        assert not part.exists()  # no .part residue after success
+
+    def test_max_bytes_aborts(self, tmp_path, monkeypatch):
+        """max_bytes caps the .part file — runaway payloads abort cleanly."""
+        import hfpapers.arxiv_transport as at
+
+        dest = tmp_path / "x.pdf"
+
+        def fake_quic(url, kind, timeout=60.0, range_from=0, sink=None, flush_every=0):
+            return FetchResult(
+                ok=False, kind=kind, url=url, transport="quic",
+                data=PDF_SAMPLE, tls_verified=True,  # partial arrives...
+                error="HTTP 200 (incomplete — timed out mid-transfer)",
+            )
+
+        monkeypatch.setattr(at, "quic_fetch", fake_quic)
+        r = at.fetch_resumable("2502.05171", dest=dest, max_rounds=5,
+                               max_bytes=len(PDF_SAMPLE) // 2)
+        assert not r.ok
+        assert "max_bytes" in r.error
+
+    def test_exception_wrapped_not_raised(self, tmp_path, monkeypatch):
+        """Any internal exception becomes a failed FetchResult (never raises)
+        and reports the surviving .part location."""
+        import hfpapers.arxiv_transport as at
+
+        dest = tmp_path / "x.pdf"
+
+        def fake_quic(url, kind, timeout=60.0, range_from=0, sink=None, flush_every=0):
+            raise RuntimeError("disk exploded")
+
+        monkeypatch.setattr(at, "quic_fetch", fake_quic)
+        r = at.fetch_resumable("2502.05171", dest=dest, max_rounds=2)
+        assert not r.ok
+        assert "disk exploded" in r.error  # wrapped, not raised
 
 
 # ── AsyncPdfDownloader QUIC fallback (integration, mocked) ──────────────
@@ -358,11 +442,11 @@ class TestDownloaderQuicFallback:
                 pass
 
         from hfpapers import arxiv_transport as atmod
-        from hfpapers.arxiv_transport import FetchResult as FR
+        from hfpapers.arxiv_transport import FetchResult
 
         async def fake_quic(url, kind, timeout=60.0):
-            return FR(ok=True, kind=kind, url=url, transport="quic",
-                      data=PDF_SAMPLE, tls_verified=True, sha256=_sha256(PDF_SAMPLE))
+            return FetchResult(ok=True, kind=kind, url=url, transport="quic",
+                               data=PDF_SAMPLE, tls_verified=True, sha256=_sha256(PDF_SAMPLE))
 
         monkeypatch.setattr(atmod, "async_quic_fetch", fake_quic)
         # Route acquisition audit writes into the test dir
@@ -385,7 +469,7 @@ class TestDownloaderQuicFallback:
         assert pdf.exists()
         assert d._quic_used == 1
         # audit row written by the downloader path
-        rows = [json.loads(l) for l in audit_file.read_text().splitlines()]
+        rows = [json.loads(ln) for ln in audit_file.read_text().splitlines()]
         assert any(x["transport"] == "quic" and x["arxiv_id"] == "2502.05171"
                    for x in rows)
 
@@ -403,11 +487,11 @@ class TestDownloaderQuicFallback:
                 return False
 
         from hfpapers import arxiv_transport as atmod
-        from hfpapers.arxiv_transport import FetchResult as FR
+        from hfpapers.arxiv_transport import FetchResult
 
         async def fake_quic(url, kind, timeout=60.0):
-            return FR(ok=False, kind=kind, url=url, transport="quic",
-                      error="no aioquic / timeout")
+            return FetchResult(ok=False, kind=kind, url=url, transport="quic",
+                               error="no aioquic / timeout")
 
         monkeypatch.setattr(atmod, "async_quic_fetch", fake_quic)
 
