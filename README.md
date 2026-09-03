@@ -18,6 +18,13 @@
 A multi-source academic paper clawler for PDE / neural operator / physics-informed ML.
 Built with SQLite paper_store, Crossref cross-validation, anti-crawl Scrapy pipelines, and MCP server.
 
+## ✨ Features
+
+- **Research-engineered paper discovery** — arXiv / OpenReview / Semantic Scholar multi-source clawling with relevance scoring, citation-graph analysis, and hub-guided layered expansion (`graph expand-hub`, SimClusters-inspired) for "find papers like this one" exploration.
+- **Verification status machine (v0.16+)** — every paper carries an explicit, derived state: `pending → verified / stale / suspect`. Metadata conflicts (e.g. a DOI resolving to a different arXiv ID than recorded) are flagged **suspect** by symbolic 0-LLM checks and require human adjudication — no silent corruption, no LLM-judged verdicts.
+- **First-party recommendation signals** — search history × text similarity + relevance scoring + verification-state gating, all computed from your local store. **No external dependency**: works fully offline, no Zotero required. Zotero (when present) is an optional enhancement adapter — only DOI/arXiv-bearing scholarly items from your library sync back as interest signals.
+- **Zero-token operation ready** — deterministic change detection + cron/monitor layering keeps routine monitoring at 0 LLM cost (see Hermes Agent integration skills).
+
 ---
 
 ## Quick Install

@@ -91,6 +91,37 @@ HF CLI search ──→ arXiv ID verification ──→ Keyword classify ──�
 - **Snowflake ID**: 64-bit, 41bit timestamp + 10bit worker + 12bit sequence, thread-safe
 - **JSON cache**: `data/candidates_latest.json` — legacy compatibility, fast queries
 
+## State Semantics & Recommendation Signals (v0.16+)
+
+**Verification state machine** — derived, single source of truth, symbolic verdicts (no LLM):
+
+```
+pending  → audit_level == 0, never judged
+suspect  → suspect column != ''   (explicit abstain: audit conflict / unverifiable;
+           FIRST-CLASS state ≠ "unaudited"; human must adjudicate via
+           `store clear-suspect` / raising audit_level)
+verified → audit_level >= 1
+stale    → verified but audit_level_at older than stale_days (default 180)
+```
+
+- Conflict detection (`detect_identifier_conflicts`): DOI (via crossref_cache) resolving to a different arXiv ID than recorded → flagged, symbolically, 0-LLM.
+- Migration v3 added `suspect`/`suspect_at`; migrations are idempotent try-ALTER.
+
+**Recommendation signal layering** — first-party local first, external optional:
+
+```
+Layer 1 (always on, offline): config search.queries × text similarity + relevance
+                               + verification gate (suspect never recommended,
+                                 verified preferred, stale down-weighted)
+Layer 2 (optional adapter):    Zotero local API — Favor/Extra sync BACK into
+                               paper_store (favorited), only DOI/arXiv-bearing
+                               scholarly items; absent → Layer 1 is unaffected
+```
+
+Design lineage: SKILL.state (explicit mutable state over append-only history) for the
+status machine; Mirobody spectrum (symbolic over learned ranking in high-error-cost
+domains) for the verdict predicates; zero-token monitor layering for cost control.
+
 ## Anti-Crawl Strategy
 
 6-layer Scrapy middleware chain:
