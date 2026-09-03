@@ -400,6 +400,12 @@ pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出�
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+- **Zotero 条目过滤纪律（2026-09-03 用户约束）**：Zotero 库条目类型混杂（期刊/书/网页/报告/图片），**只有学术论文类条目对 hfpapers-crawler 有用**。sync-back 判定：
+  - **identifier 判据（主）**：条目含 DOI 或 arXiv ID → 学术论文（期刊/preprint 皆可）→ 入库候选；无 ID 的网页/书籍/报告/其他 → 丢弃
+  - **itemType 白名单（辅）**：journalArticle / conferencePaper 直接过；`preprint` 形态的条目以 identifier 判据为准（Zotero 类型字段不可全信，archiveID/DOI 才权威）
+  - 入库匹配：arXiv ID/DOI → `get_paper_by_identifier` → 命中本地 sf_id 才写 favorited（未入库论文可选 ensure_paper 占位——二期）
+  - 对齐 hfpclawer-citation-audit 既有纪律：期刊/会议/预印本显式区分，非论文条目永不混入 papers.db
+
 - 设计原则（承 Mirobody 可移植性）：**主路径零外部依赖**——embedding/Zotero 均为 opt-in 建议层
 - 方向修正：现有 zotero_pushed_at 只记录"我们→Zotero"单向推送；缺"Zotero→我们"读回（Favor 落点）——0.16.1 补 `favorited`/`favorited_at` 列 + `zotero sync-back` 命令
 - 推荐管线边界：recommend 一期只用第一方信号（queries×similarity+relevance+精度门禁）——**不阻塞于 Zotero**
