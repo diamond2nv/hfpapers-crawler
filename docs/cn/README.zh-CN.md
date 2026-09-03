@@ -202,6 +202,12 @@ MIT
   - `hfpclawer/citation_audit_oa.py` — OpenAlex API 客户端（架构参考）
   基于 CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/) 许可
 
+- **mirobody** by thetahealth
+  (https://github.com/thetahealth/mirobody)
+  - 仅设计灵感（无代码复用）：受控词表对齐光谱（高错误代价域中符号决策优先于学习排序）、
+    abstain 一级状态、COVERAGE_FLOOR ratchet 纪律——塑造了 v0.16 元数据验证与自评估路线图
+  按其自身许可 (https://github.com/thetahealth/mirobody)
+
 ## 链接
 
 - [使用指南](USAGE.zh-CN.md)
