@@ -296,6 +296,9 @@ class PaperRecord:
     audit_level_at: str = "" # Timestamp of last audit level change
     zotero_pushed_at: str = ""  # '' = never pushed, else ISO timestamp
     relevance_set_at: str = ""  # '' = not yet scored, else ISO timestamp means relevance IS authoritative
+    # ── Interest signals (Layer 2 — Zotero optional adapter, v0.16.7) ──
+    favorited: int = 0         # 1 = Zotero Favor tag synced back (sync-back)
+    favorited_at: str = ""     # '' = never favorited, else earliest sync timestamp
 
 
 @dataclass
@@ -434,6 +437,18 @@ class PaperStore:
             for col_sql in [
                 "ALTER TABLE papers ADD COLUMN suspect TEXT DEFAULT ''",
                 "ALTER TABLE papers ADD COLUMN suspect_at TEXT DEFAULT ''",
+            ]:
+                try:
+                    conn.execute(col_sql)
+                except Exception:
+                    pass  # Already exists
+
+            # Migration v4: zotero interest sync-back (v0.16.7+)
+            #   favorited = Zotero Favor tag synced back → local interest signal
+            #   (Zotero optional adapter — Layer 2; Layer 1 needs no Zotero)
+            for col_sql in [
+                "ALTER TABLE papers ADD COLUMN favorited INTEGER DEFAULT 0",
+                "ALTER TABLE papers ADD COLUMN favorited_at TEXT DEFAULT ''",
             ]:
                 try:
                     conn.execute(col_sql)
@@ -726,6 +741,9 @@ class PaperStore:
             audit_level_at=row["audit_level_at"] if "audit_level_at" in row_keys else "",
             zotero_pushed_at=row["zotero_pushed_at"] if "zotero_pushed_at" in row_keys else "",
             relevance_set_at=row["relevance_set_at"] if "relevance_set_at" in row_keys else "",
+            # v0.16.7 interest-signal fields (guard for pre-migration DBs)
+            favorited=row["favorited"] if "favorited" in row_keys else 0,
+            favorited_at=row["favorited_at"] if "favorited_at" in row_keys else "",
         )
 
     # ─── Identifier Management ──────────────────────────
@@ -854,6 +872,20 @@ class PaperStore:
         with self._lock, self._conn() as conn:
             conn.execute(
                 "UPDATE papers SET zotero_pushed_at=?, updated_at=datetime('now') WHERE sf_id=?",
+                (now, sf_id),
+            )
+
+    def mark_favorited(self, sf_id: int) -> None:
+        """Record Zotero Favor tag synced back (local interest signal, Layer 2).
+
+        Idempotent — repeated sync-backs keep the earliest timestamp.
+        """
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                "UPDATE papers SET favorited=1, "
+                "favorited_at=CASE WHEN favorited_at='' THEN ? ELSE favorited_at END, "
+                "updated_at=datetime('now') WHERE sf_id=? AND favorited=0",
                 (now, sf_id),
             )
 
