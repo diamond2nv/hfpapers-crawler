@@ -149,7 +149,7 @@
 - **A** `hfpapers/sync_back.py` — Favor-tag items → `ZoteroItem` contract → scholarly filter (DOI/arXiv only — web pages/programs/reports dropped BEFORE any lookup) → identifier match → `mark_favorited`. Zotero unreachable = empty stats, never raises (Layer 1 offline intact).
 - **M** `hfpclawer/zotero/cli.py` — `cmd_sync_back` + `hfpclawer zotero sync-back [--tag Favor] [--dry-run]` (dry-run counts but writes nothing).
 - **A** `tests/test_sync_back.py` — 6 tests: non-scholarly-only library, DOI match favorites, arXiv archiveID match, scholarly-not-in-store, dry-run, idempotent first-timestamp.
-- **Validation** — WSL-side real run (192.168.0.103:23121 portproxy): 300 Favor items → 236 non-scholarly filtered → 64 scholarly → 5 matched & favorited (MUSE stellarator ×2, optomechanical crystal, single-agent LLMs — all on-profile).
+- **Validation** — LAN peer-side real run (portproxy): 300 Favor items → 236 non-scholarly filtered → 64 scholarly → 5 matched & favorited (MUSE stellarator ×2, optomechanical crystal, single-agent LLMs — all on-profile).
 
 ## [2026-09-03] feat | v0.16.6 — REPO_USER.md template (repo-scoped interest profile)
 - **A** `hfpapers/cli.py` — `init` / `init --quick` generate `REPO_USER.md` template (never overwrites): neutral placeholder + built-in public-repo caution (real interests → `~/.hfpclawer/profile.yaml`, never committed).

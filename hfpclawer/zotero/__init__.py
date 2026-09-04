@@ -263,7 +263,7 @@ class ZoteroClient:
             )
             parts = result.stdout.strip().split()
             if len(parts) >= 3:
-                return parts[2]  # Gateway IP (e.g. 172.26.160.1)
+                return parts[2]  # Gateway IP of the LAN NAT (route print)
         except Exception:
             pass
         return None

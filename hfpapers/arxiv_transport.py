@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """arxiv_transport.py — Layered arXiv acquisition transport (CN-friendly).
 
-China-network reality (2026-09-03, HUAWEI measured): arxiv.org TCP/443 is reset
+China-network reality (2026-09-03, measured on a CN connection): arxiv.org TCP/443 is reset
 at the TLS-SNI fingerprint layer (curl: 5/5 RST ~0.13s), while UDP/443 QUIC
 (HTTP/3) is NOT reset — aioquic handshake succeeds and the server responds.
 Browser engines (Chromium/Camoufox) reach arXiv directly via QUIC.
