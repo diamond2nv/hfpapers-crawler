@@ -18,6 +18,36 @@
 
 # CHANGELOG
 
+## [2026-09-05] fix | v0.16.14 — sink-path payload validation: file head, not residual tail
+> Bugfix for `fetch -k source -t quic` (and any sink-backed large transfer) that
+> stalled forever on the .part file although the payload had fully arrived.
+
+- **root cause** — `async_quic_fetch` with `sink=<dest>.part` + `range_from=0`
+  streamed the payload head to disk every `flush_every` bytes, so the in-memory
+  `protocol.body` only ever held the residual **mid-file tail** (< flush_every,
+  no %PDF / gzip magic by construction). The old code ran `_payload_ok()` on
+  that tail → false `ok=False` on an otherwise complete transfer.
+  `fetch_resumable` then appended the tail and issued a `Range: bytes=<EOF>-`
+  resume round — arXiv/Fastly answers 416 or hangs there → **.part stuck at full
+  size, never renamed** (2026-09-05 WSL measured: 3,947,319-byte tar.gz arrived
+  in ~1s but the CLI looped instead of finalising; pdf only survived via the
+  416-promote path).
+- **fix** — sink path (`range_from == 0 and sink.exists()`) now validates the
+  **file on disk**: total size (disk + residual) ≥ `_MIN_BYTES`, then
+  kind-specific magic read from the file head (%PDF for pdf; gzip `1f 8b` for
+  source, NUL-sampling the flushed region for raw-tex bundles). The in-memory
+  tail is no longer magic-checked by construction.
+- **tests** — +2 regression tests drive `async_quic_fetch` end-to-end with a
+  mocked aioquic connection: source gzip > flush_every and pdf %PDF > flush_every
+  both now return `ok=True` while asserting the old tail check would have
+  rejected them (`tests/test_arxiv_transport.py`).
+- verified: `hfpclawer fetch 2608.06013 -k source -t quic` → complete
+  `2608.06013.tar.gz` 3,947,319 B, sha256 a4da7e96…, ~1.1s, tar listing OK.
+  28/28 transport tests + 92 core tests pass; ruff clean.
+- note: repo `.venv` is uv-managed; use `uv pip install -e . --no-deps
+  --python .venv/bin/python` (a session-level `VIRTUAL_ENV` can silently point
+  uv at another env).
+
 ## [2026-09-03] feat | v0.16.13 — bounded-memory streaming + .part lifecycle
 > Memory-peak control and temporary-file hygiene for the QUIC path.
 

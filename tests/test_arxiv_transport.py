@@ -301,6 +301,99 @@ class TestResumable:
         assert r.sha256 == _sha256(full)  # integrity hash == expected
         assert not dest.with_name("x.pdf.part").exists()  # .part renamed away
 
+    def test_sink_full_body_validates_file_not_tail(self, tmp_path, monkeypatch):
+        """Bugfix (2026-09-05): sink path with range_from=0 streamed the payload
+        head to disk, leaving only mid-file residual bytes in memory. The old
+        code ran _payload_ok on that tail → false failure → fetch_resumable
+        fell into a Range-at-EOF resume loop and the .part never completed.
+
+        Drives async_quic_fetch end-to-end with a fake aioquic connection that
+        simulates a > flush_every body: head already flushed to the sink file,
+        residual tail in memory. Asserts ok=True and the decision used the
+        file head (gzip magic on disk), not the mid-file tail.
+        """
+        import hfpapers.arxiv_transport as at
+
+        sink = tmp_path / "x.tar.gz.part"
+        big = b"\x1f\x8b\x08\x00" + bytes(range(256)) * 4096  # 1MB, gzip magic
+        assert len(big) > 512 * 1024
+        head_bytes, tail = big[:512 * 1024], big[512 * 1024:]
+
+        class FakeProto:
+            """Stands in for aioquic _Client — events already pumped."""
+
+            def __init__(self):
+                self.body = bytearray(tail)  # residual tail in memory
+                self.status = 200
+                self.finished = asyncio.Event()
+                self.closed = asyncio.Event()
+                sink.write_bytes(head_bytes)  # head flushed to .part on disk
+
+            def start_request(self):
+                self.finished.set()  # stream_ended arrived
+
+        class FakeConn:
+            def __init__(self):
+                self.proto = FakeProto()
+
+            async def __aenter__(self):
+                return self.proto
+
+            async def __aexit__(self, *a):
+                return False
+
+        import aioquic.asyncio.client as aqc
+
+        monkeypatch.setattr(aqc, "connect", lambda *a, **k: FakeConn())
+        r = asyncio.run(at.async_quic_fetch(
+            "https://arxiv.org/src/2502.05171", "source",
+            timeout=5.0, range_from=0, sink=sink, flush_every=512 * 1024,
+        ))
+        assert r.ok, r.error
+        # Old behaviour rejected the mid-file tail:
+        assert not at._payload_ok(tail, "source")
+        assert sink.read_bytes() == head_bytes  # file untouched by decision
+
+    def test_sink_pdf_head_check(self, tmp_path, monkeypatch):
+        """PDF sink path: %PDF head flushed to disk → file-head check passes."""
+        import hfpapers.arxiv_transport as at
+
+        sink = tmp_path / "x.pdf.part"
+        big = b"%PDF-1.6\n" + bytes(range(256)) * 4096  # 1MB
+        head_bytes, tail = big[:512 * 1024], big[512 * 1024:]
+
+        class FakeProto:
+            def __init__(self):
+                self.body = bytearray(tail)
+                self.status = 200
+                self.finished = asyncio.Event()
+                self.closed = asyncio.Event()
+                sink.write_bytes(head_bytes)
+
+            def start_request(self):
+                self.finished.set()
+
+        class FakeConn:
+            def __init__(self):
+                self.proto = FakeProto()
+
+            async def __aenter__(self):
+                return self.proto
+
+            async def __aexit__(self, *a):
+                return False
+
+        import aioquic.asyncio.client as aqc
+
+        monkeypatch.setattr(aqc, "connect", lambda *a, **k: FakeConn())
+        r = asyncio.run(at.async_quic_fetch(
+            "https://arxiv.org/pdf/2502.05171", "pdf",
+            timeout=5.0, range_from=0, sink=sink, flush_every=512 * 1024,
+        ))
+        assert r.ok, r.error
+        assert not at._payload_ok(tail, "pdf")  # old behaviour: false reject
+        assert sink.read_bytes() == head_bytes
+
     def test_hard_failure_surfaces(self, tmp_path, monkeypatch):
         """Non-incomplete failures (e.g. connection refused) surface directly."""
         import hfpapers.arxiv_transport as at

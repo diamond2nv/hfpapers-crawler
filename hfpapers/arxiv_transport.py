@@ -266,7 +266,32 @@ async def async_quic_fetch(
         status_ok = protocol.status in (200, 206)  # 206 = partial range resume
         # Magic check only applies to a full-body GET (offset 0); a resumed
         # range chunk is mid-file and has no %PDF header by construction.
-        payload_ok = _payload_ok(data, kind) if range_from == 0 else len(data) > 0
+        if sink is not None and range_from == 0 and sink.exists():
+            # Sink path (streamed to disk): the payload head was flushed to
+            # disk with the first chunk, so the in-memory residual tail is
+            # mid-file bytes and CANNOT pass a magic check by construction.
+            # Validate the FILE head + the assembled total size instead.
+            total = sink.stat().st_size + len(data)
+            if total < _MIN_BYTES.get(kind, 200):
+                payload_ok = False
+            elif kind == "pdf":
+                with open(sink, "rb") as fh:
+                    payload_ok = fh.read(4) == b"%PDF"
+            elif kind == "source":
+                with open(sink, "rb") as fh:
+                    head = fh.read(2)
+                if head == b"\x1f\x8b":
+                    payload_ok = True  # gzip tar — magic at file head on disk
+                else:
+                    # Raw-tex bundles are plain text: sample the last 64KB of
+                    # the file for NUL bytes (the flushed region, not the tail).
+                    with open(sink, "rb") as fh:
+                        fh.seek(max(0, sink.stat().st_size - 65536))
+                        payload_ok = b"\x00" not in fh.read()
+            else:
+                payload_ok = True  # unknown kind — size check above suffices
+        else:
+            payload_ok = _payload_ok(data, kind) if range_from == 0 else len(data) > 0
         ok = complete and status_ok and payload_ok
         return FetchResult(
             ok=ok,
