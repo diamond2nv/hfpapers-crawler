@@ -29,7 +29,7 @@
   that tail → false `ok=False` on an otherwise complete transfer.
   `fetch_resumable` then appended the tail and issued a `Range: bytes=<EOF>-`
   resume round — arXiv/Fastly answers 416 or hangs there → **.part stuck at full
-  size, never renamed** (2026-09-05 WSL measured: 3,947,319-byte tar.gz arrived
+  size, never renamed** (2026-09-05 LAN peer measured: 3,947,319-byte tar.gz arrived
   in ~1s but the CLI looped instead of finalising; pdf only survived via the
   416-promote path).
 - **fix** — sink path (`range_from == 0 and sink.exists()`) now validates the
