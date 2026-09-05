@@ -91,6 +91,44 @@ HF CLI search ──→ arXiv ID verification ──→ Keyword classify ──�
 - **Snowflake ID**: 64-bit, 41bit timestamp + 10bit worker + 12bit sequence, thread-safe
 - **JSON cache**: `data/candidates_latest.json` — legacy compatibility, fast queries
 
+## arXiv Fetch Transport Layer (v0.16.11+)
+
+**Problem**: arXiv HTTPS (TCP/443) is intermittently RST-reset on CN networks.
+The fetch path is a layered escape ladder, not a single transport.
+
+```
+CLI `fetch` auto → 1. tcp quick-probe (fast when the link is open)
+                 → 2. QUIC / HTTP/3 (UDP/443) — survives TCP RST; primary CN path
+                 → 3. browser-hint error (tells the user to use a browser profile)
+```
+
+- **QUIC (H3) client**: aioquic, generous windows (32MB max_data/stream) —
+  arXiv PDFs run 1-6MB over UDP and default aioquic windows throttle badly.
+- **Bounded-memory streaming (sink)**: data flushes to `<dest>.part` every
+  512KB (`_flush_body`); peak RAM = O(512KB × streams), not O(file size).
+  aiofiles was evaluated and rejected — it is a thread-pool wrapper for
+  blocking writes and cannot be awaited inside aioquic's sync event
+  callbacks; a sync short append per flush chunk is the right tool.
+- **`.part` lifecycle**: fresh `.part` resumes from its byte offset via
+  `Range: bytes=N-`; one older than 24h (stale) is discarded (dead-session
+  orphans never accumulate). On stream end: residual tail appended → sha256 →
+  rename to destination. 416 from the server promotes a ≥5000B `.part`.
+- **sha256 integrity anchor**: every completed fetch returns the file hash —
+  the audit record for cross-channel MITM comparison. Verified practice:
+  a QUIC direct fetch of the arXiv official copy and an AlphaXiv mirror copy
+  are **byte-identical (matching sha256)** — cross-channel agreement is the
+  reliability test for the QUIC channel. Note: AlphaXiv's real PDFs live on
+  `pdfs.assets.alphaxiv.org` (not the main site).
+- **Payload validation (v0.16.14 fix)**: with a sink, the payload head is
+  flushed to disk before the transfer ends, so the in-memory residual tail is
+  mid-file by construction and can never pass a magic check. Sink-path
+  validation checks the **disk file head + assembled total** instead:
+  size ≥ `_MIN_BYTES`, then kind magic on disk (PDF `%PDF`, source gzip
+  `1f 8b`, raw-tex NUL-sample of the flushed region). Memory-tail magic only
+  applies when no sink exists (payload < flush_every, all in RAM).
+  Small-file and resume paths are unaffected by construction (no sink /
+  `range_from > 0` take the legacy branches).
+
 ## State Semantics & Recommendation Signals (v0.16+)
 
 **Verification state machine** — derived, single source of truth, symbolic verdicts (no LLM):

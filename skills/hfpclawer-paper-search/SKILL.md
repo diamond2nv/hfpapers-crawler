@@ -40,6 +40,28 @@ hfpclawer download         # Download PDFs for matched papers
 hfpclawer convert --to-wiki # PDF → readable Markdown + wiki sync
 ```
 
+### Direct fetch of a known arXiv ID (v0.16.11+)
+
+`hfpclawer fetch <arxiv_id>` downloads one paper by ID with a built-in
+network escape ladder — **TCP quick-probe → QUIC/HTTP-3 → browser-hint**.
+Use it whenever arXiv TCP/443 is RST-reset (common on CN networks); QUIC
+over UDP/443 survives the reset and is the primary escape channel.
+
+```bash
+hfpclawer fetch 2609.02737                    # PDF, auto transport
+hfpclawer fetch 2608.06013 -k source -t quic  # TeX bundle, force QUIC
+```
+
+Robustness built in: bounded-memory streaming (512KB flush to `.part`),
+**resume on interruption** (fresh `.part` continues via `Range`; >24h stale
+`.part` reclaimed), and a **sha256 integrity anchor** printed on every
+completed fetch and appended to `data/download_audit.jsonl`.
+
+**Channel-verification trick**: fetch the same arXiv ID twice — once from
+the official arXiv endpoint and once from a mirror (e.g. AlphaXiv; its real
+PDFs live at `pdfs.assets.alphaxiv.org`) — and compare sha256. Byte-identical
+hashes verify the QUIC channel end-to-end (cross-channel MITM detection).
+
 Or run the full pipeline at once:
 ```bash
 hfpclawer full --max-pages 3 --to-wiki

@@ -73,6 +73,31 @@ hfpclawer list                        # List crawled papers
 hfpclawer info 2301.11167             # Single paper details
 ```
 
+### Direct Fetch with Network Escape (v0.16.11+)
+
+`fetch` is the direct-download command for one paper when you know the
+arXiv ID. It layers TCP → QUIC → browser-hint automatically so it works
+even when arXiv TCP/443 is reset (CN networks) — QUIC/HTTP-3 over UDP is
+the escape channel.
+
+```bash
+# Auto transport ladder (tcp quick-probe → QUIC) — PDF
+hfpclawer fetch 2609.02737
+
+# Force QUIC only; explicit output dir; source bundle (gzip tar of TeX)
+hfpclawer fetch 2608.06013 -k source -t quic --out ~/papers/
+
+# Every completed fetch prints a sha256 — the integrity anchor (kept in
+# data/download_audit.jsonl with per-transport audit trail).
+# Cross-channel check: fetch the same ID twice (official + mirror) and
+# compare hashes — byte-identical sha256 verifies the channel.
+```
+
+Failure semantics: interrupted transfers resume from `.part` via
+`Range` (fresh `.part` resumes; >24h stale `.part` is reclaimed);
+exceptions are returned as failed results, never raised. `--kind` values:
+`pdf` (default), `source` (TeX bundle), `abs` (abstract page metadata).
+
 ### Other
 
 ```bash

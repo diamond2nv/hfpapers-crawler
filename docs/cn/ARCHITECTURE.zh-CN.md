@@ -91,6 +91,37 @@ HF CLI 搜索 ──→ arXiv ID 验证 ──→ 关键词分类 ──→ 去�
 - **雪花 ID**: 64 位，41bit 时间戳 + 10bit 工作节点 + 12bit 序列号，线程安全
 - **JSON 缓存**: `data/candidates_latest.json` — 兼容旧版，快速查询
 
+## arXiv 获取传输层 (v0.16.11+)
+
+**问题**: 国内网络下 arXiv HTTPS (TCP/443) 间歇性被 RST 重置。
+获取路径是分层逃生梯，不是单一传输。
+
+```
+CLI `fetch` auto → 1. tcp 快试（链路通畅时最快）
+                 → 2. QUIC / HTTP/3 (UDP/443) — 抗 TCP RST；国内主通道
+                 → 3. browser-hint 错误（提示改用浏览器通道）
+```
+
+- **QUIC (H3) 客户端**: aioquic，宽窗口（32MB max_data/stream）——
+  arXiv PDF 走 UDP 常达 1-6MB，aioquic 默认窗口会严重限速。
+- **有界内存流式 (sink)**: 数据每 512KB 刷入 `<dest>.part`（`_flush_body`）；
+  峰值内存 = O(512KB × 流数) 而非 O(文件大小)。aiofiles 曾被评估后否决——
+  它是阻塞写的线程池包装，无法在 aioquic 同步事件回调内 await；
+  每刷盘块一次同步短追加才是正确工具。
+- **`.part` 生命周期**: 新鲜 `.part` 从字节偏移经 `Range: bytes=N-` 续传；
+  超 24h（stale）则丢弃（死会话孤儿不累积）。流结束后：残余尾追加 →
+  sha256 → 重命名为目标文件。服务器 416 时 ≥5000B 的 `.part` 直接 promote。
+- **sha256 完整性锚**: 每次完成的获取都返回文件哈希——跨通道 MITM 比对的审计记录。
+  已验证实践: QUIC 直连 arXiv 官方版与 AlphaXiv 镜像版**字节级相同（sha256 一致）**——
+  跨通道一致即 QUIC 通道的可靠性测试。注意: AlphaXiv 的真实 PDF 位于
+  `pdfs.assets.alphaxiv.org`（非主站）。
+- **Payload 判定 (v0.16.14 修复)**: sink 路径下 payload 头在传输结束前已刷盘，
+  内存残余 tail 按构造必为文件中部字节，永远过不了 magic 检查。sink 路径
+  改为校验**磁盘文件头 + 组装总量**: 大小 ≥ `_MIN_BYTES`，再按 kind 读磁盘头
+  （PDF `%PDF`、source gzip `1f 8b`、raw-tex 对已刷盘区 NUL 采样）。
+  无 sink 时（payload < flush_every 全在内存）才走内存 tail magic。
+  小文件与续传路径按构造不受影响（无 sink / `range_from > 0` 走旧分支）。
+
 ## 反爬策略
 
 6 层 Scrapy 中间件链:

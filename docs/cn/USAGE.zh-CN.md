@@ -70,6 +70,28 @@ hfpclawer list                        # 列出已爬取论文
 hfpclawer info 2301.11167             # 单篇论文详情
 ```
 
+### 直接获取 + 网络逃生 (v0.16.11+)
+
+`fetch` 是已知 arXiv ID 的单篇直下命令，自动分层 TCP → QUIC → browser-hint，
+国内 arXiv TCP/443 被重置时也能工作——QUIC/HTTP-3 (UDP) 是逃生通道。
+
+```bash
+# 自动传输梯（tcp 快试 → QUIC）— PDF
+hfpclawer fetch 2609.02737
+
+# 强制 QUIC；显式输出目录；source 包（TeX 的 gzip tar）
+hfpclawer fetch 2608.06013 -k source -t quic --out ~/papers/
+
+# 每次完成都会打印 sha256 — 完整性锚（连同传输审计轨迹存入
+# data/download_audit.jsonl）。
+# 跨通道校验：同一 ID 抓两次（官方 + 镜像）比对哈希——
+# 字节级一致即验证通道可靠。
+```
+
+失败语义：中断传输从 `.part` 经 `Range` 续传（新鲜 `.part` 续传；
+>24h stale `.part` 回收）；异常一律返回失败结果、永不抛出。
+`--kind` 取值: `pdf`（默认）、`source`（TeX 包）、`abs`（摘要页元数据）。
+
 ### 其他
 
 ```bash

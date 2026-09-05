@@ -48,6 +48,13 @@
   --python .venv/bin/python` (a session-level `VIRTUAL_ENV` can silently point
   uv at another env).
 
+- **cross-channel verification** — sha256 of a QUIC direct fetch (official
+  arXiv) and an AlphaXiv mirror copy are **byte-identical**, confirming the
+  QUIC channel end-to-end (reliability test = cross-channel agreement).
+  Note: AlphaXiv's real PDFs live at `pdfs.assets.alphaxiv.org` (not the
+  main site). Audit hashes for every completed fetch land in
+  `data/download_audit.jsonl` — the comparison record for MITM checks.
+
 ## [2026-09-03] feat | v0.16.13 — bounded-memory streaming + .part lifecycle
 > Memory-peak control and temporary-file hygiene for the QUIC path.
 
