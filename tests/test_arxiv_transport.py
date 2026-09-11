@@ -34,6 +34,7 @@ from hfpapers.arxiv_transport import (  # noqa: E402
     scan_acquisitions,
     tcp_fetch,
 )
+from hfpapers.arxiv_transport import _h3_path
 
 PDF_SAMPLE = b"%PDF-1.6\n" + b"x" * 6000
 GZIP_SAMPLE = b"\x1f\x8b\x08\x00" + b"y" * 300  # gzip magic (payload not real gzip)
@@ -595,3 +596,71 @@ class TestDownloaderQuicFallback:
         result = asyncio.run(run())
         assert not result["success"]
         assert "quic" in result["error"]
+
+
+# ── _h3_path: the HTTP/3 :path pseudo-header must carry the query ─────────
+class TestH3Path:
+    """Regression: urlsplit() puts the query in parts.query, so sending only
+    parts.path silently drops it. Parameterised endpoints then fail AT THE
+    SERVER with a generic error (OAI -> badVerb, arXiv API -> HTTP 400),
+    which reads like "QUIC does not support metadata" instead of a path bug.
+    """
+
+    def _p(self, url):
+        from urllib.parse import urlsplit
+
+        return _h3_path(urlsplit(url))
+
+    def test_no_query_is_byte_identical_to_path(self):
+        # Backwards-compat invariant: every pre-existing caller (pdf/src/abs/list)
+        # has no query string, so behaviour must be unchanged.
+        from urllib.parse import urlsplit
+
+        for url in (
+            "https://arxiv.org/pdf/2502.05171",
+            "https://arxiv.org/src/2502.05171",
+            "https://arxiv.org/abs/2608.16195",
+            "https://arxiv.org/list/cs.AI/recent",
+        ):
+            assert self._p(url) == urlsplit(url).path.encode()
+
+    def test_query_is_preserved(self):
+        assert self._p("https://oaipmh.arxiv.org/oai?verb=Identify") == b"/oai?verb=Identify"
+
+    def test_multi_param_query_is_preserved(self):
+        got = self._p(
+            "https://oaipmh.arxiv.org/oai?verb=ListRecords"
+            "&metadataPrefix=arXiv&from=2026-09-01&until=2026-09-02&set=cs"
+        )
+        assert got.startswith(b"/oai?verb=ListRecords&")
+        assert b"metadataPrefix=arXiv" in got
+        assert b"set=cs" in got
+
+    def test_percent_encoded_query_passes_through(self):
+        # Caller is responsible for percent-encoding; helper must not re-encode.
+        got = self._p("https://export.arxiv.org/api/query?search_query=all%3Adogfight&max_results=3")
+        assert got == b"/api/query?search_query=all%3Adogfight&max_results=3"
+
+    def test_empty_path_becomes_root(self):
+        assert self._p("https://arxiv.org?verb=X") == b"/?verb=X"
+
+    def test_trailing_question_mark_without_query(self):
+        # "...?" parses as empty query -> must not emit a bare "?"
+        assert self._p("https://arxiv.org/oai?") == b"/oai"
+
+    def test_call_sites_do_not_drop_the_query(self):
+        """Guard the two real call sites (single + batch).
+
+        The helper is unit-tested above, but a caller could silently revert to
+        ``parts.path.encode()`` and every test above would still pass.
+        """
+        import inspect
+
+        from hfpapers import arxiv_transport as atmod
+
+        src = inspect.getsource(atmod)
+        assert "parts.path.encode()" not in src, (
+            "a :path call site reverted to dropping the query string"
+        )
+        # 1 definition + 2 call sites (single-request + batch)
+        assert src.count("_h3_path(parts)") == 3, "expected def + 2 :path call sites"

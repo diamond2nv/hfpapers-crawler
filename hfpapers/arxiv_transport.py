@@ -116,6 +116,26 @@ def arxiv_url(arxiv_id: str, kind: str = "pdf") -> str:
     return f"{base}/src/{arxiv_id}"  # tex source bundle (/e-print/ 301s)
 
 
+def _h3_path(parts) -> bytes:
+    """Build the HTTP/3 ``:path`` pseudo-header, preserving the query string.
+
+    ``urlsplit()`` splits the query off into ``parts.query``; sending only
+    ``parts.path`` silently drops it, so every parameterised endpoint fails
+    AT THE SERVER with a generic error instead of a transport failure:
+
+      - ``/oai?verb=...``      -> ``badVerb`` (server sees no verb)
+      - ``/api/query?...``     -> ``HTTP 400``
+
+    Payload endpoints (``/pdf``, ``/src``, ``/abs``, ``/list``) carry no query,
+    which is why this went unnoticed. Callers must pass an already
+    percent-encoded URL (e.g. via ``urllib.parse.urlencode``).
+    """
+    path = parts.path or "/"
+    if parts.query:
+        path = f"{path}?{parts.query}"
+    return path.encode()
+
+
 def tcp_fetch(url: str, kind: str, timeout: float = 60.0) -> FetchResult:
     """TCP/TLS fetch via requests (verifies cert chain by default)."""
     t0 = time.monotonic()
@@ -232,7 +252,7 @@ async def async_quic_fetch(
             headers = [
                 (b":method", b"GET"), (b":scheme", b"https"),
                 (b":authority", parts.netloc.encode()),
-                (b":path", parts.path.encode()),
+                (b":path", _h3_path(parts)),
                 (b"user-agent", USER_AGENT.encode()),
             ]
             if range_from > 0:
@@ -416,7 +436,7 @@ def quic_batch_fetch(
                 sid,
                 [(b":method", b"GET"), (b":scheme", b"https"),
                  (b":authority", parts.netloc.encode()),
-                 (b":path", parts.path.encode()),
+                 (b":path", _h3_path(parts)),
                  (b"user-agent", USER_AGENT.encode())],
                 end_stream=True,
             )
