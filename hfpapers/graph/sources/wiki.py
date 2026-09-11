@@ -163,11 +163,11 @@ def _extract_orcid_from_table(text: str) -> str | None:
         m = re.search(r"\|\s*\*{0,2}ORCID\*{0,2}\s*\|\s*(.+?)\s*\|", line)
         if m:
             val = m.group(1).strip()
-            # Clean markdown link: [0000-0002-6845-387X](https://...) → 0000-0002-6845-387X
+            # Clean markdown link: [0000-0002-1825-0097](https://...) → 0000-0002-1825-0097
             link_m = re.match(r"\[([^\]]+)\]\(https?://orcid\.org/([^\)]+)\)", val)
             if link_m:
                 return link_m.group(2)
-            # Plain ORCID: 0000-0003-2337-3232
+            # Plain ORCID: 0000-0002-1825-0097
             m_orcid = re.match(r"\d{4}-\d{4}-\d{4}-\d{3}[0-9X]", val)
             if m_orcid:
                 return m_orcid.group(0)

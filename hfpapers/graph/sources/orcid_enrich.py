@@ -35,7 +35,7 @@ def fetch_one(orcid: str) -> list[dict]:
     """Fetch employment and education affiliations for one ORCID.
 
     Args:
-        orcid: 16-character ORCID iD (e.g. 0000-0002-6845-387X).
+        orcid: 16-character ORCID iD (e.g. 0000-0002-1825-0097).
 
     Returns:
         List of affiliation dicts, each containing
@@ -98,7 +98,7 @@ class OrcidCache:
 
     Format (one JSON object per line)::
 
-        {"orcid":"0000-0002-6845-387X","organization_name":"Courant Institute ...",
+        {"orcid":"0000-0002-1825-0097","organization_name":"Example University",
          "city":"New York","country":"US","role":"Courant Instructor",
          "source_endpoint":"employments","fetched_at":1756215811}
     """

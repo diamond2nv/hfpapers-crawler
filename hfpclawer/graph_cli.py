@@ -125,11 +125,11 @@ def cmd_person(person_id: str, depth: int = 1, top_n: int = 20) -> None:
     """Show person node details and ego network.
 
     Accepts:
-    - Node ID (``person:guo-gua``)
-    - Short ID (``guo-gua``)
-    - English name (``Guo Guang-Can``, ``Chen, Xiangdong``)
-    - Chinese name (``郭光灿``, ``Guo Guang-Can``)
-    - Partial match (``Guo``)
+    - Node ID (``person:doe-jan``)
+    - Short ID (``doe-jan``)
+    - English name (``Jane Doe``, ``Smith, John``)
+    - Chinese name (``张三``, ``李四``)
+    - Partial match (``Doe``)
 
     Args:
         person_id: Person identifier.

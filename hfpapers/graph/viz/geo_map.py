@@ -114,7 +114,7 @@ def aggregate_institution_communities(
                 "communities": {0: 20, 1: 15, 3: 10},  # cid → paper_count
                 "dominant": 0,
                 "color": "#1f77b4",
-                "persons": ["Chen, Xiangdong", ...],
+                "persons": ["Smith, John", ...],
             },
             ...
         }

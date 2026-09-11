@@ -30,7 +30,7 @@ def fetch_orcid_works(orcid: str, delay: float = 1.0, max_works: int = 10) -> li
     """Fetch all published works for an ORCID iD.
 
     Args:
-        orcid: ORCID identifier (e.g. '0000-0001-6559-8101').
+        orcid: ORCID identifier (e.g. '0000-0002-1825-0097', ORCID's own spec example).
         delay: Seconds between API calls (default 1.0).
 
     Returns:
