@@ -125,11 +125,11 @@ def cmd_person(person_id: str, depth: int = 1, top_n: int = 20) -> None:
     """Show person node details and ego network.
 
     Accepts:
-    - Node ID (``person:doe-jan``)
-    - Short ID (``doe-jan``)
-    - English name (``Jane Doe``, ``Smith, John``)
-    - Chinese name (``张三``, ``李四``)
-    - Partial match (``Doe``)
+    - Node ID (``person:guo-gua``)
+    - Short ID (``guo-gua``)
+    - English name (``Guo Guang-Can``, ``Chen, Xiangdong``)
+    - Chinese name (``郭光灿``, ``Guo Guang-Can``)
+    - Partial match (``Guo``)
 
     Args:
         person_id: Person identifier.
@@ -687,19 +687,23 @@ def cmd_ingest(source: str = "coc", path: str = "") -> None:
     """Import papers from a refs.jsonl file into the knowledge graph.
 
     Args:
-        source: Short tag name (e.g. 'coc', 'gsnv').
-        path: Path to refs.jsonl. Auto-detects coc-inverse-agent path if empty.
+        source: Short tag name of the peer repository (e.g. 'papers').
+        path: Path to refs.jsonl. When empty, the peer declared as ``source`` in
+            the environment is used (``HFPCLAWER_PEER_REPOS`` / ``HFPCLAWER_PEER_<TAG>``).
     """
+    from hfpapers import paths
     from hfpapers.graph import GraphBuilder
 
-    # Auto-detect coc path
-    if not path and source == "coc":
-        coc_path = Path.home() / "Documents" / "Gitlab" / "forgejo-self-host" / \
-                   "coc-inverse-agent" / "data" / "references" / "refs.jsonl"
-        if coc_path.exists():
-            path = str(coc_path)
+    if not path:
+        peer = paths.peer_repo(source)
+        candidate = peer / "data" / "references" / "refs.jsonl" if peer else None
+        if candidate and candidate.exists():
+            path = str(candidate)
         else:
-            console.print("[red]❌ coc refs.jsonl not found at default path[/red]")
+            console.print(
+                "[red]❌ no refs.jsonl — pass --path, or declare the peer repo as "
+                f"'{source}' in HFPCLAWER_PEER_REPOS[/red]"
+            )
             raise SystemExit(1)
 
     path_obj = Path(path).expanduser()
@@ -735,17 +739,20 @@ def cmd_ingest(source: str = "coc", path: str = "") -> None:
                   f"{builder.G.number_of_edges()} edges")
 
 
-def cmd_ingest_citations(path: str = "") -> None:
-    """Import citation edges from a coc-inverse-agent omc_graph.graphml.
+def cmd_ingest_citations(path: str = "", source: str = "") -> None:
+    """Import citation edges from a peer repository's omc_graph.graphml.
 
     Args:
-        path: Path to omc_graph.graphml. Auto-detects if empty.
+        path: Path to omc_graph.graphml. When empty, the peer declared as
+            ``source`` in the environment is searched.
+        source: Peer tag to look up (``HFPCLAWER_PEER_REPOS`` / ``HFPCLAWER_PEER_<TAG>``).
     """
+    from hfpapers import paths
     from hfpapers.graph import GraphBuilder
 
     if not path:
-        coc_path = Path.home() / "Documents" / "Gitlab" / "forgejo-self-host" / \
-                   "coc-inverse-agent" / "data" / "references" / "omc_graph.graphml"
+        peer = paths.peer_repo(source)
+        coc_path = peer / "data" / "references" / "omc_graph.graphml" if peer else Path()
         if coc_path.exists():
             path = str(coc_path)
 

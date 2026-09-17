@@ -160,6 +160,25 @@ twine check dist/*
 twine upload dist/*
 ```
 
+### 发布门禁（强制，非提醒）
+
+创建 tag 前运行两项检查，二者都是拒绝而非告警：
+
+1. **覆盖** — `scripts/changelog_guard.py <version>`：该版本必须有 changelog 条目
+   （在 `docs/CHANGELOG.md` 或 `docs/CHANGELOG-archive.md` 中查找）。
+2. **窗口** — `scripts/changelog_rotate.py --check`：changelog 必须在字节预算内
+   （用 `python3 scripts/changelog_rotate.py` 轮转）。
+
+改动文档面时先跑 `python3 scripts/doc_audit.py` —— 咨询性检查，不设门禁。
+
+状态目录同样有门禁：`tests/test_paths.py`（F05）验证安装态把数据与配置解析到用户目录 —— 而不是
+`site-packages` 内部；F06 会让任何新增的 `Path(__file__).parent.parent` 状态路径直接失败。状态路径
+一律走 `hfpapers/paths.py`。
+
+先推 tag 再推分支：`git push <remote> vX.Y.Z`，然后 `git push <remote> main`。
+同一规则有测试覆盖（`TestChangelogGate` / `TestChangelogWindowGate`），条目缺失或窗口超预算
+会在本地就失败，而不是等到发布时。
+
 ## 已知问题和限制
 
 1. **PaperWithCode API 已废弃** — `pwc_api` 源可能返回空结果，PwC API 已重定向到 HF API

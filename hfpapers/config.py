@@ -11,8 +11,14 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
-ENV_PATH = Path(__file__).parent.parent / ".env"
+from hfpapers import paths
+
+CONFIG_PATH = paths.config_path()
+# Local overlay, gitignored: holds environment-specific and third-party data
+# (real researcher names, ORCIDs, local paths) that must not be published in
+# the tracked config.yaml.
+LOCAL_CONFIG_PATH = paths.local_config_path()
+ENV_PATH = paths.env_path()
 
 _config_cache: dict | None = None
 
@@ -151,6 +157,37 @@ def load_env():
             os.environ[key] = val
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge ``override`` into ``base``; override wins.
+
+    Nested dicts merge key-by-key, while lists and scalars are replaced
+    wholesale — a local list is never silently appended to a public one.
+    """
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(out.get(key), dict) and isinstance(value, dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+def _load_local_overlay() -> dict:
+    """Load config.local.yaml (gitignored) if present, else {}.
+
+    A malformed overlay is reported and ignored rather than breaking startup.
+    """
+    path = Path(os.environ.get("_TEST_HFPAPERS_LOCAL_CONFIG") or LOCAL_CONFIG_PATH)
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+    except yaml.YAMLError as exc:
+        logger.warning(f"Ignoring malformed local config {path}: {exc}")
+        return {}
+
+
 def load_config(reload: bool = False) -> dict:
     """Load YAML config (merged with env)"""
     global _config_cache
@@ -195,7 +232,14 @@ def load_config(reload: bool = False) -> dict:
         return default_cfg
 
     with open(cfg_path) as f:
-        cfg = yaml.safe_load(f)
+        cfg = yaml.safe_load(f) or {}
+
+    # Overlay the gitignored config.local.yaml so the tracked file can stay
+    # structural while real names/ORCIDs/paths live locally.
+    overlay = _load_local_overlay()
+    if overlay:
+        cfg = _deep_merge(cfg, overlay)
+        logger.info(f"Applied local config overlay ({len(overlay)} top-level keys)")
 
     # Inject API keys from .env
     cfg["env"] = {}

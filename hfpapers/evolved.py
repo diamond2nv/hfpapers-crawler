@@ -14,10 +14,11 @@ from hfpapers.config import get as cfg_get
 from hfpapers.config import load_config
 from hfpapers.hardware import HardwareProbe
 from hfpapers.paper_store import ensure_paper, get_store
+from hfpapers.paths import state_root
 
 logger = logging.getLogger("hfpapers.evolved")
 
-BASE_DIR = Path(__file__).parent.parent
+BASE_DIR = state_root()
 DATA_DIR = BASE_DIR / cfg_get("paths.data_dir", "data")
 PDF_DIR = BASE_DIR / cfg_get("paths.pdf_dir", "pdfs")
 MD_DIR = BASE_DIR / cfg_get("paths.md_dir", "mds")

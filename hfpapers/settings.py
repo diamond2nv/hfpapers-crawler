@@ -3,6 +3,8 @@
 # settings.py
 import os
 
+from hfpapers.paths import state_root
+
 BOT_NAME = "hfpapers"
 
 SPIDER_MODULES = ["hfpapers.spiders"]
@@ -60,7 +62,7 @@ EXTENSIONS = {
 
 # ─── Output Directories ───────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(BASE_DIR)
+PROJECT_ROOT = str(state_root())
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 PDF_DIR = os.path.join(PROJECT_ROOT, "pdfs")
 MD_DIR = os.path.join(PROJECT_ROOT, "mds")

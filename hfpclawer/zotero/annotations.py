@@ -19,10 +19,10 @@ Usage:
 from __future__ import annotations
 
 import logging
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from hfpclawer.zotero import get_zotero_url, is_zotero_remote
 

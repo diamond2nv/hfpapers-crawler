@@ -3,10 +3,11 @@
 """
 multi-repo-arxiv-fetch.py — 多领域 arXiv 每日采集 (0-token, standalone)
 
-三领域:
-  - fusion (fusion-tech-intelligence)
-  - coc    (coc-inverse-agent)
-  - gsnv   (gsnv-theory)
+领域与其目标仓库由本地配置给出（不写死在脚本里）:
+  - HFPCLAWER_REPO_MAP="name=/path/to/repo,name2=/path/to/repo2"（环境变量），或
+  - scripts/cron-repos.local.json（gitignored）:
+        {"fusion": "/path/to/repo", "coc": "/path/to/repo"}
+    模板见 scripts/cron-repos.example.json
 
 输出:
   ~/.hermes/data/arxiv-live/arxiv-all.jsonl   — 共享主库
@@ -14,7 +15,7 @@ multi-repo-arxiv-fetch.py — 多领域 arXiv 每日采集 (0-token, standalone)
   <各repo>/data/live/arxiv-all.jsonl          — repo本地副本
   <各repo>/data/live/arxiv-new.jsonl          — repo本地副本
 
-每条带 repo 标记: {"arxiv_id": "...", "repo": "fusion|coc|gsnv", ...}
+每条带 repo 标记: {"arxiv_id": "...", "repo": "<领域名>", ...}
 
 Usage:
     python ~/.hermes/scripts/multi-repo-arxiv-fetch.py
@@ -49,19 +50,39 @@ SHARED_DIR.mkdir(parents=True, exist_ok=True)
 ALL_PATH = SHARED_DIR / "arxiv-all.jsonl"
 NEW_PATH = SHARED_DIR / "arxiv-new.jsonl"
 
-REPO_MAP = {}
-_repos_env = os.environ.get("HFPCLAWER_REPO_MAP")
-if _repos_env:
-    for pair in _repos_env.split(","):
-        if "=" in pair:
-            name, path = pair.split("=", 1)
-            REPO_MAP[name.strip()] = Path(path.strip())
-else:
-    REPO_MAP = {
-        "fusion": Path.home() / "Documents/Gitlab/forgejo-self-host/fusion-tech-intelligence",
-        "coc":    Path.home() / "Documents/Gitlab/forgejo-self-host/coc-inverse-agent",
-        "gsnv":   Path.home() / "Documents/Gitlab/forgejo-self-host/gsnv-theory",
-    }
+def _load_repo_map() -> dict:
+    """Domain → repository path, from the environment or a gitignored local file.
+
+    Neither the names nor the locations of private sibling repositories belong in
+    a published script: `HFPCLAWER_REPO_MAP="name=/path,..."` wins, then
+    `scripts/cron-repos.local.json` (see `cron-repos.example.json`).
+    """
+    mapping: dict = {}
+    raw = os.environ.get("HFPCLAWER_REPO_MAP")
+    if raw:
+        for pair in raw.split(","):
+            if "=" in pair:
+                name, path = pair.split("=", 1)
+                mapping[name.strip()] = Path(path.strip()).expanduser()
+        return mapping
+
+    local_json = Path(__file__).resolve().parent / "cron-repos.local.json"
+    if local_json.is_file():
+        import json as _json
+
+        data = _json.loads(local_json.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            mapping = {k: Path(str(v)).expanduser() for k, v in data.items()}
+    return mapping
+
+
+REPO_MAP = _load_repo_map()
+if not REPO_MAP:
+    sys.stderr.write(
+        "no repositories configured — set HFPCLAWER_REPO_MAP=\"name=/path\" "
+        "or create scripts/cron-repos.local.json (see cron-repos.example.json)\n"
+    )
+    raise SystemExit(2)
 
 ARXIV_API = "https://export.arxiv.org/api/query"
 

@@ -66,7 +66,8 @@ RANDOMIZE_DOWNLOAD_DELAY = True
 ```bash
 # Server A (also hosts Redis)
 cd /path/to/hfpapers-crawler
-hfpclawer crawl arxiv        # Starts spider, pulls from shared queue
+# legacy design note: `hfpclawer crawl` was never implemented — the source registry
+# plus `search` replaced this Scrapy-queue path (see docs/ARCHITECTURE.md, Multi-Source Registry)
 
 # Server B (SSH from A or directly)
 ssh user@server-b "cd /path/to/hfpapers-crawler && hfpclawer crawl arxiv"

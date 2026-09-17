@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy to cron-repos.local.json (gitignored) and fill in real paths. Used by cron-multi-repo-arxiv-fetch.py; HFPCLAWER_REPO_MAP overrides it. Keep this example free of real repository names.",
+  "domain-a": "/absolute/path/to/repo-a",
+  "domain-b": "/absolute/path/to/repo-b"
+}

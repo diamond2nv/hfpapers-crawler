@@ -225,7 +225,7 @@ print(f'通过: {sum(1 for r in results if r.passed)}/{len(results)}')
 
 **用途：** L1 交叉验证——使用第二个计算机代数系统（CAS）独立验证 SymPy 结果。
 
-**状态：** 🟢 已在外部仓库（`gsnv-theory`、`coc-inverse-agent`）中实现。尚未集成到 `hfpclawer.verify` 核心。计划 v0.8.x 集成。
+**状态：** 🟢 已在私有下游项目中实现（不在本仓库内）。尚未集成到 `hfpclawer.verify` 核心。计划 v0.8.x 集成。
 
 ### 方案 A：容器（推荐）
 
@@ -411,7 +411,7 @@ verify:
 
 **状态：** 🔴 未实现。保留为未来主要版本的 L6。
 
-**文档：** 详见 `docs/formula-cross-validation-architecture.md` §10 的 Lean 4 设计。
+**文档：** 待补 —— Lean 4 设计文档（`formula-cross-validation-architecture.md`）尚未编写。
 
 ## 成本汇总
 

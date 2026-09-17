@@ -1,44 +1,118 @@
 #!/bin/sh
 # =============================================================================
-# pre-push hook — 版本一致性检测门禁（只检测，不修复）
+# pre-push hook — 推送门禁（只检测，不修复）
 #
-# 模式: detect → echo guidance → block
-# 修复: 用 release.sh 处理（版本对齐算 hotfix）
+# 两道门:
+#   1) 版本一致性 —— 仅 NAS 开发线 (refs/heads/main)
+#      pyproject.toml 版本必须 == 最新 tag（用 release.sh 修复）
+#   2) 脱敏 —— 对所有推送生效
+#      扫描被推送 commit 的 tracked 文件，拦真人 ORCID / 姓名占位缺失 /
+#      内网 IP / 机器代号 / 个人邮箱
+#   3) 内网布局与项目代号 —— 对所有推送生效（2026-09-17 新增）
+#      拦本地目录布局（~/Documents/Gitlab、forgejo-self-host）、私有同级仓库名、
+#      内网 wiki / 镜像主机；这一组只豁免门禁脚本自身（自指）
+#
+# 为什么版本门禁只作用于 main（2026-09-11）:
+#   本仓库并存两条血统 —— NAS 开发线 0.18.x 与公开线 0.17.x —— 但 tag 是全局
+#   命名空间。在公开线上推 v0.17.2 时，这个 hook 会拿开发线的 v0.18.11 去比对，
+#   产生假红。hook 假设"单一血统"，本仓库不成立，因此把版本门禁限定在 main；
+#   公开线的版本一致性由 scripts/publish-public.sh 负责。
+#
+# 为什么脱敏门禁 + ORCID（2026-09-11）:
+#   旧命令只扫 IP / 路径 / 机器代号，看不到 ORCID 与人名 —— 真人 ORCID 因此
+#   在公开线躺了数月而门禁一直报"干净"。看不见目标类别的检查比没有检查更糟，
+#   因为它给的是假信心。
 #
 # 安装: cp scripts/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
 # =============================================================================
-set -e
+
+# ── 模式定义在 scripts/sanitize-patterns.sh（唯一来源，测试读同一份）──
+_hook_dir=$(dirname "$0")
+for _cand in "$_hook_dir/sanitize-patterns.sh" "$_hook_dir/../scripts/sanitize-patterns.sh" \
+             "scripts/sanitize-patterns.sh"; do
+    if [ -f "$_cand" ]; then . "$_cand"; break; fi
+done
+if [ -z "$SENSITIVE_PAT" ]; then
+    echo "⚠️  scripts/sanitize-patterns.sh 未找到 —— 脱敏门禁无法运行" >&2
+    exit 1
+fi
+
+ALLOW="$SENSITIVE_ALLOW"
+PAT="$SENSITIVE_PAT"
+
+status=0
 
 while read local_ref local_oid remote_ref remote_oid; do
+
+    # ── 门 1: 版本一致性（仅 NAS 开发线 main）──
     case "$remote_ref" in
-        refs/heads/main|refs/heads/master) ;;
-        *) continue ;;
+        refs/heads/main)
+            PY_VERSION=$(git show "$local_oid:pyproject.toml" 2>/dev/null \
+                | grep '^version' | sed 's/^version = "\([^"]*\)".*/\1/')
+            GIT_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+            if [ -n "$PY_VERSION" ] && [ -n "$GIT_TAG" ]; then
+                GIT_VERSION="${GIT_TAG#v}"
+                if [ "$PY_VERSION" != "$GIT_VERSION" ]; then
+                    echo ""
+                    echo "╔══════════════════════════════════════════════════╗"
+                    echo "║  ⚡ Version mismatch detected!"
+                    echo "║"
+                    echo "║  pyproject.toml:  v$PY_VERSION"
+                    echo "║  latest tag:      $GIT_TAG"
+                    echo "║"
+                    echo "║  → Version alignment counts as a hotfix."
+                    echo "║  → Use:  bash scripts/release.sh ${PY_VERSION} --push"
+                    echo "║"
+                    echo "║  This ensures pyproject.toml + __init__.py + tag"
+                    echo "║  stay in sync without force-pushing old tags."
+                    echo "╚══════════════════════════════════════════════════╝"
+                    echo ""
+                    status=1
+                fi
+            fi
+            ;;
     esac
 
-    PY_VERSION=$(git show "$local_oid:pyproject.toml" 2>/dev/null | grep '^version' | sed 's/^version = "\([^"]*\)".*/\1/')
-    [ -z "$PY_VERSION" ] && continue
-
-    GIT_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
-    [ -z "$GIT_TAG" ] && continue
-    GIT_VERSION="${GIT_TAG#v}"
-
-    if [ "$PY_VERSION" != "$GIT_VERSION" ]; then
+    # ── 门 2: 脱敏（所有推送）──
+    HITS=$(git grep -nE "$PAT" "$local_oid" 2>/dev/null \
+        | grep -vE "$OK_PLACEHOLDER" \
+        | grep -vE "$ALLOW" || true)
+    if [ -n "$HITS" ]; then
         echo ""
         echo "╔══════════════════════════════════════════════════╗"
-        echo "║  ⚡ Version mismatch detected!"
-        echo "║"
-        echo "║  pyproject.toml:  v$PY_VERSION"
-        echo "║  latest tag:      $GIT_TAG"
-        echo "║"
-        echo "║  → Version alignment counts as a hotfix."
-        echo "║  → Use:  bash scripts/release.sh ${PY_VERSION} --push"
-        echo "║"
-        echo "║  This ensures pyproject.toml + __init__.py + tag"
-        echo "║  stay in sync without force-pushing old tags."
+        echo "║  🔒 Sensitive tokens in tracked files!"
         echo "╚══════════════════════════════════════════════════╝"
+        echo "$HITS" | head -20
         echo ""
-        exit 1
+        echo "  Categories: real ORCIDs / real names / LAN IPs / machine"
+        echo "  codenames / personal emails / API keys."
+        echo ""
+        echo "  Fix: replace with the placeholders AGENTS.md declares"
+        echo "       (ORCID: 0000-0002-1825-0097, names: Jane Doe / 张三),"
+        echo "       or add a justified entry to ALLOW in scripts/pre-push."
+        echo "  See AGENTS.md rule 6."
+        echo ""
+        status=1
+    fi
+
+    # ── 门 3: 内网布局与项目代号（只豁免门禁脚本自身）──
+    LAYOUT_HITS=$(git grep -nE "$LAYOUT_PAT" "$local_oid" 2>/dev/null \
+        | grep -vE "$LAYOUT_ALLOW" || true)
+    if [ -n "$LAYOUT_HITS" ]; then
+        echo ""
+        echo "╔══════════════════════════════════════════════════╗"
+        echo "║  🔒 Internal layout / project codenames!"
+        echo "╚══════════════════════════════════════════════════╝"
+        echo "$LAYOUT_HITS" | head -20
+        echo ""
+        echo "  Categories: local layout, private sibling repo names, internal wiki / mirror hosts."
+        echo ""
+        echo "  Fix: declare peers in the environment instead of hard-coding them"
+        echo "       (HFPCLAWER_PEER_REPOS / HFPCLAWER_REPO_MAP), and keep local"
+        echo "       values in gitignored files. See scripts/sanitize-patterns.sh."
+        echo ""
+        status=1
     fi
 done
 
-exit 0
+exit $status

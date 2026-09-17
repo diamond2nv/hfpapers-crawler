@@ -83,7 +83,7 @@ wiki_synced     INTEGER DEFAULT 0,       -- 0/1
 failed_reason   TEXT DEFAULT '',
 ```
 
-新状态迁移脚本 `scripts/migrate_status.py`：
+新状态迁移脚本 `scripts/migrate_status.py`（**未创建**——迁移改为 `_init_db` 内幂等 `try: ALTER ... except: pass`，无需独立脚本）：
 - 扫描 `data/pdfs/*.pdf` → 标记 download_status='done'
 - 扫描 `data/md_extracts/*.md` → 标记 convert_status='done'
 - 扫描 `~/wiki/raw/papers/*.md` → 标记 wiki_synced=1
@@ -141,7 +141,7 @@ hfpclawer batch [--limit 50] [--priority P0] [--no-wiki]
 ## 四、实施计划
 
 ### Phase 1: 数据库迁移
-- [ ] `scripts/migrate_status.py` — 加列 + 扫描现有文件回填状态
+- [ ] ~~`scripts/migrate_status.py`~~ — 未创建；由 `_init_db` 幂等迁移 + 存量回填取代
 
 ### Phase 2: DownloadQueue
 - [ ] `hfpapers/download_queue.py` — 完整实现

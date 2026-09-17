@@ -656,16 +656,16 @@ class GraphBuilder:
         logger.info("Exported GraphML → %s", path)
         return str(path)
 
-    # ── Import from coc-inverse-agent refs.jsonl ─────────────────────
+    # ── Import from a peer repository's refs.jsonl ────────────────────
 
     def ingest_refs_jsonl(self, jsonl_path: str, tag: str = "coc") -> dict:
-        """Import papers from a coc-inverse-agent refs.jsonl file.
+        """Import papers from a peer repository's refs.jsonl file.
 
         Creates PAPER and PERSON nodes with AUTHOR_OF edges for each entry.
         Skips entries already present in the graph (matched by arxiv_id or doi).
 
         Args:
-            jsonl_path: Path to ``refs.jsonl`` (e.g. from coc-inverse-agent).
+            jsonl_path: Path to ``refs.jsonl`` exported by a peer repository.
             tag: Tag string to add to ``sources`` attribute (e.g. 'coc', 'gsnv').
 
         Returns:
@@ -768,7 +768,7 @@ class GraphBuilder:
     # ── Import citation edges from coc omc_graph.graphml ─────────────
 
     def ingest_citation_graphml(self, graphml_path: str, tag: str = "coc") -> dict:
-        """Import citation edges from a coc-inverse-agent ``omc_graph.graphml``.
+        """Import citation edges from a peer repository's ``omc_graph.graphml``.
 
         The GraphML should contain CITES / CITED_BY edges between PAPER nodes.
 

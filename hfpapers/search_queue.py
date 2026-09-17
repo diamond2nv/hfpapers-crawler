@@ -21,6 +21,7 @@ from hfpapers.code_matcher import (
     CODE_LEVEL_VERIFIED,
     CodeMatcher,
 )
+from hfpapers.paths import state_root
 from hfpapers.searcher_registry import (
     BaseSearcher,
     SearchResult,
@@ -60,11 +61,10 @@ def _local_verify_title(aid: str) -> str:
     """Verify arXiv ID via local FTS5 database (0ms, 0 network)"""
     try:
         import sqlite3
-        from pathlib import Path
 
         from hfpapers.config import get as cfg_get
 
-        base = Path(__file__).parent.parent
+        base = state_root()
         db_path = str(base / cfg_get("paths.data_dir", "data") / "arxiv_meta.db")
         conn = sqlite3.connect(db_path)
         row = conn.execute("SELECT title FROM arxiv_meta WHERE arxiv_id = ?", (aid,)).fetchone()
@@ -180,11 +180,10 @@ class SearchDispatcher:
         ids = set()
         try:
             import sqlite3
-            from pathlib import Path
 
             from hfpapers.config import get as cfg_get
 
-            base = Path(__file__).parent.parent
+            base = state_root()
             db_path = str(base / cfg_get("paths.data_dir", "data") / "arxiv_meta.db")
             conn = sqlite3.connect(db_path)
             for row in conn.execute("SELECT arxiv_id FROM arxiv_meta"):

@@ -1,75 +1,69 @@
-# Distributed Deployment Guide
+# Deploying hfpclawer (light)
 
-# Prerequisites:
-# - GPU Server (nautilus / ${SERVER_HOST}) — primary workhorse
-# - CPU Server — lightweight crawl node
-# - Local machine (macOS/Ubuntu) — development + testing
+**What you are deploying.** A local CLI plus a SQLite paper store — no server, no daemon required.
+`hfpclawer` finds, fetches, verifies and stores papers, and exposes them to an agent through the CLI
+and an MCP server. Everything it writes is local and inspectable.
 
-# ─── 1. Install Dependencies ───────────────────────────
+## 1. Requirements
 
-#    On all machines:
-#   cd ~/Gitlab/Agentic4Sci/hfpapers-clawler
-#   pip install -e ".[scrapy]"
-#   pip install scrapy-redis  # Distributed-only
+- Python **≥ 3.10**
+- A writable data directory (default: `./data`)
+- Optional: `aioquic` for the QUIC transport (needed on networks that reset arXiv TCP connections)
 
-# ─── 2. Choose Redis Host ─────────────────────
+## 2. Install
 
-#   Plan A: Lightweight Redis on the GPU server
-#     sudo apt install redis-server  (if you have sudo)
-#     or: pip install valkey
-#     redis-server --port 16379 --daemonize yes
+```bash
+pip install "hfpclawer[pdf,quic]"     # add [rank] for the learned re-ranking layer
+hfpclawer init                        # writes config.yaml + .env.template in the current directory
+hfpclawer version
+```
 
-#   Plan B: Reuse existing Redis (e.g., if already installed)
+> Deeply customised setups: keep machine- or person-specific values in the gitignored
+> `config.local.yaml`, which deep-merges over `config.yaml`. Real names, ORCIDs and query lists
+> belong there, never in the tracked file.
 
-#   Plan C: No Redis — Shared JSON mode
-#     Each machine runs independently with no queue sharing.
-#     Only shared dedup file is synced via NFS/scp/git.
-#     Dedup file: ~/wiki/raw/papers/hfpapers-crawled.json
+## 3. Smoke test (do this before trusting a deployment)
 
-# ─── 3. Start on Each Machine ──────────────────────────
+```bash
+hfpclawer source-list                        # adapters exist at all
+hfpclawer fetch 2310.10688 --kind pdf        # transport ladder + sha256 audit line
+hfpclawer store status                       # store is readable, migrations applied
+hfpclawer check-new                          # 0-token change detection (cron entry point)
+```
 
-#   GPU Server (heavy search + paper download):
-#     hfpclawer search --max-pages 5
+`hfpclawer fetch` prints a sha256 and appends an audit row to `data/download_audit.jsonl`; fetching
+the same id twice over different channels and comparing hashes is the integrity check.
 
-#   CPU Server (arXiv search + verification):
-#     hfpclawer search --max-pages 3
+## 4. What lives where
 
-#   Local machine (testing + OpenReview search):
-#     hfpclawer search --max-pages 2
+State lives in one **state root**, resolved once at import: the repository when you run from a
+checkout, and the platform's user directories when installed from a wheel
+(`$XDG_DATA_HOME/hfpclawer` → `~/.local/share/hfpclawer`, configuration in
+`$XDG_CONFIG_HOME/hfpclawer` → `~/.config/hfpclawer`). `HFPCLAWER_STATE_DIR` and
+`HFPCLAWER_CONFIG_DIR` override it outright. Nothing is ever written inside a wheel's
+`site-packages` — see `hfpapers/paths.py`.
 
-#   Distributed mode (requires Redis):
-#     scrapy crawl multi_source -s REDIS_URL=redis://192.168.1.100:16379
+| Path (under the state root) | Content |
+|:--|:--|
+| `data/papers.db` | the store (SQLite): papers, identifiers, verification state |
+| `data/download_audit.jsonl` | append-only acquisition audit (transport, bytes, sha256, ms) |
+| `data/positive_pool.jsonl` | local training signal for the optional ranker (gitignored) |
+| `pdfs/`, `mds/` | fetched PDFs and converted Markdown |
+| `config.yaml` / `config.local.yaml` | public configuration / private overlay |
 
-# ─── 4. View Results ────────────────────────────
+## 5. Optional: several machines on one LAN
 
-#   All machines share the same output paths:
-#     data/candidates_latest.json    ← Latest candidate list
-#     pdfs/                          ← PDF files
-#     mds/                           ← MD extraction files
-#     ~/wiki/raw/papers/             ← Global dedup records
+Simplest shape: each machine runs independently and shares only the dedup file (sync it with
+rsync/WebDAV/git). Nothing else needs to be shared, and no coordination service is required.
 
-# ─── 5. Anti-Crawl Config ──────────────────────
+> The older Scrapy + Redis queue design (scrapy-redis, `scrapy crawl multi_source`) is **not
+> implemented** in this codebase — see [`ROADMAP.md`](ROADMAP.md) non-goals and
+> [`docs/DISTRIBUTED.md`](docs/DISTRIBUTED.md). Use the independent-node shape above.
 
-#   Configure each machine independently via config.yaml:
+## 6. Agent integration
 
-#   Machine A (IP 1):
-#     download_delay: 3.0
-#     randomize_download_delay: true
-#     random_ua_pool: ["Mozilla/5.0 (X11; Linux x86_64)...", ...]
-
-#   Machine B (IP 2):
-#     download_delay: 2.0
-#     randomize_download_delay: true
-#     random_ua_pool: ["Mozilla/5.0 (Macintosh; Intel Mac OS X)...", ...]
-
-#   This ensures each machine egresses from a different IP,
-#   and each request rotates User-Agent.
-
-# ─── 6. Fault Recovery ────────────────────────────
-
-#   After interruption, scrapy-redis will:
-#     1. Resume incomplete request queue from Redis
-#     2. Skip already-deduped requests
-#     3. Skip PDF/MD files already in data directory
-#
-#   No manual recovery needed.
+- **0-token monitoring**: `hfpclawer check-new` compared against its own last output is the cron
+  gate — stable output means "nothing changed, do not wake the LLM".
+- **MCP**: `hfpclawer mcp` serves the store to an agent host over stdio.
+- **Contract**: agents should treat the CLI as the interface; if a capability is only reachable from
+  Python internals, it is not deployed yet.

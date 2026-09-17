@@ -42,6 +42,35 @@ cd "$(dirname "$0")/.."
     exit 1
 }
 
+# ---- 0. Changelog coverage ----
+# A version may not be tagged while it is undocumented: the repository once shipped
+# 18 releases (v0.17.0 - v0.18.14) with no entries because nothing checked.
+# Single source of the rule: scripts/changelog_guard.py (also used by the gate test).
+if [ -f scripts/changelog_guard.py ]; then
+    python3 scripts/changelog_guard.py "$VERSION" || {
+        echo "❌ Refusing to release v$VERSION: add its changelog entry first (see docs/CHANGELOG.md)."
+        exit 1
+    }
+else
+    echo "⚠️  scripts/changelog_guard.py missing — changelog coverage NOT checked."
+fi
+
+# ---- 0b. Changelog window ----
+# The changelog is read, not diffed: it must stay a bounded window, with the older
+# entries rotated into docs/CHANGELOG-archive.md (rule: scripts/changelog_rotate.py).
+if [ -f scripts/changelog_rotate.py ]; then
+    python3 scripts/changelog_rotate.py --check || {
+        echo "❌ Refusing to release v$VERSION: rotate the changelog window first."
+        exit 1
+    }
+    python3 scripts/changelog_rotate.py --verify-history || {
+        echo "❌ Refusing to release v$VERSION: a changelog entry disappeared (live + archive)."
+        exit 1
+    }
+else
+    echo "⚠️  scripts/changelog_rotate.py missing — changelog window NOT checked."
+fi
+
 # 解析 flags
 for arg in "$@"; do
     case "$arg" in

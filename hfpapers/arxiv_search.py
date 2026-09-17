@@ -12,10 +12,10 @@ import re
 import sqlite3
 import threading
 import time
-from pathlib import Path
 from typing import Optional
 
 from hfpapers.config import get as cfg_get
+from hfpapers.paths import state_root
 
 logger = logging.getLogger("hfpapers.arxiv_search")
 
@@ -68,7 +68,7 @@ class ArxivLocalSearch:
 
     def __init__(self, db_path: str = None):
         if db_path is None:
-            base = Path(__file__).parent.parent
+            base = state_root()
             db_path = str(base / cfg_get("paths.data_dir", "data") / "arxiv_meta.db")
         self.db_path = db_path
         self._lock = threading.Lock()

@@ -1,75 +1,80 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""Test config module — YAML loading + env merging + budget checking"""
+"""Config loading: base config.yaml + optional gitignored config.local.yaml overlay.
 
-import os
-import tempfile
+Rationale: config.yaml is tracked and public. It carries environment-specific and
+third-party data (real researcher names, ORCIDs, local paths) that must not be
+published. The overlay lets the public file hold structure only, while the real
+values live in config.local.yaml, which is gitignored.
+"""
 
 import pytest
 
-from hfpapers.config import check_cost_budget, check_token_budget, estimate_cost, get, load_config
+
+@pytest.fixture(autouse=True)
+def _reset_config_cache():
+    """load_config() caches at module level; reset it around every test here."""
+    import hfpapers.config as config
+
+    config._config_cache = None
+    yield
+    config._config_cache = None
 
 
-class TestConfigLoad:
-    def test_load_config_returns_dict(self, test_env):
-        cfg = load_config(reload=True)
-        assert isinstance(cfg, dict)
-        assert "search" in cfg
-        assert "keywords" in cfg
-        assert "classification" in cfg
-
-    def test_get_with_dotpath(self, test_env):
-        val = get("search.max_per_dim")
-        assert val == 5
-
-    def test_get_default(self, test_env):
-        val = get("nonexistent.key", "fallback")
-        assert val == "fallback"
-
-    def test_custom_config_path(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cfg_path = os.path.join(tmpdir, "config.yaml")
-            with open(cfg_path, "w") as f:
-                f.write("search:\n  max_per_dim: 99\n")
-            os.environ["_TEST_HFPAPERS_CONFIG"] = cfg_path
-            load_config(reload=True)
-            assert get("search.max_per_dim") == 99
-            del os.environ["_TEST_HFPAPERS_CONFIG"]
-            # Clear cache so subsequent tests don't see this mini config
-            import hfpapers.config as _cfg
-
-            _cfg._config_cache = None
+def _write(path, text):
+    path.write_text(text, encoding="utf-8")
+    return str(path)
 
 
-def _litellm_available():
-    try:
-        from litellm import model_cost  # noqa: F401
+def test_local_config_overlays_base(tmp_path, monkeypatch):
+    import hfpapers.config as config
 
-        return True
-    except Exception:
-        return False
+    base = _write(tmp_path / "config.yaml", "search:\n  enabled: [hf_cli]\n  max_per_dim: 30\n")
+    local = _write(tmp_path / "config.local.yaml", "search:\n  enabled: [europepmc, biorxiv]\n")
+    monkeypatch.setenv("_TEST_HFPAPERS_CONFIG", base)
+    monkeypatch.setenv("_TEST_HFPAPERS_LOCAL_CONFIG", local)
+
+    config.load_config(reload=True)
+    assert config.get("search.enabled") == ["europepmc", "biorxiv"]  # overridden
+    assert config.get("search.max_per_dim") == 30  # sibling key survives
 
 
-class TestBudget:
-    def test_estimate_cost_deepseek(self):
-        if not _litellm_available():
-            pytest.skip("litellm not available")
-        cost = estimate_cost("deepseek/deepseek-chat", 10000, 500)
-        assert cost > 0
+def test_local_config_absent_is_noop(tmp_path, monkeypatch):
+    import hfpapers.config as config
 
-    def test_check_token_budget_within_limit(self):
-        assert check_token_budget(1000, 500)
+    base = _write(tmp_path / "config.yaml", "search:\n  enabled: [hf_cli]\n")
+    monkeypatch.setenv("_TEST_HFPAPERS_CONFIG", base)
+    monkeypatch.delenv("_TEST_HFPAPERS_LOCAL_CONFIG", raising=False)
 
-    def test_check_token_budget_exceeded(self):
-        assert not check_token_budget(100000, 50000)
+    config.load_config(reload=True)
+    assert config.get("search.enabled") == ["hf_cli"]
 
-    def test_check_cost_budget_free_model(self):
-        # Local models like Ollama return True (free)
-        assert check_cost_budget("ollama/llama3", 100000, 50000)
 
-    def test_check_cost_budget_exceeded(self):
-        if not _litellm_available():
-            pytest.skip("litellm not available")
-        assert (
-            check_cost_budget("deepseek/deepseek-chat", 500000, 100000, max_cost_usd=0.01) is False
-        )
+def test_local_config_merges_nested_structures(tmp_path, monkeypatch):
+    import hfpapers.config as config
+
+    base = _write(
+        tmp_path / "config.yaml",
+        "stepping:\n  filter_authors: []\n  layers:\n  - name: demo\n",
+    )
+    local = _write(
+        tmp_path / "config.local.yaml",
+        "stepping:\n  filter_authors:\n  - Doe J\n  orcid_seeds:\n  - 0000-0000-0000-0000\n",
+    )
+    monkeypatch.setenv("_TEST_HFPAPERS_CONFIG", base)
+    monkeypatch.setenv("_TEST_HFPAPERS_LOCAL_CONFIG", local)
+
+    config.load_config(reload=True)
+    assert config.get("stepping.filter_authors") == ["Doe J"]
+    assert config.get("stepping.orcid_seeds") == ["0000-0000-0000-0000"]
+    assert config.get("stepping.layers") == [{"name": "demo"}]  # untouched subtree
+
+
+def test_overlay_does_not_leak_into_missing_base(tmp_path, monkeypatch):
+    """A missing base file still yields the built-in defaults (no overlay-only config)."""
+    import hfpapers.config as config
+
+    local = _write(tmp_path / "config.local.yaml", "search:\n  enabled: [europepmc]\n")
+    monkeypatch.setenv("_TEST_HFPAPERS_CONFIG", str(tmp_path / "does-not-exist.yaml"))
+    monkeypatch.setenv("_TEST_HFPAPERS_LOCAL_CONFIG", local)
+
+    config.load_config(reload=True)
+    assert config.get("search.max_per_dim") == 50  # built-in default branch

@@ -33,6 +33,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from hfpapers.paths import state_root
+
 # Layer semantics: label + default weight + adjudication priority (index).
 _LAYER_ORDER = ["verified", "manual", "favorited", "adopted", "truncated"]
 LAYER_LABEL = {"verified": 1, "manual": 1, "favorited": 1, "adopted": 1, "truncated": 0}
@@ -43,7 +45,7 @@ POOL_FILENAME = "positive_pool.jsonl"
 
 def default_pool_path() -> Path:
     """data/positive_pool.jsonl — same resolution as paper_store._db_path."""
-    pkg_root = Path(__file__).parent.parent
+    pkg_root = state_root()
     env_dir = os.environ.get("HFPAPERS_DATA_DIR")
     if env_dir:
         base = env_dir if os.path.isabs(env_dir) else str(pkg_root / env_dir)

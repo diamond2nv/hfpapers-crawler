@@ -20,6 +20,7 @@ from hfpapers.config import get as cfg_get
 from hfpapers.config import load_config
 from hfpapers.items import PaperItem
 from hfpapers.paper_store import ensure_paper, get_store
+from hfpapers.paths import state_root
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +195,7 @@ class ExportPipeline:
 
         # Write JSON file (backward compatible)
         data_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), cfg_get("paths.data_dir", "data")
+            str(state_root()), cfg_get("paths.data_dir", "data")
         )
         os.makedirs(data_dir, exist_ok=True)
 
@@ -222,7 +223,7 @@ class DownloadPipeline:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "Mozilla/5.0"})
 
-        base = os.path.dirname(os.path.dirname(__file__))
+        base = str(state_root())
         self.pdf_dir = os.path.join(base, cfg_get("paths.pdf_dir", "pdfs"))
         self.md_dir = os.path.join(base, cfg_get("paths.md_dir", "mds"))
         os.makedirs(self.pdf_dir, exist_ok=True)

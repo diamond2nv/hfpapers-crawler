@@ -13,11 +13,11 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional
 
 import requests
 
+from hfpapers.paths import state_root
 from hfpclawer.download.base import BaseDownloader, ResumeState
 
 logger = logging.getLogger("hfpclawer.download.oai")
@@ -200,7 +200,7 @@ class OaiPmhDownloader(BaseDownloader):
     def _default_db_path(self) -> str:
         from hfpapers.config import get as cfg_get
 
-        base = Path(__file__).resolve().parent.parent.parent
+        base = state_root()
         return str(base / cfg_get("db.path", "data/arxiv_meta.db"))
 
     def _rate_limit(self):

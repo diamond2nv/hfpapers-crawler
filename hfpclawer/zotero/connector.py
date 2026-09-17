@@ -30,11 +30,10 @@ from __future__ import annotations
 
 import json
 import logging
+import urllib.error
+import urllib.request
 import uuid
 from typing import Any, Optional
-
-import urllib.request
-import urllib.error
 
 from hfpclawer.zotero import get_zotero_url, is_zotero_remote
 
@@ -163,8 +162,8 @@ class ZoteroConnector:
             ConnectorError: If Zotero is unreachable.
             FileNotFoundError: If pdf_path doesn't exist.
         """
-        import os
         import json as _json
+        import os
 
         if not os.path.isfile(pdf_path):
             raise FileNotFoundError(f"PDF not found: {pdf_path}")

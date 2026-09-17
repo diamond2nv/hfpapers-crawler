@@ -3,13 +3,15 @@
 """traceability.py — Full-chain citation traceability engine.
 
 Combines: bib → store → notebook → L1/L2/L3 into a single pipeline.
-Port of coc-inverse-agent scripts/citation_traceability.py.
+Adapted from a citation-traceability workflow used downstream (see the repo history).
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional
 
+from hfpapers import paths
 from hfpclawer.audit import bib as audit_bib
 from hfpclawer.audit import notebook as audit_notebook
 from hfpclawer.audit import report as audit_report
@@ -159,14 +161,27 @@ def run_traceability(
 
 
 def _detect_bib() -> Optional[Path]:
-    """Auto-detect references.bib in common locations."""
+    """Auto-detect references.bib: the working tree, then declared search roots.
+
+    Extra roots come from ``HFPCLAWER_BIB_SEARCH_DIRS`` (colon-separated) and from
+    peer repositories declared in the environment (see ``hfpapers.paths``). This
+    package does not carry the names or locations of the private projects it
+    happens to sit next to — pass ``--bib``, or declare the roots.
+    """
     cwd = Path.cwd()
     candidates = [
         cwd / "data" / "references" / "references.bib",
         cwd / "report" / "references.bib",
-        cwd.parent / "coc-inverse-agent" / "data" / "references" / "references.bib",
-        cwd.parent / "fusion-tech-intelligence" / "report" / "references.bib",
     ]
+    roots = [
+        Path(p).expanduser()
+        for p in (os.environ.get("HFPCLAWER_BIB_SEARCH_DIRS") or "").split(":")
+        if p.strip()
+    ]
+    roots.extend(paths.peer_roots())
+    for root in roots:
+        candidates.append(root / "data" / "references" / "references.bib")
+        candidates.append(root / "report" / "references.bib")
     for p in candidates:
         if p.exists():
             return p
@@ -203,13 +218,10 @@ def cli_run(args: Any) -> int:
 
 
 def _detect_repo_name() -> str:
-    """Try to detect the current repository name."""
-    cwd = Path.cwd()
-    name = cwd.name
-    if (cwd / "src" / "coc").exists():
-        return "coc-inverse-agent"
-    if (cwd / "report" / "chapters").exists():
-        return "fusion-tech-intelligence"
-    if (cwd / "hfpclawer").exists():
-        return "hfpclawer"
-    return name
+    """Name the repository being audited: the working directory's own name.
+
+    Identity is not inferred from directory markers — guessing it would mean
+    hard-coding the names of private sibling projects into published source. Pass
+    ``--repo`` when the label matters.
+    """
+    return Path.cwd().name

@@ -12,7 +12,9 @@
 import json
 import logging
 import re
+import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import requests
@@ -41,6 +43,7 @@ class SourcePaper:
     code_url: str = ""
     venue: str = ""  # Venue (e.g. "NeurIPS 2024")
     doi: str = ""  # DOI (official publication identifier)
+    year: int = 0  # Publication year; 0 = unknown (added for biomedical sources)
     reviews: list[dict] = field(default_factory=list)  # OpenReview only: [(rating, comment)]
 
 
@@ -58,6 +61,64 @@ class PaperSource(ABC):
     @property
     @abstractmethod
     def name(self) -> str: ...
+
+    def _get(
+        self,
+        url: str,
+        *,
+        params: dict | None = None,
+        timeout: int = 30,
+    ) -> requests.Response | None:
+        """GET with the shared retry policy; None when it ultimately fails.
+
+        Retry behaviour comes from config (``anti_crawl.max_retries`` /
+        ``anti_crawl.retry_http_codes`` / ``anti_crawl.retry_delay_base``) so all
+        sources share one policy instead of each rolling its own.
+
+        Without this, one transient failure silently dropped a whole batch:
+        observed live on 2026-09-11, Europe PMC returned 503 while bioRxiv timed
+        out, and the sources simply returned [].
+        """
+        attempts = int(cfg_get("anti_crawl.max_retries", 3) or 1)
+        retry_codes = set(
+            cfg_get("anti_crawl.retry_http_codes", [429, 503, 403, 408, 500, 502, 520])
+        )
+        delay = float(cfg_get("anti_crawl.retry_delay_base", 30) or 0)
+
+        for attempt in range(1, attempts + 1):
+            try:
+                resp = requests.get(url, params=params, timeout=timeout)
+            except requests.RequestException as exc:
+                if attempt >= attempts:
+                    logger.warning(
+                        "%s: request failed, gave up after %d attempt(s): %s",
+                        self.name,
+                        attempt,
+                        exc,
+                    )
+                    return None
+                logger.warning(
+                    "%s: request failed (attempt %d/%d): %s", self.name, attempt, attempts, exc
+                )
+            else:
+                if resp.status_code == 200:
+                    return resp
+                if resp.status_code not in retry_codes:
+                    logger.warning("%s: HTTP %s (not retryable)", self.name, resp.status_code)
+                    return None
+                if attempt >= attempts:
+                    logger.warning(
+                        "%s: HTTP %s, gave up after %d attempt(s)",
+                        self.name,
+                        resp.status_code,
+                        attempt,
+                    )
+                    return None
+                logger.warning(
+                    "%s: HTTP %s (attempt %d/%d)", self.name, resp.status_code, attempt, attempts
+                )
+            time.sleep(delay * attempt)  # linear backoff
+        return None
 
 
 # ════════════════════════════════════════════
@@ -131,13 +192,12 @@ class OpenReviewSource(PaperSource):
         limit = cfg_get("sources.openreview.max_results", 30)
 
         try:
-            resp = requests.get(
+            resp = self._get(
                 f"{self.BASE}/notes/search",
                 params={"term": query, "source": "forum", "limit": limit},
                 timeout=30,
             )
-            if resp.status_code != 200:
-                logger.warning(f"  [openreview] API returned {resp.status_code}")
+            if resp is None:
                 return results
             data = resp.json()
         except Exception as e:
@@ -209,12 +269,12 @@ class OpenReviewSource(PaperSource):
         """Fetch OpenReview review records"""
         reviews = []
         try:
-            resp = requests.get(
+            resp = self._get(
                 f"{self.BASE}/notes",
                 params={"forum": forum_id, "limit": 100},
                 timeout=15,
             )
-            if resp.status_code != 200:
+            if resp is None:
                 return reviews
             data = resp.json()
             for note in data.get("notes", []):
@@ -251,13 +311,12 @@ class PwcApiSource(PaperSource):
         limit = cfg_get("sources.pwc.max_results", 30)
 
         try:
-            resp = requests.get(
+            resp = self._get(
                 f"{self.BASE}/papers/",
                 params={"q": query, "items_per_page": limit},
                 timeout=30,
             )
-            if resp.status_code != 200:
-                logger.warning(f"  [pwc] API returned {resp.status_code}")
+            if resp is None:
                 return results
             data = resp.json()
         except Exception as e:
@@ -324,7 +383,7 @@ class ArxivApiSource(PaperSource):
         try:
             from bs4 import BeautifulSoup
 
-            resp = requests.get(
+            resp = self._get(
                 self.BASE,
                 params={
                     "search_query": f"all:{query}",
@@ -334,7 +393,7 @@ class ArxivApiSource(PaperSource):
                 },
                 timeout=30,
             )
-            if resp.status_code != 200:
+            if resp is None:
                 return results
             soup = BeautifulSoup(resp.text, "lxml")
             for entry in soup.find_all("entry"):
@@ -369,16 +428,181 @@ class ArxivApiSource(PaperSource):
 # ════════════════════════════════════════════
 
 
+# ════════════════════════════════════════════
+# 5. Europe PMC — biomedical (PubMed + PMC + preprints)
+# ════════════════════════════════════════════
+
+
+class EuropePmcSource(PaperSource):
+    """Europe PMC REST search: PubMed + PMC + preprints behind one API.
+
+    Field names and types verified against a live response (2026-09-11):
+      * resultType=core is REQUIRED for abstracts — the default response carries
+        27 fields and no abstractText at all (core returns 41 fields).
+      * pubYear arrives as a STRING (and may be empty).
+      * the abstract field is named ``abstractText``, never ``abstract``.
+    """
+
+    BASE = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+
+    @property
+    def name(self) -> str:
+        return "europepmc"
+
+    @staticmethod
+    def _safe_year(raw: object) -> int:
+        try:
+            return int(str(raw or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @classmethod
+    def _parse(cls, payload: dict) -> list[SourcePaper]:
+        out: list[SourcePaper] = []
+        for item in (payload.get("resultList") or {}).get("result") or []:
+            pmid = item.get("id") or ""
+            out.append(
+                SourcePaper(
+                    title=(item.get("title") or "").strip()[:200],
+                    abstract=(item.get("abstractText") or "")[:2000],
+                    doi=item.get("doi") or "",
+                    year=cls._safe_year(item.get("pubYear")),
+                    source="europepmc",
+                    source_url=(
+                        f"https://europepmc.org/article/{item.get('source') or 'MED'}/{pmid}"
+                        if pmid
+                        else ""
+                    ),
+                    venue=((item.get("journalInfo") or {}).get("journal") or {}).get("title")
+                    or "",
+                )
+            )
+        return out
+
+    def search(self, query: str, category: str = "") -> list[SourcePaper]:
+        max_results = cfg_get("search.sources.europepmc.page_size", 25)
+        try:
+            resp = self._get(
+                self.BASE,
+                params={
+                    "query": query,
+                    "format": "json",
+                    "pageSize": max_results,
+                    "resultType": "core",  # REQUIRED: default response has no abstract
+                },
+                timeout=30,
+            )
+            if resp is None:
+                return []
+            papers = self._parse(resp.json())
+            for paper in papers:
+                paper.source_category = category
+            return papers
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("europepmc: search failed: %s", exc)
+            return []
+
+
+# ════════════════════════════════════════════
+# 6. bioRxiv / medRxiv — biomedical preprints (date-range API)
+# ════════════════════════════════════════════
+
+
+class BiorxivSource(PaperSource):
+    """bioRxiv / medRxiv preprints.
+
+    ⚠️ These servers expose NO keyword search: the API is
+    ``/details/<server>/<start>/<end>/<cursor>`` (date range + paging), verified
+    against live responses on 2026-09-11. ``search()`` therefore treats its
+    ``query`` argument as a date range ("YYYY-MM-DD/YYYY-MM-DD"); keyword
+    filtering happens downstream, not here. Do not pretend this is a keyword
+    source.
+
+    Response shape: ``{"messages": [...], "collection": [{title, authors, doi,
+    date, version, type, license, category, jatsxml, abstract, server, ...}]}``
+    """
+
+    TEMPLATE = "https://api.biorxiv.org/details/{server}/{start}/{end}/{cursor}"
+
+    def __init__(self, server: str = "biorxiv") -> None:
+        self.server = server
+
+    @property
+    def name(self) -> str:
+        return "biorxiv" if self.server == "biorxiv" else "medrxiv"
+
+    def url(self, start: str, end: str, cursor: int = 0) -> str:
+        return self.TEMPLATE.format(server=self.server, start=start, end=end, cursor=cursor)
+
+    @staticmethod
+    def _parse(payload: dict, source_name: str = "biorxiv") -> list[SourcePaper]:
+        out: list[SourcePaper] = []
+        for item in payload.get("collection") or []:
+            date = str(item.get("date") or "")
+            doi = item.get("doi") or ""
+            out.append(
+                SourcePaper(
+                    title=(item.get("title") or "").strip()[:200],
+                    abstract=(item.get("abstract") or "")[:2000],
+                    doi=doi,
+                    year=int(date[:4]) if date[:4].isdigit() else 0,
+                    source=source_name,
+                    source_url=f"https://doi.org/{doi}" if doi else "",
+                    venue=str(item.get("category") or ""),
+                )
+            )
+        return out
+
+    def search(self, query: str, category: str = "") -> list[SourcePaper]:
+        """``query`` is a date range: ``"YYYY-MM-DD/YYYY-MM-DD"``."""
+        start, _, end = (query or "").partition("/")
+        if not (start and end):
+            logger.warning("biorxiv: query must be a date range 'YYYY-MM-DD/YYYY-MM-DD'")
+            return []
+        try:
+            resp = self._get(self.url(start.strip(), end.strip()), timeout=30)
+            if resp is None:
+                return []
+            papers = self._parse(resp.json(), self.name)
+            for paper in papers:
+                paper.source_category = category
+            return papers
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("biorxiv: search failed: %s", exc)
+            return []
+
+
+# ════════════════════════════════════════════
+# Registry
+# ════════════════════════════════════════════
+
+# Single source of truth for available sources: registry key -> zero-arg
+# factory producing an instance. get_enabled_sources() builds from here, and
+# tests assert the registry directly. biorxiv/medrxiv share one class and
+# differ only by server, hence the lambda.
+SOURCE_CLASSES: dict[str, Callable[[], PaperSource]] = {
+    "hf_cli": HfCliSource,
+    "openreview": OpenReviewSource,
+    "pwc_api": PwcApiSource,
+    "arxiv_api": ArxivApiSource,
+    "europepmc": EuropePmcSource,
+    "biorxiv": BiorxivSource,
+    "medrxiv": lambda: BiorxivSource("medrxiv"),
+}
+
+
 def get_enabled_sources() -> list[PaperSource]:
-    """Return list of enabled sources based on config"""
-    sources_map: dict[str, PaperSource] = {
-        "hf_cli": HfCliSource(),
-        "openreview": OpenReviewSource(),
-        "pwc_api": PwcApiSource(),
-        "arxiv_api": ArxivApiSource(),
-    }
-    enabled_names = cfg_get("sources.enabled", ["hf_cli"])
-    return [sources_map[n] for n in enabled_names if n in sources_map]
+    """Return instances of the sources enabled in config.
+
+    ``search.enabled`` (config.yaml) lists registry keys; the default remains
+    ``["hf_cli"]`` and an unknown key is skipped rather than raising.
+
+    Note (2026-09-11): this previously read ``sources.enabled`` — a key that
+    does not exist in config.yaml — so the sources listed under
+    ``search.enabled`` never took effect and the default always won.
+    """
+    enabled_names = cfg_get("search.enabled", ["hf_cli"])
+    return [SOURCE_CLASSES[n]() for n in enabled_names if n in SOURCE_CLASSES]
 
 
 def get_raw_searchers() -> list:
@@ -413,13 +637,32 @@ def get_raw_searchers() -> list:
 
 
 def deduplicate(papers: list[SourcePaper]) -> list[SourcePaper]:
-    """Deduplicate by arxiv_id (keep first occurrence)"""
+    """Deduplicate across sources, keeping the first occurrence.
+
+    Key priority: ``arxiv_id`` -> ``doi`` (case-insensitive) -> normalised
+    title. A paper with no usable key is KEPT rather than dropped.
+
+    Note (2026-09-11): the previous version keyed on ``arxiv_id`` alone, written
+    as ``if p.arxiv_id and p.arxiv_id not in seen`` — which silently discarded
+    every record that has no arXiv id, i.e. all biomedical sources (DOI/PMID
+    only). Now such records are kept and merged by DOI instead.
+    """
     seen: set[str] = set()
-    result = []
+    result: list[SourcePaper] = []
     for p in papers:
-        if p.arxiv_id and p.arxiv_id not in seen:
-            seen.add(p.arxiv_id)
-            result.append(p)
+        if p.arxiv_id:
+            key = f"arxiv:{p.arxiv_id}"
+        elif p.doi:
+            key = f"doi:{p.doi.strip().lower()}"
+        elif p.title:
+            key = "title:" + re.sub(r"\W+", "", p.title.lower())
+        else:
+            key = ""
+        if key:
+            if key in seen:
+                continue
+            seen.add(key)
+        result.append(p)
     return result
 
 

@@ -29,10 +29,11 @@ import sqlite3
 import threading
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 from typing import Optional
 
-BASE_DIR = Path(__file__).parent.parent
+from hfpapers.paths import state_root
+
+BASE_DIR = state_root()
 LOG_DIR = BASE_DIR / "logs"
 AUDIT_DB_PATH = BASE_DIR / "data" / "audit.db"
 

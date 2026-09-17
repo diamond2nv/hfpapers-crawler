@@ -160,6 +160,25 @@ twine check dist/*
 twine upload dist/*
 ```
 
+### Release gates (enforced, not advisory)
+
+Two checks run before a tag exists, and both refuse instead of warning:
+
+1. **Coverage** — `scripts/changelog_guard.py <version>`: the version has a changelog entry
+   (found in `docs/CHANGELOG.md` or `docs/CHANGELOG-archive.md`).
+2. **Window** — `scripts/changelog_rotate.py --check`: the changelog is inside its byte budget
+   (rotate it with `python3 scripts/changelog_rotate.py`).
+
+When touching the doc surface, run `python3 scripts/doc_audit.py` — advisory, not a gate.
+
+State locations are gated too: `tests/test_paths.py` (F05) proves an installed package resolves its
+data and config under the user directories — never inside `site-packages` — and F06 fails any new
+`Path(__file__).parent.parent` state path. Resolve paths through `hfpapers/paths.py`.
+
+Push the tag **before** the branch: `git push <remote> vX.Y.Z`, then `git push <remote> main`.
+The same rules are covered by tests (`TestChangelogGate` / `TestChangelogWindowGate`), so a missing
+entry or an over-budget window fails locally instead of at release time.
+
 ## Known Issues and Limitations
 
 1. **PaperWithCode API is deprecated** — `pwc_api` source may return empty results, PwC API has been redirected to HF API

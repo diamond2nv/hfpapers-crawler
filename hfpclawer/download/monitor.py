@@ -16,6 +16,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
+from hfpapers.paths import state_root
 from hfpclawer.download.oai import OaiPmhDownloader
 
 logger = logging.getLogger("hfpclawer.download.monitor")
@@ -176,7 +177,7 @@ class MonitorDaemon:
                 from hfpapers.config import get as cfg_get
                 from hfpclawer.download.base import ResumeState
 
-                base = Path(__file__).resolve().parent.parent.parent
+                base = state_root()
                 db_path = str(base / cfg_get("db.path", "data/arxiv_meta.db"))
                 state = ResumeState(db_path, "oai").get()
                 result["download_state"] = state

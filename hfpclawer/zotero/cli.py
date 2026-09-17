@@ -17,6 +17,7 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
+from hfpapers.paths import state_root
 from hfpclawer.zotero import get_zotero_url, is_zotero_remote
 
 logger = logging.getLogger("zotero.cli")
@@ -1176,7 +1177,7 @@ def _push_after_attach(
     # Fallback paths
     pdf_candidates.extend([
         os.path.expanduser(f"~/hfpclawer/data/pdfs/{arxiv_id}.pdf"),
-        os.path.expanduser(f"~/Documents/Gitlab/Agentic4Sci/hfpapers-crawler/data/pdfs/{arxiv_id}.pdf"),
+        str(state_root() / "data" / "pdfs" / f"{arxiv_id}.pdf"),
     ])
 
     pdf_path = None
@@ -1387,8 +1388,7 @@ def cmd_ingest(
         base = Path(_cfg_get("paths.data_dir", "data")).expanduser().resolve()
         pdf_dir = Path(_cfg_get("paths.pdf_dir", str(base / "pdfs"))).expanduser().resolve()
         if not pdf_dir.is_absolute():
-            import hfpclawer as _hfp
-            pdf_dir = Path(_hfp.__file__).parent.parent / pdf_dir
+            pdf_dir = state_root() / pdf_dir
     except Exception:
         pdf_dir = Path("data/pdfs").resolve()
 

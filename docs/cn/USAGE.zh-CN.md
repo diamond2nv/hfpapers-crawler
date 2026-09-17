@@ -43,6 +43,22 @@ hfpclawer full
 hfpclawer crawl
 ```
 
+### 生物医学数据源（v0.18+）
+
+Europe PMC、bioRxiv 与 medRxiv 已注册为适配器。**注册不等于启用** —— 需要把名字加入
+`config.yaml` 的 `search.enabled`：
+
+```yaml
+search:
+  enabled: [hf_cli, arxiv_api, europepmc, biorxiv, medrxiv]
+```
+
+任何个人或第三方数据（检索式、真实姓名、ORCID）都应放进被 gitignore 的
+`config.local.yaml`，它会深度合并覆盖 `config.yaml`；被跟踪的文件只保留
+`search.biomed_queries: []` 作为声明占位。
+瞬态失败由 `anti_crawl` 的共享策略重试（`max_retries` / `retry_http_codes` /
+`retry_delay_base`）—— 单次 503 不再静默丢掉一整批。
+
 ### 存储管理
 
 ```bash

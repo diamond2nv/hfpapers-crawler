@@ -6,8 +6,8 @@
 # Cross-validates each entity's expected paper against actual arXiv metadata
 
 import sqlite3
-from pathlib import Path
 
+from hfpapers import paths
 from hfpapers.search_queue import _title_similarity as ts
 
 
@@ -122,7 +122,7 @@ CURRENT_MAP = {
 
 
 def main():
-    db_path = str(Path(__file__).parent.parent / "data" / "arxiv_meta.db")
+    db_path = str(paths.data_dir() / "arxiv_meta.db")
     db = sqlite3.connect(db_path)
 
     print("=== VERIFY ALL CORRECTIONS ===\n")

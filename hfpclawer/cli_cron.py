@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from hfpapers.paths import state_root
+
 logger = logging.getLogger("hfpclawer.cli_cron")
 
 # ─── Constants ────────────────────────────────────
@@ -508,10 +510,12 @@ def _build_config(name: str, query: str, keywords: str, from_config: str) -> str
 
 def _detect_project_root() -> str:
     """Find the hfpclawer project root dir."""
-    # Check common locations
+    # Explicit override first, then the working directory; the layout of a
+    # developer's disk is not a constant this package should know.
     candidates = [
-        Path.home() / "Documents/Gitlab/Agentic4Sci/hfpapers-crawler",
-        # Old: forgejo-self-host/ — replaced by symlink → Agentic4Sci/
+        Path(os.environ["HFPCLAWER_REPO_DIR"]).expanduser()
+        if os.environ.get("HFPCLAWER_REPO_DIR")
+        else Path.cwd(),
         Path.cwd(),
     ]
     for d in candidates:
@@ -519,8 +523,7 @@ def _detect_project_root() -> str:
             return str(d)
     # Fallback: try pip show
     try:
-        import hfpclawer
-        return str(Path(hfpclawer.__file__).parent.parent)
+        return str(state_root())
     except Exception:
         return str(Path.cwd())
 

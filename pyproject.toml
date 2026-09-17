@@ -1,15 +1,16 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "hfpclawer"
-version = "0.17.2"
+version = "0.17.3"
 description = "Multi-source academic paper clawler for PDE/neural operator/physics-informed ML — OAI-PMH download + PDF download + SQLite paper_store + Cross-Ref + MCP server"
 authors = [
     {name = "Li Shen"},
 ]
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = [
@@ -23,7 +24,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -54,7 +54,7 @@ Homepage = "https://github.com/diamond2nv/hfpapers-crawler"
 Repository = "https://github.com/diamond2nv/hfpapers-crawler"
 Documentation = "https://github.com/diamond2nv/hfpapers-crawler"
 "Bug Tracker" = "https://github.com/diamond2nv/hfpapers-crawler/issues"
-"Changelog" = "https://github.com/diamond2nv/hfpapers-crawler/blob/main/CHANGELOG.md"
+"Changelog" = "https://github.com/diamond2nv/hfpapers-crawler/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 llm = [
@@ -130,7 +130,7 @@ markers = [
     "slow: marks tests as slow (e.g. venv creation + pip install), deselected by default",
     "gate_b: Geometry/base functionality verification gates (B10-B11)",
     "gate_c: Topology/pipeline verification gates (C01-C02)",
-    "gate_f: Magnitude/config verification gates (F01-F02)",
+    "gate_f: Magnitude/config verification gates (F01-F02) + state-location gates (F05-F06)",
 ]
 
 [tool.coverage.run]
@@ -164,7 +164,7 @@ ignore = ["E501"]
 [dependency-groups]
 dev = [
     "fastapi>=0.139.0",
-    "geopy[graph]>=2.4.1",
+    "hfpclawer[graph]",
     "pytest>=9.1.1",
     "sympy>=1.14.0",
 ]

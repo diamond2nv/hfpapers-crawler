@@ -225,7 +225,7 @@ The following services are **not required** for basic usage. They provide additi
 
 **Purpose:** L1 cross-validation — independently verify SymPy results using a second Computer Algebra System (CAS).
 
-**Status:** 🟢 Implemented in external repos (`gsnv-theory`, `coc-inverse-agent`). Not yet integrated into `hfpclawer.verify` core. Integration planned for v0.8.x.
+**Status:** 🟢 Implemented in private downstream projects (outside this repository). Not yet integrated into `hfpclawer.verify` core. Integration planned for v0.8.x.
 
 ### Option A: Container (Recommended)
 
@@ -411,7 +411,7 @@ verify:
 
 **Status:** 🔴 Not implemented. Reserved for L6 in future major versions.
 
-**Documentation:** See `docs/formula-cross-validation-architecture.md` §10 for the Lean 4 design.
+**Documentation:** planned — the Lean 4 design write-up (`formula-cross-validation-architecture.md`) does not exist yet.
 
 ## Cost Summary
 

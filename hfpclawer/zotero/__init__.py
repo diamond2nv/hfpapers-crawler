@@ -44,8 +44,9 @@ def _ensure_dotenv() -> None:
         return
     _DOTENV_LOADED = True
     try:
-        from dotenv import load_dotenv
         from pathlib import Path
+
+        from dotenv import load_dotenv
 
         # 1. CWD upward (covers dev repo, project dirs)
         load_dotenv()
@@ -263,7 +264,7 @@ class ZoteroClient:
             )
             parts = result.stdout.strip().split()
             if len(parts) >= 3:
-                return parts[2]  # Gateway IP of the LAN NAT (route print)
+                return parts[2]  # Gateway IP (e.g. 172.26.160.1)
         except Exception:
             pass
         return None

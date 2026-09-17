@@ -42,6 +42,9 @@ search:
   - openreview
   - arxiv_api
   max_per_dim: 30
+  # 生物医学检索式：真实清单在本机私有的 config.local.yaml（gitignored）。
+  # 公开仓只保留结构，不含具体检索方向。
+  biomed_queries: []
   queries:
   - query: PDE neural operator
     category: neural-operator
@@ -409,7 +412,6 @@ stepping:
     tex_bib: false
     person_cards: true
   # Tracked STRUCTURE only. Real layer content (seeds, filter_authors,
-  # orcid_seeds) belongs to the operator and lives in an untracked local
-  # config; the inline values previously exposed third-party names and
-  # ORCIDs in this public repository.
+  # orcid_seeds) lives in config.local.yaml, which is gitignored -- the inline
+  # values previously exposed third-party names and ORCIDs in the public repo.
   layers: []

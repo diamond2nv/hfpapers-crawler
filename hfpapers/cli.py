@@ -45,6 +45,7 @@ from rich.table import Table
 
 from hfpapers.config import get, load_config
 from hfpapers.hardware import HardwareProbe
+from hfpapers.paths import state_root
 
 app = typer.Typer(name="hfpclawer", help="HF Papers crawler + Wiki integration")
 
@@ -1997,7 +1998,7 @@ def download_meta(  # noqa: F811 — renamed from `download` to avoid redefiniti
     if status:
         # View status
         db_path = str(
-            Path(__file__).resolve().parent.parent / cfg_get("db.path", "data/arxiv_meta.db")
+            state_root() / cfg_get("db.path", "data/arxiv_meta.db")
         )
         state = ResumeState(db_path, source).get()
         console.print(f"\n📊 [{source}] Download Status")
@@ -2313,7 +2314,7 @@ def monitor(
     from hfpclawer.download.monitor import MonitorDaemon
 
     load_config()  # ensure config is loaded
-    base_dir = Path(__file__).resolve().parent.parent
+    base_dir = state_root()
     daemon = MonitorDaemon(base_dir=str(base_dir), interval=interval)
 
     if action == "start":

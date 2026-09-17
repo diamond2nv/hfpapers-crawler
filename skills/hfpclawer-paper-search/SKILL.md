@@ -67,6 +67,29 @@ Or run the full pipeline at once:
 hfpclawer full --max-pages 3 --to-wiki
 ```
 
+## Multi-Source Registry (v0.18+)
+
+Beyond the default HF/arXiv path, three biomedical adapters are registered — `europepmc`,
+`biorxiv`, `medrxiv`. They run only when enabled:
+
+```yaml
+search:
+  enabled: [hf_cli, arxiv_api, europepmc, biorxiv, medrxiv]
+```
+
+```bash
+hfpclawer source-list                               # which adapters exist
+hfpclawer source-search europepmc "CRISPR screen"   # query one adapter directly
+```
+
+- **Registration is not enablement** — an adapter in the registry does nothing until its key is in
+  `search.enabled`, so adding one cannot change existing behaviour.
+- Keep personal query lists and real names in the gitignored `config.local.yaml`;
+  `search.biomed_queries: []` in the tracked file is the declared placeholder slot.
+- Europe PMC returns **no abstract** unless `resultType=core` is set (the adapter sets it);
+  bioRxiv/medRxiv expose a date-range API only, so keyword filtering happens at ingest.
+- Transient failures retry through `anti_crawl.max_retries` / `retry_http_codes` / `retry_delay_base`.
+
 ## Prerequisites
 
 ```bash

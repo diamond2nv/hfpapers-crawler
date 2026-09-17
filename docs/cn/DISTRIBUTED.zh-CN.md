@@ -66,7 +66,8 @@ RANDOMIZE_DOWNLOAD_DELAY = True
 ```bash
 # 服务器 A（同时运行 Redis）
 cd /path/to/hfpapers-crawler
-hfpclawer crawl arxiv        # 启动爬虫，从共享队列拉取
+# 历史设计说明：`hfpclawer crawl` 从未实现 —— 现已由源注册表 + `search` 取代
+# （见 docs/ARCHITECTURE.md 的多源注册表一节）
 
 # 服务器 B（从 A 通过 SSH 启动）
 ssh user@server-b "cd /path/to/hfpapers-crawler && hfpclawer crawl arxiv"

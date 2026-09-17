@@ -18,6 +18,7 @@ from typing import Optional
 import networkx as nx
 import yaml
 
+from hfpapers import paths
 from hfpapers.graph.citation_expander import CitationExpander
 from hfpapers.graph.config_schema import (
     STEPPING_DEFAULTS,
@@ -318,7 +319,7 @@ def _find_config() -> str:
     candidates = [
         Path("config.yaml"),
         Path.home() / ".config/hfpclawer/config.yaml",
-        Path(__file__).parent.parent.parent / "config.yaml",
+        paths.config_path(),
     ]
     for c in candidates:
         if c.exists():

@@ -28,12 +28,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from hfpapers.paths import state_root
+
 logger = logging.getLogger("hfpapers.tex_converter")
 
 # ─── Paths ────────────────────────────────────────────
 
 # Resolve relative to project root or config
-_BASE_DIR = Path(__file__).resolve().parent.parent
+_BASE_DIR = state_root()
 TEX_DIR = _BASE_DIR / "data" / "tex_src"
 MD_DIR = _BASE_DIR / "data" / "mds"
 WIKI_DIR = Path.home() / "wiki" / "raw" / "papers"

@@ -42,9 +42,27 @@ hfpclawer search --dry-run           # Display only, don't save
 # Full pipeline: search → download → convert
 hfpclawer full
 
-# Multi-source search (config-driven)
-hfpclawer crawl
+# Multi-source search (config-driven): the enabled sources come from search.enabled
+hfpclawer search
+hfpclawer source-list                              # which adapters exist
+hfpclawer source-search europepmc "CRISPR screen"  # query one adapter directly
 ```
+
+### Biomedical sources (v0.18+)
+
+Europe PMC, bioRxiv and medRxiv are registered adapters. Registration does not enable them — add
+the names to `search.enabled` in `config.yaml`:
+
+```yaml
+search:
+  enabled: [hf_cli, arxiv_api, europepmc, biorxiv, medrxiv]
+```
+
+Anything personal or third-party (query lists, real names, ORCIDs) belongs in the gitignored
+`config.local.yaml`, which deep-merges over `config.yaml`; the tracked file keeps
+`search.biomed_queries: []` as the declared slot. Transient failures are retried by the shared
+policy in `anti_crawl` (`max_retries`, `retry_http_codes`, `retry_delay_base`) — a single 503 no
+longer drops a whole batch.
 
 ### Storage Management
 

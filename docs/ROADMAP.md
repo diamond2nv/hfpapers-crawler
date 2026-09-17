@@ -5,6 +5,28 @@
 
 ---
 
+## 实际状态（截至 v0.18.16，2026-09-17）
+
+> ⚠️ 本文件是**历史规划**（标题停留在 v0.10.x 时代，正文含 v0.15/v0.16 两轮规划），
+> **不是当前状态**。下面是 §2/§2b–§2f 计划项的落地对照——多数已发布，少数从未实现。
+> 计划与实现的**差集**比计划本身更值得读。运行时状态以 `docs/CHANGELOG.md` 为准
+> （滚动窗口；更早条目见 `docs/CHANGELOG-archive.md`）。
+
+| 计划项 | 实际状态 |
+|:--|:--|
+| `hfpclawer run --ledger` + `data/ledger.jsonl` | ✅ 以 `hfpclawer ledger` 发布；**`run` 子命令从未实现** |
+| `check-new` 0-token 变动检测（cron monitor gate 第一层） | ✅ 已发布 |
+| 正例池 `pool`（append-only + 分层弱标签） | ✅ 已发布（v0.16.8） |
+| 学习层精排 `rank train`（lightgbm → 原生模型） | ✅ 已发布（L1，opt-in） |
+| `recommend` 三层融合（repo 画像=虚拟用户） | ✅ 已发布（v0.16.5–v0.16.9） |
+| `data/golden_positive.jsonl` golden set 自举 | ❌ 未创建——该角色由 `data/positive_pool.jsonl` 承担 |
+| `scripts/migrate_status.py` 状态迁移脚本 | ❌ 未创建——改为 `_init_db` 内幂等 ALTER + 存量回填 |
+| 多源扩展（Europe PMC / bioRxiv / medRxiv） | ✅ 已发布（v0.18.0–v0.18.8）；顺带修掉去重静默丢数据与配置键失效 |
+| 公开线脱敏重切 | ✅ v0.17.0–v0.17.2（公开线**自成版本序列**，不在开发线 changelog 主线） |
+| 变更日志门禁（条目/窗口/历史） | ✅ v0.18.15–v0.18.16（`scripts/changelog_guard.py` + `changelog_rotate.py`） |
+
+---
+
 ## Why v0.10?
 
 Current v0.9.x focuses on **paper pipeline** (search → download → ingest → annotate → audit).
@@ -121,11 +143,10 @@ add a 5-line `post_rules` section in `RelevanceDetector`, not a rule engine.
 
 ## v0.11.x and Beyond
 
-Future planning moved to wiki:
-→ [wiki: `concepts/hfpclawer-v0.11x-plan.md`](https://<nas-dokuwiki>/doku.php?id=concepts:hfpclawer-v0.11x-plan)
-(Local copy: `~/wiki/concepts/hfpclawer-v0.11x-plan.md`)
+Future planning moved out of this repository into the maintainers' private notes
+(`concepts/hfpclawer-v0.11x-plan`, reachable on the LAN only).
 
-Topics covered in the wiki page:
+Topics covered there:
 - OWL/RDF Export (was Phase 6)
 - OWL Reasoning & Consistency (was Phase 7)
 - Enhanced Community Detection (was Phase 8)
@@ -265,7 +286,7 @@ System dependency: `sudo apt install graphviz`
 ### Three-Subgraph Architecture
 
 ```
-hfpclawer (this repo)         hedge (~/Documents/Gitlab/forgejo-self-host/hedge/)
+hfpclawer (this repo)         peer repo (declared via HFPCLAWER_PEER_REPOS)
     Subgraph A                    Subgraph B + Subgraph C
     ┌─────────────────┐          ┌──────────────────────────────┐
     │ Academic Output  │────about_topic────▶│ Discipline Terminology│
@@ -364,7 +385,7 @@ pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出�
 | 新技术 | 落点 | 模块 |
 |:--|:--|:--|
 | **SKILL.state**（显式可变状态替代 append-only 历史，2608.26263）| 论文状态语义化：`pending → verified / suspect / stale` 三态显式（非 append-only 事件流）；抓取 checkpoint 显式化（graph expand-hub 已有 checkpoint——推广到 import/crawl）| `paper_store` 状态机 + `crawl` checkpoint |
-| **HL ledger**（hl_benchmark/ledger.py：git_commit+diff_identifier+llm_cost+next_hypothesis）| `hfpclawer run --ledger`：每次 run 写 ledger 行（时间戳/sf_id 增量/来源/**llm_cost**/next_hypothesis）——可审计+可复现+成本追踪 | `run` 命令 + `data/ledger.jsonl` |
+| **HL ledger**（hl_benchmark/ledger.py：git_commit+diff_identifier+llm_cost+next_hypothesis）| ⚠️ **`run` 子命令未实现**——实际发布为 `hfpclawer ledger`（见 §实际状态）。原计划 `hfpclawer run --ledger`：每次 run 写 ledger 行（时间戳/sf_id 增量/来源/**llm_cost**/next_hypothesis）——可审计+可复现+成本追踪 | `run` 命令 + `data/ledger.jsonl` |
 | **0-token monitor 分层**（Pantheon/deep-research 融合点）| `check-new [source]`：0-LLM 变动检测（时间戳/ID 比较）——cron monitor 第一层；有变化才唤醒 LLM | `check-new` 命令（复用 evolved.py 探测）|
 | **一致性路由**（TTPO/无教师对齐：判断"一致性"优于判断"正确性"）| 多源元数据（arXiv/OpenAlex/Crossref）**冲突 = suspect 标记**（不进 verified 计数）——citation-audit 三源审计已做交叉，升级为状态字段而非一次性审计 | `citation-audit` → 状态回写 |
 | **无教师自监督评估**（Self-OPD 思想）| golden set 自举：经人工 review 确认的论文自动沉淀为**正例池** → recall 基线随使用自动扩大（非一次性 50 对）| `tests/` golden → `data/golden_positive.jsonl` 增量 |

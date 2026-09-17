@@ -15,6 +15,8 @@ import re
 import sqlite3
 from pathlib import Path
 
+from hfpapers.paths import state_root
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -196,7 +198,7 @@ BIBTEX_BLOCK = "\n## References\n\n### BibTeX Citation\n```bibtex\n{bibtex}\n```
 
 
 def inject_references(entity_path: str, arxiv_id: str, title: str) -> bool:
-    base = Path(__file__).parent.parent
+    base = state_root()
     db_path = str(base / "data" / "arxiv_meta.db")
     conn = sqlite3.connect(db_path)
     row = conn.execute(

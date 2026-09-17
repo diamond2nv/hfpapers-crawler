@@ -19,12 +19,22 @@ import argparse
 import os
 import sys
 import time
+from pathlib import Path
 
 # ── Config ────────────────────────────────
 
-HFPCLAWER_ROOT = os.path.expanduser(
-    "~/Documents/Gitlab/Agentic4Sci/hfpapers-crawler"
-)
+def _repo_root() -> str:
+    """Resolve the checkout: HFPCLAWER_REPO_DIR, else the nearest pyproject.toml."""
+    env = os.environ.get("HFPCLAWER_REPO_DIR")
+    if env:
+        return os.path.expanduser(env)
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pyproject.toml").is_file():
+            return str(parent)
+    return os.getcwd()
+
+
+HFPCLAWER_ROOT = _repo_root()
 os.chdir(HFPCLAWER_ROOT)
 sys.path.insert(0, ".")
 

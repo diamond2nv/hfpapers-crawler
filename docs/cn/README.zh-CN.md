@@ -15,11 +15,13 @@
 
 ## ✨ 特性
 
-- **科研级论文发现**：arXiv / OpenReview / Semantic Scholar 多源抓取 + 相关性打分 + 引文图谱分析 + **SimClusters 式社区引导 2 跳扩展**（`graph expand-hub --community`：seed → Louvain 社区 → 社区 hub 论文——忠实映射 x-algorithm SimClusters）——主题聚焦的"以文找文"
-- **可审计学术网络推荐**：每次扩展可输出 JSONL **审计轨迹**（哪些论文被采纳进 frontier/hub 分/社区标签）；可选学习层 `hfpclawer rank train`（lightgbm）在该轨迹上训练，树特征重要性即解释。符号层 0-token 默认，学习层 opt-in（`hfpclawer[rank]`）
-- **验证状态机（v0.16+）**：每篇论文带显式派生状态 `pending → verified / stale / suspect`——元数据冲突（如 DOI 解析到的 arXiv ID 与库中不同）由符号化 0-LLM 检查标记 **suspect**，须人工裁决——无静默污染、无 LLM 判决
-- **第一方推荐信号**：查询历史 × 文本相似度 + 相关性 + 验证状态门禁，全本地计算——**零外部依赖**（离线可用，无需 Zotero）；Zotero 仅在存在时为可选增强适配器——只有带 DOI/arXiv 的学术条目同步回写为兴趣信号（pydantic 契约 `hfpapers/contracts.py`）
-- **0-token 就绪**：确定性变化检测 + cron/monitor 分层（见 Hermes Agent 集成技能）
+五项核心能力，一屏看完 —— 详细说明见 [`docs/cn/FEATURES.zh-CN.md`](FEATURES.zh-CN.md)。
+
+- **发现** —— arXiv / OpenReview / Semantic Scholar / Papers-with-Code，加上 Europe PMC 与 bioRxiv/medRxiv，统一在一个源注册表之后：相关性打分、引文图谱分析、SimClusters 式社区引导两跳扩展（"跟这篇像的论文"）。 → [详解](FEATURES.zh-CN.md#1-发现)
+- **验证** —— 每篇论文带显式状态 `pending → verified / stale / suspect`；元数据冲突（如 DOI 解析出的 arXiv id 与记录不一致）由符号化 0-LLM 检查标出，需人工裁决 —— 既不静默覆盖，也不交给 LLM 判定。 → [详解](FEATURES.zh-CN.md#2-验证)
+- **推荐只用本地信号** —— 查询历史 × 相似度 × 相关性 × 验证状态门禁、仓库级虚拟用户画像（`REPO_USER.md` 的 accepts/rejects 即显式反馈）、可选 Zotero 回写、零配置正例池。完全离线：无外部服务，无需注册。 → [详解](FEATURES.zh-CN.md#3-推荐)
+- **私有数据保持私有** —— 被 gitignore 的 `config.local.yaml` 深度合并覆盖被跟踪配置，真实姓名、ORCID、检索式不会进入公开文件；数据源通过 `search.enabled` 启用（*注册不等于启用*），并共享同一套重试策略。 → [详解](FEATURES.zh-CN.md#4-配置与数据源)
+- **Agent 优先且默认低成本** —— CLI 优先 + MCP server；cron 用确定性 0-token 变化检测；TCP → QUIC 传输阶梯且每次抓取记 sha256；机械门禁（脱敏、变更日志覆盖与窗口、文档审计）用拒绝代替纪律。 → [详解](FEATURES.zh-CN.md#5-agent-优先)
 
 ---
 

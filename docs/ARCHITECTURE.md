@@ -75,6 +75,27 @@ Focused on automated collection of academic papers in PDE/neural operator/physic
 | `pipelines.py` | Scrapy Pipeline chain (4 stages) | `StorePipeline` / `ClassifyPipeline` / ... |
 | `middlewares.py` | Scrapy anti-crawl middleware (6 layers) | `RandomUserAgentMiddleware` / ... |
 
+## Multi-Source Registry (v0.18+)
+
+Document sources implement a two-member contract (`PaperSource`: `name` + `search`) and register in
+one table, `SOURCE_CLASSES` in `hfpapers/sources.py`:
+
+| Registry key | Adapter | Note |
+|:--|:--|:--|
+| `hf_cli` | HuggingFace Papers | historical default |
+| `arxiv_api` | arXiv API | |
+| `openreview` | OpenReview | nested `content` needs `_safe_field()` |
+| `pwc_api` | Papers-with-Code | deprecated upstream (HF API redirect) |
+| `europepmc` | Europe PMC | `resultType=core` is required or abstracts come back empty |
+| `biorxiv` / `medrxiv` | bioRxiv / medRxiv | date-range API only — no keyword search |
+
+**Registration is not enablement**: a source runs only when its key appears in `search.enabled`
+(`get_enabled_sources()`), so adding an adapter cannot change existing behaviour. Per-source
+parameters live under `search.sources.<name>`; network calls go through `PaperSource._get()`, which
+applies the shared retry policy from `anti_crawl.*`; and cross-source dedup keys on
+`arxiv_id → doi → title`, keeping records that have no usable key at all. Sensitive configuration
+(real ORCIDs, names, query lists) lives in the gitignored `config.local.yaml`, deep-merged over the
+tracked `config.yaml`.
 ## Data Flow
 
 ```

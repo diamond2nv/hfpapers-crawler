@@ -37,12 +37,12 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 import requests
 
 from hfpapers.config import get as cfg_get
+from hfpapers.paths import state_root
 
 logger = logging.getLogger("hfpapers.paper_store")
 
@@ -324,17 +324,17 @@ def _db_path() -> str:
 
     Resolution order:
       1. HFPAPERS_DATA_DIR env var (absolute path)
-      2. config.yaml → paths.data_dir (relative → resolved against package root,
+      2. config.yaml → paths.data_dir (relative → resolved against the state root,
          matching evolved.py BASE_DIR semantics)
-      3. fallback: <package_root>/data/
+      3. fallback: <state root>/data/
 
-    ⚠️ FIX (v0.15.1): relative paths are resolved against the package root
-    (Path(__file__).parent.parent), NOT os.getcwd(). Previously CWD-based
-    resolution created nested `data/data/papers.db` empty DBs when the CLI
-    was run from inside `data/` — metadata went to the nested empty DB while
-    PDF/MD (BASE_DIR-based in evolved.py) were written correctly.
+    The state root is the repository in a checkout and the platform's user data
+    directory once installed (see hfpapers/paths.py), never the current working
+    directory. ⚠️ FIX (v0.15.1): CWD-based resolution created nested
+    `data/data/papers.db` empty DBs when the CLI was run from inside `data/` —
+    metadata went to the nested empty DB while PDF/MD were written correctly.
     """
-    pkg_root = Path(__file__).parent.parent
+    pkg_root = state_root()
     env_dir = os.environ.get("HFPAPERS_DATA_DIR")
     if env_dir:
         base = env_dir if os.path.isabs(env_dir) else os.path.join(str(pkg_root), env_dir)

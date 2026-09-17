@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """arxiv_transport.py — Layered arXiv acquisition transport (CN-friendly).
 
-China-network reality (2026-09-03, measured on a CN connection): arxiv.org TCP/443 is reset
+China-network reality (2026-09-03, measured on a LAN peer): arxiv.org TCP/443 is reset
 at the TLS-SNI fingerprint layer (curl: 5/5 RST ~0.13s), while UDP/443 QUIC
 (HTTP/3) is NOT reset — aioquic handshake succeeds and the server responds.
 Browser engines (Chromium/Camoufox) reach arXiv directly via QUIC.
@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+from hfpapers import paths
 
 logger = logging.getLogger("hfpapers.arxiv_transport")
 
@@ -562,7 +564,7 @@ def fetch_with_fallback(
 # ── Acquisition audit (append-only JSONL) ────────────────────────────────
 
 def acquisition_log_path(data_dir: Optional[Path] = None) -> Path:
-    base = data_dir or Path(__file__).resolve().parent.parent / "data"
+    base = data_dir or paths.data_dir()
     return base / "download_audit.jsonl"
 
 

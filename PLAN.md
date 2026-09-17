@@ -1,101 +1,47 @@
-# hfpclawer — Development Plan (v0.6.x)
+# hfpclawer — Plan (light)
 
-master 当前状态：`v0.6.0`（`b1ffef7`，import 原子命令完成）。
-本 PLAN 记录当前迭代阶段的具体工作和实现细节。
+**Scope.** This file is a one-screen summary, not the plan of record. The detailed plan is
+[`docs/ROADMAP.md`](docs/ROADMAP.md); the shipped record is [`docs/CHANGELOG.md`](docs/CHANGELOG.md);
+the rules an agent must follow are in [`AGENTS.md`](AGENTS.md). The v0.6.x-era plan that used to fill
+this file is preserved in git (`git log -- PLAN.md`).
 
----
+## What the project does
 
-## v0.6.0 — ✅ DONE (2026-06-28)
+Local-first paper intelligence for agents:
 
-### 交付
+1. **Find** — search several document sources through one registry, keyword- and relevance-filtered.
+2. **Fetch** — download PDF/TeX through a transport ladder that survives unreliable networks, with
+   resumable transfers and sha256 audit records.
+3. **Verify** — record what is actually known about each paper; contradictions become `suspect`
+   rather than silent corruption. Symbolic checks only, no LLM verdicts.
+4. **Store** — SQLite (`data/papers.db`) with stable Snowflake ids, Crossref/arXiv identifiers, and
+   an append-only acquisition audit.
+5. **Serve** — CLI (`hfpclawer …`) and MCP server, so an agent can drive all of it without a UI.
 
-| 文件 | 说明 |
-|:-----|:------|
-| `hfpclawer/import_paper/resolver.py` | 统一标识符解析 (arXiv/DOI/URL → ResolveResult) |
-| `hfpclawer/import_paper/importer.py` | 全流程管线: resolve→dedup→PDF download(3级回退)→convert→store |
-| `hfpclawer/import_paper/__init__.py` | 包入口 |
-| `hfpapers/cli.py` | `hfpclawer import` 命令 |
-| `tests/test_import.py` | 19 tests (all pass) |
+## How to work in it (agent-first)
 
-### 发现的 Bug
-- **arXiv 正则匹配到 DOI**: `\b(\d{4}\.\d{4,5})\b` 不加 `\b` 时 DOI 字符串 `2025.11443` 被错误匹配 → 已修复
+- **CLI first**: every capability worth having is a subcommand with a documented flag set — if it can
+  only be done from Python internals, it is not finished.
+- **Deterministic by default**: routine monitoring must cost 0 LLM calls (`check-new`), and any
+  judgement call is opt-in.
+- **Nothing personal in tracked files**: real names, ORCIDs, query lists and paths go in the
+  gitignored overlay (`config.local.yaml`, `~/.hfpclawer/profile.yaml`).
+- **Gates over discipline**: a rule that matters is a check that refuses, not a sentence in a doc —
+  sanitization and changelog gates live in `scripts/pre-push` and `scripts/release.sh`; the gate
+  tests live in `tests/test_gates.py`.
+- **No hard-coded paths**: resolve through config; machine differences belong in the environment.
 
----
+## Toolchain
 
-## v0.6.1 — 搜索超时控制 + PDF 回退链增强 (IN PROGRESS)
+`ruff` (line-length 100, double quotes) · `pyright` · `pytest` (gate tests included) · `uv` for
+environments · `python -m build` + `twine` for releases.
 
-### P1-1: 搜索超时控制
+## Where to look
 
-**问题：** `hfpclawer search` 的多源分发器可能悬挂 60s+（HF API 限流、OpenReview down 等）。
-
-**方案：**
-- 每个 source 加 `concurrent.futures.ThreadPoolExecutor` + 15s timeout
-- 首个 source 返回后即用，超时的抛弃（日志记录）
-- CLI 暴露 `--search-timeout` 参数（默认 30s）
-
-**文件清单：**
-- `hfpapers/sources.py` — 改造 `SearchDispatcher` 为并发搜索
-- `hfpapers/cli.py` — 暴露 `--search-timeout` 参数
-- `tests/test_sources_timeout.py` — 新增 8 个测试
-
-### P1-2: PDF 下载回退链
-
-**问题：** PDF 下载只有 arXiv PDF 一条路径，arXiv 超时直接失败。
-
-**方案：**
-```
-arXiv PDF (primary, 已实现)
-  → arXiv HTML (fallback, pyquery 提取 + weasyprint 转 PDF)
-    → DOI → ... (reserved for Sci-Hub / Unpaywall)
-```
-
-**文件清单：**
-- `hfpclawer/download/pdf.py` — 新增 PDF 下载器（从 importer.py 抽出）
-- `hfpclawer/import_paper/importer.py` — 引用新下载器
-
-### P1-3: 大文件下载
-
-**问题：** 现有 `urllib` 下载对 >10MB PDF（如 JCP 论文～24MB）容易超时。
-
-**方案：** streaming + chunked read + 60s timeout（已在 `_download_pdf` 中部分实现）
-
----
-
-## v0.6.2 — 开发体验 (NEXT)
-
-### P0-2: Editable Dev Mode 自动化
-
-Makefile target:
-```makefile
-.PHONY: dev
-dev:
-	uv pip install -e .
-```
-
-### ruff 归零
-
-Fix remaining 13 ruff errors across codebase.
-
----
-
-## 后续迭代（v0.7.x+）
-
-详见 `ROADMAP.md`。关键路径：
-- **v0.7.0**: Formula Registry + L1→L5 (从 gsnv-theory 迁移)
-- **v0.7.1**: Citation Network (S2/CrossRef/OpenAlex 3层回退)
-- **v0.8.0**: 工程质量 (ruff 归零 + CI)
-
----
-
-## 已用工具链
-
-| 工具 | 配置 |
-|:-----|:------|
-| ruff | line-length=100, 双引号, E/W/F/I/N |
-| pytest | 含 typeguard + cov 插件 |
-| pyright | basic 模式，忽略 torch/scrapy/sentence_transformers 等可选依赖 |
-| uv | 虚拟环境 + pip install -e |
-
----
-
-*本 PLAN 由 Hermes Agent 于 2026-06-28 更新。*
+| Question | File |
+|:--|:--|
+| How do I use it? | [`README.md`](README.md), [`docs/USAGE.md`](docs/USAGE.md) |
+| How does it fit together? | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| What changed, when? | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) |
+| How do I release it? | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) |
+| What are the rules? | [`AGENTS.md`](AGENTS.md) |

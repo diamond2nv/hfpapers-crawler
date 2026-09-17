@@ -75,6 +75,27 @@ HF Papers 多源论文爬虫 + SQLite 存储引擎 + Crossref 交叉验证 + Scr
 | `pipelines.py` | Scrapy 管道链（4 阶段） | `StorePipeline` / `ClassifyPipeline` / ... |
 | `middlewares.py` | Scrapy 反爬中间件（6 层） | `RandomUserAgentMiddleware` / ... |
 
+## 多源注册表 (v0.18+)
+
+文档源实现一个两成员契约（`PaperSource`：`name` + `search`），并注册到
+`hfpapers/sources.py` 里的单一表 `SOURCE_CLASSES`：
+
+| 注册键 | 适配器 | 说明 |
+|:--|:--|:--|
+| `hf_cli` | HuggingFace Papers | 历史默认源 |
+| `arxiv_api` | arXiv API | |
+| `openreview` | OpenReview | 嵌套 `content` 需要 `_safe_field()` |
+| `pwc_api` | Papers-with-Code | 上游已弃用（重定向到 HF API） |
+| `europepmc` | Europe PMC | 不加 `resultType=core` 则摘要为空 |
+| `biorxiv` / `medrxiv` | bioRxiv / medRxiv | 只有日期区间 API —— 无关键词检索 |
+
+**注册不等于启用**：只有键出现在 `search.enabled` 中时该源才会运行
+（`get_enabled_sources()`），因此新增适配器不会改变既有行为。各源参数位于
+`search.sources.<name>`；网络调用统一走 `PaperSource._get()`，套用
+`anti_crawl.*` 的共享重试策略；跨源去重键为 `arxiv_id → doi → title`，
+无可用键的记录一律保留。敏感配置（真实 ORCID、姓名、检索式）放在被 gitignore
+的 `config.local.yaml`，深度合并覆盖被跟踪的 `config.yaml` —— 公开文件里
+只保留声明占位。
 ## 数据流
 
 ```

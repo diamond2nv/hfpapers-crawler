@@ -52,12 +52,19 @@ htmlcov/
 # Downloaded paper PDFs (large, generated)
 raw_pdfs/
 
+# ── arXiv source bundles (fetched intermediates) ──
+sources/
+
 # ── Hermes Agent (internal) ──
 .hermes/
 
 # ── CodeGraph index (generated) ──
 .codegraph/
 scripts/researcher-audit/people.yaml
+
+# ── Local config overlay (real names / ORCIDs / local paths — NEVER public) ──
+config.local.yaml
+scripts/cron-repos.local.json
 
 # ── Profiles (sensitive — real user interest must NEVER be public) ──
 .hfpclawer/

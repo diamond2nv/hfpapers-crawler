@@ -45,10 +45,11 @@ from typing import Callable, List, Optional
 from hfpapers.config import get as cfg_get
 from hfpapers.logger import get_audit, init_logging, record_event
 from hfpapers.paper_store import get_store
+from hfpapers.paths import state_root
 
 logger = logging.getLogger("hfpapers.download_queue")
 
-BASE_DIR = Path(__file__).parent.parent
+BASE_DIR = state_root()
 PDF_DIR = BASE_DIR / cfg_get("paths.pdf_dir", "data/pdfs")
 MD_DIR = BASE_DIR / cfg_get("paths.md_dir", "data/md_extracts")
 WIKI_DIR = Path.home() / "wiki" / "raw" / "papers"

@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
+from hfpapers.paths import state_root
 from hfpclawer.download.base import BaseDownloader
 
 logger = logging.getLogger("hfpclawer.download.kaggle")
@@ -46,14 +47,14 @@ class KaggleDownloader(BaseDownloader):
         """Default state database path"""
         from hfpapers.config import get as cfg_get
 
-        base = Path(__file__).resolve().parent.parent.parent
+        base = state_root()
         return str(base / cfg_get("db.path", "data/arxiv_meta.db"))
 
     def _default_data_dir(self) -> str:
         """Default data directory"""
         from hfpapers.config import get as cfg_get
 
-        base = Path(__file__).resolve().parent.parent.parent
+        base = state_root()
         return str(base / cfg_get("data.dir", "data"))
 
     def jsonl_path(self) -> Path:

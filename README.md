@@ -20,15 +20,13 @@ Built with SQLite paper_store, Crossref cross-validation, anti-crawl Scrapy pipe
 
 ## ✨ Features
 
-- **Research-engineered paper discovery** — arXiv / OpenReview / Semantic Scholar multi-source clawling with relevance scoring, citation-graph analysis, and **SimClusters-style community-guided 2-hop expansion** (`graph expand-hub --community`: seed → its Louvain communities → community hub papers, faithfully mapped from x-algorithm SimClusters) for topic-focused "papers like this one" exploration.
-- **Auditable scholarly-network recommendations** — every expansion run can emit a JSONL **audit trail** (which papers were adopted into the frontier, hub scores, community labels), and the optional learned layer (`hfpclawer rank train`, lightgbm → native model) trains on that trail with tree feature importance as the explanation. Heuristic layer stays 0-token default; learning is opt-in (`hfpclawer[rank]`).
-- **Verification status machine (v0.16+)** — every paper carries an explicit, derived state: `pending → verified / stale / suspect`. Metadata conflicts (e.g. a DOI resolving to a different arXiv ID than recorded) are flagged **suspect** by symbolic 0-LLM checks and require human adjudication — no silent corruption, no LLM-judged verdicts.
-- **First-party recommendation signals** — search history × text similarity + relevance scoring + verification-state gating, all computed from your local store. **No external dependency**: works fully offline, no Zotero required. Zotero (when present) is an optional enhancement adapter — only DOI/arXiv-bearing scholarly items sync back as interest signals (pydantic contract `hfpapers/contracts.py`).
-- **Repo-scoped profiles → recommendations (v0.16.5+)** — every repo consuming hfpclawer is its own *virtual user*: `hfpclawer init` scaffolds a `REPO_USER.md` interest profile (real personal interests live in `~/.hfpclawer/profile.yaml`, never in public repos), and `hfpclawer recommend` fuses config + repo + machine layers with per-hit provenance, through the verification gate.
-- **Declarations as explicit feedback (v0.16.9+)** — `REPO_USER.md` v2 `accepts/rejects` blocks (SKILL.state: active/superseded/revoked; `scope: topic-exclusion` filters candidates, `scope: self-constraint` documents repo choices without filtering papers about them); paper-level accepts fold into the positive pool as strongest-layer examples.
-- **Zotero sync-back (v0.16.7)** — `hfpclawer zotero sync-back` pulls Favor-tagged items through the scholarly contract (web pages/programs/reports are dropped before any lookup) and marks matching local papers `favorited` — an interest signal the learned ranker consumes.
-- **Zero-config positive-example pool (v0.16.8)** — `hfpclawer pool` accumulates training signal from fully local, label-free sources: hub audit trails, store verification status and Zotero favorites (layered weak labels: verified/manual/favorited/adopted vs truncated). Suspect papers never enter; live gates keep the pool clean; append-only, gitignored, zero telemetry — open-source safe.
-- **Zero-token operation ready** — deterministic change detection + cron/monitor layering keeps routine monitoring at 0 LLM cost (see Hermes Agent integration skills).
+Five capabilities, one screen — full detail in [`docs/FEATURES.md`](docs/FEATURES.md).
+
+- **Discovery** — arXiv / OpenReview / Semantic Scholar / Papers-with-Code, plus Europe PMC and bioRxiv/medRxiv, behind one source registry: relevance scoring, citation-graph analysis, and SimClusters-style community-guided 2-hop expansion for "papers like this one". → [detail](docs/FEATURES.md#1-discovery)
+- **Verification** — every paper carries an explicit `pending → verified / stale / suspect` state; metadata conflicts (e.g. a DOI resolving to a different arXiv id) are flagged by symbolic 0-LLM checks and require human adjudication — never a silent overwrite, never an LLM verdict. → [detail](docs/FEATURES.md#2-verification)
+- **Recommendations from local signals only** — search history × similarity × relevance × verification gating, repo-scoped virtual-user profiles (`REPO_USER.md` declarations as explicit feedback), optional Zotero sync-back, and a zero-config positive-example pool. Fully offline: no external service, nothing to sign up for. → [detail](docs/FEATURES.md#3-recommendations)
+- **Private stays private** — a gitignored `config.local.yaml` deep-merges over the tracked config, so real names, ORCIDs and query lists never reach the public file; sources enable through `search.enabled` (*registration is not enablement*), and one shared retry policy covers every adapter. → [detail](docs/FEATURES.md#4-configuration-and-sources)
+- **Agent-first and cheap by default** — CLI-first with an MCP server, deterministic 0-token change detection for cron, a TCP → QUIC transport ladder with a sha256 per fetch, and mechanical gates (sanitization, changelog coverage and window, doc audit) that refuse bad releases instead of relying on discipline. → [detail](docs/FEATURES.md#5-agent-first)
 
 ---
 
@@ -250,6 +248,7 @@ This project incorporates code adapted from:
 
 ## Links
 
+- [Feature detail](docs/FEATURES.md)
 - [Full Usage Guide](docs/USAGE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Developer Guide](docs/DEVELOPMENT.md)
