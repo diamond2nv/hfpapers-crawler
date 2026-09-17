@@ -23,6 +23,10 @@ from typer.testing import CliRunner
 from hfpapers.cli import app
 from hfpapers.mcp_server import HANDLERS, MCP_TOOLS
 
+# These tests spawn real servers and CLIs (MCP stdio, HTTP): they are opt-in via
+# `-m integration`, because a bare environment has no server to talk to.
+pytestmark = pytest.mark.integration
+
 runner = CliRunner()
 
 # ════════════════════════════════════════════

@@ -7,7 +7,8 @@ against the repository as it actually is:
 
   C1  referenced repo paths exist            C4  relative markdown links resolve
   C2  documented `hfpclawer <sub>` exist     C5  capabilities in code but absent from the docs
-  C3  explicit "current version" claims
+  C3  explicit "current version" claims      C6  en/zh translation line-count drift
+  C7  tracked build/runtime artifacts
 
 Why advisory: coverage is a judgement call, and a check that cries wolf gets ignored —
 the enforceable invariants (changelog coverage / window / sanitization) live in
@@ -63,7 +64,7 @@ EXPECTED_MISSING = (
     "docs/plans/knowledge-graph-v0.10.md",   # removed by the v0.15.0 internal-plan split
 )
 
-findings: dict[str, list[str]] = {k: [] for k in ("C1", "C2", "C3", "C4", "C5")}
+findings: dict[str, list[str]] = {k: [] for k in ("C1", "C2", "C3", "C4", "C5", "C6", "C7")}
 notes: list[str] = []
 
 print(f"== audited files: {len(DOCS)}  (pyproject version {VERSION})\n")
@@ -170,12 +171,51 @@ for label, needles in CAPS.items():
     else:
         print(f"C5 ok  {label}  via {hits}")
 
+# ---------- C6 (translation parity) ----------
+# The convention (AGENTS.md) is that docs/cn/*.zh-CN.md mirror their English
+# originals line for line. Drift is not a defect per se — a translated sentence can
+# legitimately take more lines — but a large gap means the mirror stopped being
+# maintained, and the reader cannot tell which side is current.
+PARITY_TOLERANCE = 10
+docs_dir = REPO / "docs"
+for en_doc in sorted(docs_dir.rglob("*.md")):
+    if "cn" in en_doc.relative_to(docs_dir).parts:
+        continue
+    zh_doc = docs_dir / "cn" / en_doc.relative_to(docs_dir).with_name(en_doc.stem + ".zh-CN.md")
+    if not zh_doc.is_file():
+        continue
+    en_lines = len(en_doc.read_text(encoding="utf-8").splitlines())
+    zh_lines = len(zh_doc.read_text(encoding="utf-8").splitlines())
+    if abs(en_lines - zh_lines) > PARITY_TOLERANCE:
+        findings["C6"].append(
+            f"translation drift {en_lines}/{zh_lines} lines "
+            f"({en_lines - zh_lines:+d}) — {en_doc.relative_to(REPO)} vs {zh_doc.relative_to(REPO)}"
+        )
+
+# ---------- C7 (tracked artifacts) ----------
+# Local build/runtime output must not be tracked: it bloats clones and travels into
+# the public repo. `.codegraph/` is allowed — it keeps its own .gitignore and only
+# that file is tracked.
+ARTIFACT_PATTERNS = (
+    "*.db", "*.sqlite", "*.sqlite3", "*.pyc", "*.log", "*.orig", "*.rej",
+)
+ARTIFACT_DIRS = ("data/", "logs/", "dist/", "build/", "__pycache__/", ".venv/")
+ARTIFACT_ALLOW = (".codegraph/",)
+tracked = subprocess.run(
+    ["git", "-C", str(REPO), "ls-files"], capture_output=True, text=True
+).stdout.splitlines()
+for rel in tracked:
+    if rel.startswith(ARTIFACT_ALLOW):
+        continue
+    if rel.startswith(ARTIFACT_DIRS) or any(rel.endswith(p.lstrip("*")) for p in ARTIFACT_PATTERNS):
+        findings["C7"].append(f"tracked artifact `{rel}` — should be gitignored, not committed")
+
 print()
 for n in notes:
     print("note:", n)
 print()
 total = 0
-for k in ("C1", "C2", "C3", "C4", "C5"):
+for k in ("C1", "C2", "C3", "C4", "C5", "C6", "C7"):
     items = findings[k]
     total += len(items)
     print(f"===== {k}: {len(items)} finding(s)")

@@ -143,6 +143,56 @@ CLI `fetch` auto → 1. tcp 快试（链路通畅时最快）
   无 sink 时（payload < flush_every 全在内存）才走内存 tail magic。
   小文件与续传路径按构造不受影响（无 sink / `range_from > 0` 走旧分支）。
 
+## 状态语义与推荐信号 (v0.16+)
+
+**验证状态机** —— 派生量、单一事实源、符号化判定（无 LLM）：
+
+```
+pending  → audit_level == 0，从未判定
+suspect  → suspect 列 != ''      （显式弃权：审计冲突 / 无法核验；
+           一等状态 ≠ "未审计"；需人工经 `store clear-suspect`
+           或提高 audit_level 裁决）
+verified → audit_level >= 1
+stale    → 已 verified 但 audit_level_at 早于 stale_days（默认 180 天）
+```
+
+- 冲突检测（`detect_identifier_conflicts`）：DOI（经 crossref_cache）解析出的 arXiv ID 与记录不一致 → 符号化标记，0-LLM。
+- 迁移 v3 增加 `suspect` / `suspect_at`；迁移是幂等的 try-ALTER。
+
+**推荐信号分层** —— 先本地第一方，外部可选：
+
+```
+第 1 层（常开，离线）：config search.queries × 文本相似度 + 相关性
+                       + 验证门禁（suspect 永不推荐，
+                         verified 优先，stale 降权）
+第 2 层（可选适配器）：Zotero 本地 API —— 将 Favor/Extra 回写
+                       paper_store（favorited），仅限带 DOI/arXiv 的
+                       学术条目；没有 Zotero 也不影响第 1 层
+```
+
+设计血统：状态机取自 SKILL.state（显式可变状态凌驾于 append-only 历史）；判定谓词取自 Mirobody
+光谱观（高错误代价域里符号化优于学习排序）；成本控制取自 0-token 监控分层。
+
+**扩展与学习排序 (v0.16.1–v0.16.2)** —— 图侧的对应物：
+
+```
+HubGuidedExpander
+├─ run()                  hub 截断：expand → PageRank+度数 top-k 前沿
+│                         （扩散控制纪律，受 SimClusters 启发）
+├─ community_guided_run() 忠实 SimClusters 两跳：种子 → Louvain 社区
+│                         → 社区 hub 论文（主题聚焦前沿）；
+│                         审计行带 `community` 特征
+└─ 审计轨迹（JSONL）        每次运行可写逐候选行
+                          （arxiv_id/adopted/hub_score/degree/layer[/community]）
+        ↓
+hfpapers/rank.train()     在该轨迹上跑 lightgbm：adopted = 正例，
+                          truncated = 负例；特征重要性即审计
+                          （可选 `hfpclawer[rank]`；产出原生模型文件）
+```
+
+契约模型（`hfpapers/contracts.py`，pydantic）只存在于 API/JSON 边界 —— ZoteroItem 编码了回写所需的
+学术过滤（DOI/arXiv 标识判据）；机械层保持 plain-dict + 防御式读取（仓库纪律：0-token 管线内不用 pydantic）。
+
 ## 反爬策略
 
 6 层 Scrapy 中间件链:

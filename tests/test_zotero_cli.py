@@ -130,7 +130,9 @@ class TestZoteroClientInit:
 
         from hfpclawer.zotero import ZoteroClient
 
-        with pytest.raises(ImportError, match="pyzotero is required"):
+        # The message must name the install command: pyzotero is an extra, so
+        # "pip install pyzotero" is only half the answer.
+        with pytest.raises(ImportError, match='pip install "hfpclawer\\[zotero\\]"'):
             ZoteroClient()._connect()
 
 
@@ -319,15 +321,15 @@ class TestZoteroClientDedup:
 class TestResolvePdfPath:
     """resolve_pdf_path — arXiv ID / Zotero key → local PDF path."""
 
-    @patch("hfpclawer.zotero.annotations._api_get")
-    def test_resolve_by_arxiv_id(self, mock_api_get, mock_zotero_client):
+    @patch("hfpclawer.zotero.annotations._api_request")
+    def test_resolve_by_arxiv_id(self, mock_api_request, mock_zotero_client):
         """Should resolve arXiv ID → parent key → attachment → file path."""
         # Mock ZoteroClient.is_arxiv_in_zotero on the CLASS (not instance)
         # so it takes effect on the ZoteroClient() created inside resolve_pdf_path
         from hfpclawer.zotero import ZoteroClient as ZC
 
         # Mock _api_get for parent + children calls
-        mock_api_get.side_effect = [
+        mock_api_request.side_effect = [
             {"data": {"title": "Test Paper Title"}},  # parent item
             [  # children
                 {
@@ -362,10 +364,10 @@ class TestResolvePdfPath:
 
                     Path("/tmp/test.pdf").unlink(missing_ok=True)
 
-    @patch("hfpclawer.zotero.annotations._api_get")
-    def test_resolve_by_key(self, mock_api_get):
+    @patch("hfpclawer.zotero.annotations._api_request")
+    def test_resolve_by_key(self, mock_api_request):
         """Should resolve by direct Zotero key."""
-        mock_api_get.side_effect = [
+        mock_api_request.side_effect = [
             {"data": {"title": "Paper via Key"}},  # verify parent exists
             {"data": {"title": "Paper via Key"}},  # fetch parent for title
             [  # children (PDF attachment)

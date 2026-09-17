@@ -13,9 +13,22 @@ The changelog is a bounded rolling window: entries rotate into
 "documented" if it appears in **either** file — rotation must not make an old release
 look undocumented.
 
-An entry is a top-level changelog heading of the form::
+An entry is normally a top-level changelog heading of the form::
 
     ## [YYYY-MM-DD] <type> | vX.Y.Z — <summary>
+
+The public line has its own version sequence and is documented in a dedicated
+section, whose entries are one level deeper::
+
+    ## Public line — sanitized recuts
+
+    ### [YYYY-MM-DD] <type> | v0.17.3 — <summary>
+
+Both are accepted — a `###` entry counts only inside a section whose title marks
+it as the public line, so subsections of a development entry can never be mistaken
+for a release. (Before this, the only way to make a public release pass was to
+smuggle its entry into the top level, which is exactly the kind of workaround the
+gate should not require.)
 
 The version match is boundary-anchored, so an entry for ``v0.18.10`` does not
 satisfy a lookup for ``v0.18.1`` — the failure mode that makes a substring
@@ -39,11 +52,34 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHANGELOG = REPO_ROOT / "docs" / "CHANGELOG.md"
 DEFAULT_ARCHIVE = REPO_ROOT / "docs" / "CHANGELOG-archive.md"
 
-TOP_LEVEL_ENTRY = re.compile(r"^## \[(\d{4}-\d{2}-\d{2})\](.*)$", re.MULTILINE)
+ENTRY = re.compile(r"^\[(\d{4}-\d{2}-\d{2})\](.*)$")
+PUBLIC_LINE_SECTION = re.compile(r"public line", re.IGNORECASE)
 
 
-def find_entry(version: str, *paths: Path) -> tuple[str, str, Path] | None:
-    """Return (date, heading, file) of the top-level entry for ``version``, or None.
+def iter_entries(text: str):
+    """Yield ``(date, heading, is_public_line_entry)`` for every changelog entry.
+
+    Top-level ``##`` entries count anywhere. Nested ``###`` entries count only
+    inside a section that marks itself as the public line.
+    """
+    section_is_public = False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            title = line[3:].strip()
+            section_is_public = bool(PUBLIC_LINE_SECTION.search(title))
+            match = ENTRY.match(title)
+            if match:
+                yield match.group(1), title, False
+        elif line.startswith("### "):
+            if not section_is_public:
+                continue
+            match = ENTRY.match(line[4:].strip())
+            if match:
+                yield match.group(1), line[4:].strip(), True
+
+
+def find_entry(version: str, *paths: Path) -> tuple[str, str, bool, Path] | None:
+    """Return (date, heading, is_public_line, file) for ``version``, or None.
 
     Searched across every candidate path in order (live changelog first, then the
     rotation archive) so a rotated-out release is still found.
@@ -52,9 +88,9 @@ def find_entry(version: str, *paths: Path) -> tuple[str, str, Path] | None:
     for path in paths:
         if not path.is_file():
             continue
-        for match in TOP_LEVEL_ENTRY.finditer(path.read_text(encoding="utf-8")):
-            if pattern.search(match.group(2)):
-                return match.group(1), match.group(0).strip(), path
+        for date, heading, is_public in iter_entries(path.read_text(encoding="utf-8")):
+            if pattern.search(heading):
+                return date, heading, is_public, path
     return None
 
 
@@ -91,17 +127,19 @@ def main(argv: list[str] | None = None) -> int:
     if found is None:
         searched = ", ".join(str(p) for p in (changelog, archive) if p.is_file())
         print(
-            f"v{version} has no top-level entry in: {searched or changelog}.\n"
+            f"v{version} has no entry in: {searched or changelog}.\n"
             f"Add one before tagging, in this form:\n"
             f"  ## [YYYY-MM-DD] <feat|fix|docs|chore> | v{version} — <summary>\n"
-            f"  - **A/M** `path` — what changed and why",
+            f"  - **A/M** `path` — what changed and why\n"
+            f"For a public-line release, a `###` entry under the \"Public line\" section counts too.",
             file=sys.stderr,
         )
         return 1
 
-    date, heading, where = found
+    date, heading, is_public, where = found
     if not args.quiet:
-        print(f"OK  v{version} documented — [{date}] {heading.split(']', 1)[-1].strip()}"
+        kind = "public-line" if is_public else "top-level"
+        print(f"OK  v{version} documented ({kind}) — [{date}] {heading.split(']', 1)[-1].strip()}"
               f"  ({where.name})")
     return 0
 

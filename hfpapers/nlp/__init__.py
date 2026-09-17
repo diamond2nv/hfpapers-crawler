@@ -20,6 +20,9 @@ from typing import Optional
 
 logger = logging.getLogger("hfpapers.nlp")
 
+_SPACY_WARNED = False
+_MODEL_WARNED = False
+
 # ── Lazy spaCy loader ──────────────────────────────────────────
 
 _SPACY_MODEL: str | None = (
@@ -79,10 +82,29 @@ def _load_spacy() -> Optional[object]:
         _NLP_INSTANCE = spacy.load(model)
         return _NLP_INSTANCE
     except ImportError:
-        logger.debug("spaCy not installed — NLP features disabled")
+        # spaCy is an extra (pip install "hfpclawer[nlp]"), so a silent debug line
+        # would leave the user wondering why every NLP feature returns nothing.
+        global _SPACY_WARNED
+        if not _SPACY_WARNED:
+            _SPACY_WARNED = True
+            logger.warning(
+                "spaCy is not installed — NLP features (keywords, tags, semantic "
+                'search) are disabled. Install with: pip install "hfpclawer[nlp]"'
+            )
         return None
     except OSError:
-        logger.debug("spaCy model '%s' not found — download with: python -m spacy download %s", model, model)
+        # The model wheel is a direct-URL dependency, which PyPI will not host: a wheel
+        # installed from PyPI has spaCy but no model, so this branch is the *expected*
+        # path there and must say what to do instead of failing quietly.
+        global _MODEL_WARNED
+        if not _MODEL_WARNED:
+            _MODEL_WARNED = True
+            logger.warning(
+                "spaCy model '%s' is not installed — NLP features are disabled. "
+                "Install it with: python -m spacy download %s",
+                model,
+                model,
+            )
         return None
 
 

@@ -177,7 +177,8 @@ class ZoteroClient:
     def __init__(self, library_id: str = "0", timeout: float = 10.0):
         if not HAS_PYZOTERO:
             raise ImportError(
-                "pyzotero is required. Install with: pip install pyzotero"
+                "pyzotero is not installed (it ships as an extra). "
+                'Install with: pip install "hfpclawer[zotero]"'
             )
         self._library_id = library_id
         self._timeout = timeout

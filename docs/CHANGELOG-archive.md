@@ -8,6 +8,132 @@
 > Nothing is lost by rotation — every past state of `docs/CHANGELOG.md` is also preserved in git
 > (`git log -- docs/CHANGELOG.md`).
 
+## [2026-09-17] docs | v0.18.17 — stop the doc surface from lying about v0.17/v0.18
+
+> A mechanical audit of `docs/`, `skills/` and `AGENTS.md` (referenced paths, documented CLI
+> commands, version claims, coverage drift) found ten defects; all of them are documentation
+> drift introduced or exposed by the v0.17/v0.18 work.
+
+- **M** `AGENTS.md` — the canonical agent guide claimed **"Current version: 0.3.0"** (15 minors
+  stale) and "Version defined in `hfpapers/__init__.py`", contradicting the PEP 621 single-source
+  rule the code implements; also a tag example outside this repo's scheme (`v3.1.0`), a release
+  example from 0.9.x, a stale `.gitignore` inventory, and the assertion that the pre-push hook
+  "已移除" — it is installed again with different duties (version on `main` only + sanitization).
+- **M** `docs/ROADMAP.md` — read as if v0.16 were the tip, with planned items indistinguishable
+  from shipped ones. Added a shipped-vs-planned table: `ledger` / `check-new` / `pool` / `rank` /
+  `recommend` shipped; **`hfpclawer run`, `data/golden_positive.jsonl`, `scripts/migrate_status.py`
+  never existed** (migration became idempotent ALTERs in `_init_db`).
+- **M** `README.md` — the feature list stopped at v0.16.9, so a reader could not learn that the
+  biomedical sources, the private-config overlay or the gate stack exist.
+- **M** `docs/USAGE.md` + zh / `docs/ARCHITECTURE.md` + zh / `skills/hfpclawer-paper-search/SKILL.md`
+  — the multi-source registry (`SOURCE_CLASSES`, `search.enabled` vs `sources.<name>`, the shared
+  retry policy, dedup keys, the `config.local.yaml` overlay) was documented nowhere; added,
+  mirrored (line-aligned) in both languages.
+- **M** `docs/USAGE.md`, `docs/DISTRIBUTED.md` + zh — both documented **`hfpclawer crawl`, which is
+  not a command**; replaced with the real entry points (`search`, `source-list`,
+  `source-search <source> <query>`) and marked the legacy Scrapy-queue path as never implemented.
+- **M** `docs/use/verify-guide.md` + zh — pointed at `docs/formula-cross-validation-architecture.md`,
+  which does not exist; now marked as planned (mirror kept line-aligned).
+- **M** `docs/ARCHITECTURE_REVIEW.md` — the same "never built" script annotated where it appears.
+- **M** `docs/CHANGELOG.md` — the v0.18.6 entry named `tests/test_sources_retry.py`; the file is
+  `tests/test_source_retry.py`. Found by the audit, not by hand.
+- **A** `scripts/doc_audit.py` — the audit itself, kept as an **advisory** tool (coverage is a
+  judgement call; the enforceable invariants stay in `tests/test_gates.py` and `scripts/pre-push`),
+  with deliberately-absent references whitelisted so the output stays scannable.
+- **M** `.gitignore` — `sources/` (arXiv source bundles) was untracked but unignored, leaving
+  `git status` permanently dirty.
+
+## [2026-09-17] chore | v0.18.16 — bound the changelog: rolling window + archive
+
+> A changelog is read, not diffed. v0.18.15 left it at 44 KB and growing ~2 KB per release, with no
+> ceiling and no rule — the same failure mode as the missing entries, one step later.
+
+- **A** `scripts/changelog_rotate.py` — the single implementation of the window rule, modelled on the
+  wiki's `rotate_log.py`: **one criterion = bytes** (default 24576 B), keep the newest contiguous
+  entries, floor of 8 / ceiling of 40 kept, refuse to rotate below the floor rather than lose
+  history, idempotent when already inside budget, and a self-describing
+  `<!-- changelog-window rule="bytes<=24576" kept=… of=… bytes=… rotated=… -->` comment.
+- **A** `docs/CHANGELOG-archive.md` — append-only destination for rotated entries (newest first),
+  created by the first rotation: 21 entries (`v0.16.10` … `v0.9.13`) moved out, window now holds 23
+  entries (`v0.18.15` … `v0.16.11`). Conservation is asserted, not hoped for: entry accounting must
+  balance and no heading may exist in both files.
+- **M** `scripts/changelog_guard.py` — searches the archive as well as the live file. Without this,
+  rotation would make an old release read as undocumented; the gate caught exactly that during
+  development (`v0.16.0` moved out and the check went red).
+- **M** `scripts/release.sh` — a second pre-tag gate: refuses to release while the window is over
+  budget (`--check`), with the fix command in the message.
+- **M** `scripts/changelog_rotate.py --verify-history` — the rotation-aware version of "no heading may
+  vanish": entries may *move* between the live file and the archive, but the union of both is
+  compared against the union at `HEAD`. Without it, every rotation looks like a deleted heading to a
+  single-file check (`md-heading-guard` reports exactly that, by design — for `CHANGELOG.md` this
+  mode is the right gate; keep `md-heading-guard` for hand-edited docs).
+- **M** `scripts/release.sh` — third pre-tag gate: refuses if an entry disappeared from live+archive.
+- **M** `tests/test_gates.py` — `TestChangelogWindowGate` (F04): window within budget, window
+  self-describing, no entry in both files, idempotency, conservation across rotation, refusal below
+  the floor, and no entry lost vs `HEAD`. Also fixes a pre-existing ruff `F541`.
+- **M** `docs/DEVELOPMENT.md` + `docs/cn/DEVELOPMENT.zh-CN.md` — release-gate section (kept
+  line-aligned, 182/182). `AGENTS.md` docs table gains the archive row.
+- **note** — git remains the full record (`git log -- docs/CHANGELOG.md`); the archive exists so a
+  reader does not need git to see the older history.
+
+## [2026-09-17] chore | v0.18.15 — backfill the changelog for v0.17.0–v0.18.14, and gate it
+
+> Documentation debt closed. 18 tagged releases had no entries, and nothing in the repository could
+> have noticed: the changelog was named in a docs table and enforced nowhere.
+
+- **A** `scripts/changelog_guard.py` — the single implementation of "is this version documented?",
+  with a boundary-anchored version match (`v0.18.10` must not satisfy a lookup for `v0.18.1`).
+- **M** `scripts/release.sh` — refuses to tag an undocumented version, and the check runs **before**
+  the dry-run branch so the gap surfaces on `--dry-run` too.
+- **M** `tests/test_gates.py` — `TestChangelogGate` (F03) drives that same script through its CLI
+  (one rule, two callers, no second copy), including the prefix trap, the "public-line `###`
+  subsections are not release entries" case, and the non-semver / missing-file exit codes.
+- **M** `docs/CHANGELOG.md` — 18 reconstructed entries, the three public-line recuts moved to their
+  own section with the two-lineage explanation, and the file re-ordered: the `# CHANGELOG` title had
+  been sitting *inside* the v0.10.0 entry with v0.10.x entries above it, and the tail was not
+  date-monotonic. Rewritten programmatically with heading-preservation and byte-identity assertions,
+  not by hand.
+- **note** — the 18 entries are reconstructed, not contemporaneous (see the provenance note at the
+  top of this file); their claims were spot-checked against the code: `deduplicate()` key priority,
+  `search.enabled`, `journalInfo.journal.title`, `_get()` retry config, `SourcePaper.year`, the
+  `__init__` version reader, `_h3_path()`.
+
+## [2026-09-15] docs — public-surface correction: the Aliyun mirror is semi-public
+> No version tag: this fix landed on `main` after `v0.18.14` and ships with `v0.18.15`.
+
+- **M** `AGENTS.md` — the Aliyun Codeup remote is described as **semi-public** (a private-repo cloud
+  backup, not a public host), instead of being grouped with the public remotes.
+
+## [2026-09-12] docs | v0.18.14 — correct stale remote guidance and record the branch/release structure
+
+- **M** `AGENTS.md` — remotes documented as they actually are (`forgejo` = NAS, `github` = public,
+  `mirror` = Aliyun semi-public, `origin` = internal GitLab), plus the branch convention
+  (`main` = development line, `public` = public line) and the two-lineage tag caveat.
+
+## [2026-09-11] docs | v0.18.13 — record who is allowed to publish
+
+- **M** `scripts/publish-public.sh` — header states the authorization scope: of the LAN machines only
+  the primary machine holds public-release credentials, so the others push to NAS and stop. A remote
+  machine failing at the push step is therefore expected behaviour, not a broken setup.
+
+## [2026-09-11] feat | v0.18.12 — push gate covers sanitization; public release scripted
+
+- **M** `scripts/pre-push` — now two gates: **version consistency**, scoped to `refs/heads/main`
+  only (the public line has its own version sequence, which the old unconditional check flagged as a
+  false mismatch), and **sanitization**, applied to every push: it scans the pushed commits' tracked
+  files for real ORCIDs, private IPs, machine codenames, emails and tokens.
+- **A** `scripts/publish-public.sh` — the public-release entry point (`--status`, `--check`,
+  `<version> --push`): refuses to move an existing tag, pushes with an explicit `public:master`
+  refspec, and reads back what it pushed.
+- **note** — the gate scripts are on the allow-list of their own scan (a file that defines the
+  patterns necessarily contains them); self-reference is expected and deliberately not obfuscated.
+
+## [2026-09-11] fix | v0.18.11 — version-number guard for the sanitization gate
+
+- **M** `AGENTS.md` — the private-range pattern for `10.x` gained a lookbehind that keeps URLs and
+  hosts while dropping dependency pins such as `nvidia-curand==10.4.0.35`, which otherwise buried
+  real findings in noise.
+
 ## [2026-09-11] fix | v0.18.10 — the sanitization gate could not see what it was meant to protect
 
 - **root cause** — the documented gate scanned private IPs and machine codenames only. Real ORCIDs,

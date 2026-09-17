@@ -518,11 +518,20 @@ class HubGuidedExpander:
                               sources_filter=self.sources_filter)
             adopted = {aid for _, _, aid in top}
             # Per-candidate audit trail (layer L): adopted vs truncated
-            candidates = stats.get("papers_found", [])
-            if isinstance(candidates, dict):
-                candidates = list(candidates.keys()) if candidates else []
-            if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
-                candidates = [str(c.get("arxiv_id") or c.get("id") or "") for c in candidates]
+            # `papers_found` is a count in some expanders and a collection in others
+            # (line 543 already treats both shapes); only a collection can yield
+            # per-candidate rows. A count must therefore mean "no detail", not an
+            # iteration target — iterating it raised TypeError on the count path.
+            raw_candidates = stats.get("papers_found", [])
+            if isinstance(raw_candidates, dict):
+                candidates = [str(k) for k in raw_candidates]
+            elif isinstance(raw_candidates, (list, tuple, set)):
+                candidates = [
+                    str(c.get("arxiv_id") or c.get("id") or "") if isinstance(c, dict) else str(c)
+                    for c in raw_candidates
+                ]
+            else:
+                candidates = []
             # Single-pass score map (avoid per-candidate pagerank recompute)
             score_map = _score_map(graph, sources_filter=self.sources_filter)
             for cand_aid in candidates:

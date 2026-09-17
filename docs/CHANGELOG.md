@@ -1,6 +1,9 @@
 # CHANGELOG
 
-<!-- changelog-window rule="bytes<=24576" kept=13 of=15 bytes=23821 rotated=2026-09-17 -->
+<!-- changelog-window rule="bytes<=24576" kept=10 of=11 bytes=22601 rotated=2026-09-17 -->
+
+
+
 
 
 
@@ -60,6 +63,128 @@ public cuts are listed here; their functional content is covered by the developm
 
 - Public cut of the development line's `v0.17.0` (transport documentation for the QUIC fallback
   ladder, bounded-memory streaming, `.part` lifecycle, sha256 audit anchor, `fetch` CLI).
+
+## [2026-09-17] fix | v0.18.23 — the test suite becomes a gate you can trust
+
+> A suite that hangs, reddens for reasons unrelated to the code, or silently skips the
+> plugin its own config declares cannot back any other claim in this repository. It was
+> all three: it never finished (network tests without timeouts), it carried 12 failures
+> nobody had triaged, and `asyncio_mode` plus a "deselected by default" marker were
+> declared but never enforced.
+
+### Two real bugs the "stale" tests were actually pointing at
+
+- **M** `hfpapers/graph/citation_expander.py` — `HubGuidedExpander.run()` treated
+  `stats["papers_found"]` as iterable whenever it was not a dict; on the count path (an
+  `int`) that raised `TypeError: 'int' object is not iterable`, so the audit trail could
+  never be written. The two failures in `tests/test_hub_guided_expansion.py` were a
+  correct fake hitting a real defect — the code was fixed, the tests kept.
+- **M** `hfpapers/cli.py` — `hfpclawer init --quick` crashed with `KeyError: 'file'`:
+  the REPO_USER template contains literal YAML braces (`evidence: {file: ...}`) that
+  `str.format()` consumed. Now `string.Template` with `${project}`; verified on a real
+  run (`init` writes `config.yaml` *and* `REPO_USER.md`, braces intact).
+
+### The suite is deterministic now
+
+- **M** `pyproject.toml` — the default run is fixed by `addopts`:
+  `-m 'not slow and not network and not integration'` (45 tests deselected). Passing `-m`
+  on the command line overrides it. Markers re-documented: `slow` (builds a wheel/venv),
+  `network` (live external service), `integration` (spawns real servers/CLIs).
+- **M** `tests/test_integration.py` — module-level `pytestmark = integration`: the MCP
+  stdio and HTTP dispatch tests spawn servers that never terminate in a bare environment
+  (this is what hung the suite at 39%).
+- **M** `tests/test_gates.py` / `tests/test_cli.py` — ambient-state leaks removed. The
+  dedup gate depended on the developer's real database not containing the id it used
+  (fixed with an isolated store + a dedicated id); the export tests read the real store
+  and scraped an export path out of wrapped console output (now isolated and read from
+  disk).
+- **M** stale assertions retargeted to the current CLI: metadata download is
+  `download-meta` (not `download`, which now downloads candidate PDFs), `monitor --help`
+  documents `ACTION`/`--interval` rather than the action *values*, and the Zotero tests
+  patch `_api_request` (renamed from `_api_get`). `init --quick` gained assertions for the
+  crash above.
+- **M** dev dependencies completed in both dev definitions (pip extras and PEP 735
+  group): `pytest-asyncio`, `pytest-timeout`, `antlr4-python3-runtime==4.11.0` (sympy 1.14
+  demands exactly 4.11; 4.13 fails with an ImportError that reads like a missing package).
+
+### ⑤ dependency bookkeeping in the same pass
+
+- **M** `pyproject.toml` — the duplicate `spacy` pin (core *and* `nlp`) collapsed to the
+  core one, with the extra now adding only the model wheel; `pdf` marked as a
+  compatibility alias (`pymupdf4llm` is core); `[dependency-groups].dev` aligned with
+  `[project.optional-dependencies].dev` and commented on why both exist.
+
+### Result
+
+`pytest tests/` — **487 passed, 21 skipped, 45 deselected, 0 failed in ~64 s**; before:
+never finished, 12+ failures. Suite runtime makes it usable as a release check.
+
+## [2026-09-17] chore | v0.18.24 — the public-release tooling, and the doc-surface checks
+
+> The v0.18.23 commit also carried the public-release tooling and the new doc-surface
+> checks; recorded here so the changelog matches the commit (the entry above was written
+> before those pieces were finished).
+
+- **A** `scripts/recut-public.py` — the six-step public recut, mechanised: preflight
+  (clean tree, `public` in sync with its remote, version above the latest public tag),
+  scratch worktree, `git checkout main -- .`, **version re-set after the sync** (which
+  silently reverts it), one commit signed with the public identity, then the three gates —
+  changelog coverage, sanitization, and the snapshot's own test suite. `--dry-run` is the
+  default and rolls the branch back; only `--push` publishes, through
+  `scripts/publish-public.sh`, so there is a single push path.
+- **M** `scripts/changelog_guard.py` — lineage-aware: a `###` entry inside the
+  **public-line section** counts as documented, so a public release no longer has to be
+  smuggled into the development list to pass. A `###` heading anywhere else is still a
+  subsection, not a release — the previous protection is intact, just no longer applied
+  to the one section that needs nesting.
+- **M** `scripts/changelog_rotate.py` — rotation units are now top-level `##` blocks,
+  sections included, so a section header travels with its nested entries into the archive
+  instead of being glued to whatever entry preceded it.
+- **M** `tests/test_gates.py` — three tests for the above: public-line entries count,
+  stray subsections do not, and rotating the public-line section keeps its entries
+  findable (the guard is asked again after rotation).
+- **A** doc audit checks (C6/C7 in `scripts/doc_audit.py`): translation drift between
+  `docs/*.md` and `docs/cn/*.zh-CN.md` beyond a tolerance, and tracked build/runtime
+  artifacts. C6 immediately found `docs/ARCHITECTURE.md` 60 lines ahead of its mirror
+  (the whole v0.16 state-semantics section had never been translated) — now translated,
+  and `env.template` (an unreferenced duplicate of `.env.template`) is gone.
+
+## [2026-09-17] release | v0.19.0 — first PyPI release of the 0.18 line (with dependency tiering)
+
+> `pip install hfpclawer` has served **0.17.0** since 2026-09-05: none of the 0.18 work — the
+> biomedical sources, the verification state machine, the private-config overlay, the
+> install-safe state paths — and it still wrote its database into `site-packages`. This
+> release closes that gap. `0.19.0` keeps the project's PyPI rule (`0.x.0`, odd `x`).
+
+- **the 0.18 line, delivered**: Europe PMC / bioRxiv / medRxiv behind one source registry,
+  `pending → verified / stale / suspect` state with symbolic 0-LLM conflict detection,
+  recommendations from first-party signals only, `config.local.yaml` overlay, dateless/
+  DOI-only dedup that keeps records, shared retry policy, changelog coverage and window
+  gates, the doc-surface audit, and state that resolves to the user's directories once
+  installed instead of into `site-packages`.
+
+### Core install slimmed: 13 dependencies → 11
+
+- **M** `spacy` moved from core to the `nlp` extra; `pyzotero` moved to a new `zotero`
+  extra. Both are imported lazily behind guards (`hfpapers/nlp` catches `ImportError`,
+  `hfpclawer/zotero` uses `HAS_PYZOTERO`), so nothing breaks by their absence.
+- **M** absence is now visible instead of silent: no spaCy → one warning naming
+  `pip install "hfpclawer[nlp]"`; no model — the *expected* state on PyPI, which will not
+  host the direct-URL model wheel — names `python -m spacy download en_core_web_md`; the
+  Zotero guard names `pip install "hfpclawer[zotero]"`.
+- **verified** on a core-only install: 35 packages, no spaCy/pyzotero, `hfpclawer version`
+  and `store status` work, both hints fire as intended.
+
+### Dependency auditing became possible
+
+- **M** `requirements/` — three stale hand-copied lists removed: `requirements_core.txt` and
+  `requirements_dev.txt` (May mirrors of `pyproject.toml` that had drifted) plus
+  `requirements_all_0.1.3.txt`, a 188-line freeze of the **v0.1.3** environment that a
+  scanner reviews as if it were today's dependency set. Replaced by generated locks —
+  `requirements/core.lock.txt` and `requirements/dev.lock.txt` (`uv pip compile
+  pyproject.toml …`), each with a "do not edit" header and its regeneration command.
+- **M** `pyproject.toml` — `dev` in both definitions now pulls `hfpclawer[nlp]` and
+  `hfpclawer[zotero]`, so a dev environment still has every test dependency.
 
 ## [2026-09-17] release | v0.17.3 — public snapshot of the 0.18 line
 
@@ -207,129 +332,3 @@ public cuts are listed here; their functional content is covered by the developm
   otherwise resolves to nothing.
 - **note** — root docs reference no hard-coded machine paths, and the doc audit
   (`scripts/doc_audit.py`) now covers them: every command and path they mention is checked.
-
-## [2026-09-17] docs | v0.18.17 — stop the doc surface from lying about v0.17/v0.18
-
-> A mechanical audit of `docs/`, `skills/` and `AGENTS.md` (referenced paths, documented CLI
-> commands, version claims, coverage drift) found ten defects; all of them are documentation
-> drift introduced or exposed by the v0.17/v0.18 work.
-
-- **M** `AGENTS.md` — the canonical agent guide claimed **"Current version: 0.3.0"** (15 minors
-  stale) and "Version defined in `hfpapers/__init__.py`", contradicting the PEP 621 single-source
-  rule the code implements; also a tag example outside this repo's scheme (`v3.1.0`), a release
-  example from 0.9.x, a stale `.gitignore` inventory, and the assertion that the pre-push hook
-  "已移除" — it is installed again with different duties (version on `main` only + sanitization).
-- **M** `docs/ROADMAP.md` — read as if v0.16 were the tip, with planned items indistinguishable
-  from shipped ones. Added a shipped-vs-planned table: `ledger` / `check-new` / `pool` / `rank` /
-  `recommend` shipped; **`hfpclawer run`, `data/golden_positive.jsonl`, `scripts/migrate_status.py`
-  never existed** (migration became idempotent ALTERs in `_init_db`).
-- **M** `README.md` — the feature list stopped at v0.16.9, so a reader could not learn that the
-  biomedical sources, the private-config overlay or the gate stack exist.
-- **M** `docs/USAGE.md` + zh / `docs/ARCHITECTURE.md` + zh / `skills/hfpclawer-paper-search/SKILL.md`
-  — the multi-source registry (`SOURCE_CLASSES`, `search.enabled` vs `sources.<name>`, the shared
-  retry policy, dedup keys, the `config.local.yaml` overlay) was documented nowhere; added,
-  mirrored (line-aligned) in both languages.
-- **M** `docs/USAGE.md`, `docs/DISTRIBUTED.md` + zh — both documented **`hfpclawer crawl`, which is
-  not a command**; replaced with the real entry points (`search`, `source-list`,
-  `source-search <source> <query>`) and marked the legacy Scrapy-queue path as never implemented.
-- **M** `docs/use/verify-guide.md` + zh — pointed at `docs/formula-cross-validation-architecture.md`,
-  which does not exist; now marked as planned (mirror kept line-aligned).
-- **M** `docs/ARCHITECTURE_REVIEW.md` — the same "never built" script annotated where it appears.
-- **M** `docs/CHANGELOG.md` — the v0.18.6 entry named `tests/test_sources_retry.py`; the file is
-  `tests/test_source_retry.py`. Found by the audit, not by hand.
-- **A** `scripts/doc_audit.py` — the audit itself, kept as an **advisory** tool (coverage is a
-  judgement call; the enforceable invariants stay in `tests/test_gates.py` and `scripts/pre-push`),
-  with deliberately-absent references whitelisted so the output stays scannable.
-- **M** `.gitignore` — `sources/` (arXiv source bundles) was untracked but unignored, leaving
-  `git status` permanently dirty.
-
-## [2026-09-17] chore | v0.18.16 — bound the changelog: rolling window + archive
-
-> A changelog is read, not diffed. v0.18.15 left it at 44 KB and growing ~2 KB per release, with no
-> ceiling and no rule — the same failure mode as the missing entries, one step later.
-
-- **A** `scripts/changelog_rotate.py` — the single implementation of the window rule, modelled on the
-  wiki's `rotate_log.py`: **one criterion = bytes** (default 24576 B), keep the newest contiguous
-  entries, floor of 8 / ceiling of 40 kept, refuse to rotate below the floor rather than lose
-  history, idempotent when already inside budget, and a self-describing
-  `<!-- changelog-window rule="bytes<=24576" kept=… of=… bytes=… rotated=… -->` comment.
-- **A** `docs/CHANGELOG-archive.md` — append-only destination for rotated entries (newest first),
-  created by the first rotation: 21 entries (`v0.16.10` … `v0.9.13`) moved out, window now holds 23
-  entries (`v0.18.15` … `v0.16.11`). Conservation is asserted, not hoped for: entry accounting must
-  balance and no heading may exist in both files.
-- **M** `scripts/changelog_guard.py` — searches the archive as well as the live file. Without this,
-  rotation would make an old release read as undocumented; the gate caught exactly that during
-  development (`v0.16.0` moved out and the check went red).
-- **M** `scripts/release.sh` — a second pre-tag gate: refuses to release while the window is over
-  budget (`--check`), with the fix command in the message.
-- **M** `scripts/changelog_rotate.py --verify-history` — the rotation-aware version of "no heading may
-  vanish": entries may *move* between the live file and the archive, but the union of both is
-  compared against the union at `HEAD`. Without it, every rotation looks like a deleted heading to a
-  single-file check (`md-heading-guard` reports exactly that, by design — for `CHANGELOG.md` this
-  mode is the right gate; keep `md-heading-guard` for hand-edited docs).
-- **M** `scripts/release.sh` — third pre-tag gate: refuses if an entry disappeared from live+archive.
-- **M** `tests/test_gates.py` — `TestChangelogWindowGate` (F04): window within budget, window
-  self-describing, no entry in both files, idempotency, conservation across rotation, refusal below
-  the floor, and no entry lost vs `HEAD`. Also fixes a pre-existing ruff `F541`.
-- **M** `docs/DEVELOPMENT.md` + `docs/cn/DEVELOPMENT.zh-CN.md` — release-gate section (kept
-  line-aligned, 182/182). `AGENTS.md` docs table gains the archive row.
-- **note** — git remains the full record (`git log -- docs/CHANGELOG.md`); the archive exists so a
-  reader does not need git to see the older history.
-
-## [2026-09-17] chore | v0.18.15 — backfill the changelog for v0.17.0–v0.18.14, and gate it
-
-> Documentation debt closed. 18 tagged releases had no entries, and nothing in the repository could
-> have noticed: the changelog was named in a docs table and enforced nowhere.
-
-- **A** `scripts/changelog_guard.py` — the single implementation of "is this version documented?",
-  with a boundary-anchored version match (`v0.18.10` must not satisfy a lookup for `v0.18.1`).
-- **M** `scripts/release.sh` — refuses to tag an undocumented version, and the check runs **before**
-  the dry-run branch so the gap surfaces on `--dry-run` too.
-- **M** `tests/test_gates.py` — `TestChangelogGate` (F03) drives that same script through its CLI
-  (one rule, two callers, no second copy), including the prefix trap, the "public-line `###`
-  subsections are not release entries" case, and the non-semver / missing-file exit codes.
-- **M** `docs/CHANGELOG.md` — 18 reconstructed entries, the three public-line recuts moved to their
-  own section with the two-lineage explanation, and the file re-ordered: the `# CHANGELOG` title had
-  been sitting *inside* the v0.10.0 entry with v0.10.x entries above it, and the tail was not
-  date-monotonic. Rewritten programmatically with heading-preservation and byte-identity assertions,
-  not by hand.
-- **note** — the 18 entries are reconstructed, not contemporaneous (see the provenance note at the
-  top of this file); their claims were spot-checked against the code: `deduplicate()` key priority,
-  `search.enabled`, `journalInfo.journal.title`, `_get()` retry config, `SourcePaper.year`, the
-  `__init__` version reader, `_h3_path()`.
-
-## [2026-09-15] docs — public-surface correction: the Aliyun mirror is semi-public
-> No version tag: this fix landed on `main` after `v0.18.14` and ships with `v0.18.15`.
-
-- **M** `AGENTS.md` — the Aliyun Codeup remote is described as **semi-public** (a private-repo cloud
-  backup, not a public host), instead of being grouped with the public remotes.
-
-## [2026-09-12] docs | v0.18.14 — correct stale remote guidance and record the branch/release structure
-
-- **M** `AGENTS.md` — remotes documented as they actually are (`forgejo` = NAS, `github` = public,
-  `mirror` = Aliyun semi-public, `origin` = internal GitLab), plus the branch convention
-  (`main` = development line, `public` = public line) and the two-lineage tag caveat.
-
-## [2026-09-11] docs | v0.18.13 — record who is allowed to publish
-
-- **M** `scripts/publish-public.sh` — header states the authorization scope: of the LAN machines only
-  the primary machine holds public-release credentials, so the others push to NAS and stop. A remote
-  machine failing at the push step is therefore expected behaviour, not a broken setup.
-
-## [2026-09-11] feat | v0.18.12 — push gate covers sanitization; public release scripted
-
-- **M** `scripts/pre-push` — now two gates: **version consistency**, scoped to `refs/heads/main`
-  only (the public line has its own version sequence, which the old unconditional check flagged as a
-  false mismatch), and **sanitization**, applied to every push: it scans the pushed commits' tracked
-  files for real ORCIDs, private IPs, machine codenames, emails and tokens.
-- **A** `scripts/publish-public.sh` — the public-release entry point (`--status`, `--check`,
-  `<version> --push`): refuses to move an existing tag, pushes with an explicit `public:master`
-  refspec, and reads back what it pushed.
-- **note** — the gate scripts are on the allow-list of their own scan (a file that defines the
-  patterns necessarily contains them); self-reference is expected and deliberately not obfuscated.
-
-## [2026-09-11] fix | v0.18.11 — version-number guard for the sanitization gate
-
-- **M** `AGENTS.md` — the private-range pattern for `10.x` gained a lookbehind that keeps URLs and
-  hosts while dropping dependency pins such as `nvidia-curand==10.4.0.35`, which otherwise buried
-  real findings in noise.

@@ -43,7 +43,12 @@ DEFAULT_BUDGET = 24576  # bytes, matches the wiki log.md window
 MIN_KEEP = 8            # never rotate below this many entries
 MAX_KEEP = 40           # a window wider than this is not a window
 
-ENTRY_RE = re.compile(r"^## \[(\d{4}-\d{2}-\d{2})\]", re.MULTILINE)
+# Rotation units are top-level '## ' blocks — release entries *and* named sections.
+# The public line documents itself in a section whose entries sit one level deeper
+# ('### [...]'); matching only date headings would glue those entries onto whatever
+# entry precedes the section, and the section header would never reach the archive,
+# which is exactly what the coverage guard needs to keep finding them.
+ENTRY_RE = re.compile(r"^## ", re.MULTILINE)
 WINDOW_RE = re.compile(r"^<!-- changelog-window .*-->\n", re.MULTILINE)
 
 ARCHIVE_HEADER = """# CHANGELOG — archive

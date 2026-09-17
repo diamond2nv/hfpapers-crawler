@@ -84,9 +84,13 @@ class TestEntryPoint:
         assert "hfpclawer" in result.stdout
         assert "Usage:" in result.stdout
 
-    def test_download_help(self):
-        """Entry point download --help shows subcommand options"""
-        result = _run_entry_point(["download", "--help"])
+    def test_download_meta_help(self):
+        """Entry point download-meta --help shows the source option.
+
+        `download` now downloads candidate PDFs (`--limit`); the metadata command with
+        `--source` was renamed to `download-meta`.
+        """
+        result = _run_entry_point(["download-meta", "--help"])
         assert result.returncode == 0
         assert "--source" in result.stdout or "source" in result.stdout
 
@@ -209,19 +213,19 @@ class TestCLI:
         assert result.exit_code == 0
 
     def test_download_unknown_source(self, test_env):
-        """download --source=xzy prints error message"""
-        result = runner.invoke(app, ["download", "--source", "xzy"])
+        """download-meta --source=xzy prints error message"""
+        result = runner.invoke(app, ["download-meta", "--source", "xzy"])
         assert result.exit_code == 0
         assert "Unknown" in result.output or "unknown" in result.output
 
     def test_download_status(self, test_env):
-        """download --status runs without crashing (may show empty status)"""
-        result = runner.invoke(app, ["download", "--status"])
+        """download-meta --status runs without crashing (may show empty status)"""
+        result = runner.invoke(app, ["download-meta", "--status"])
         assert result.exit_code == 0
 
     def test_download_help(self, test_env):
-        """download --help shows source options (no network IO)"""
-        result = runner.invoke(app, ["download", "--help"])
+        """download-meta --help shows source options (no network IO)"""
+        result = runner.invoke(app, ["download-meta", "--help"])
         assert result.exit_code == 0
         assert "--source" in result.output
 
@@ -311,8 +315,15 @@ class TestCLI:
         if os.path.exists(cfg_path):
             os.remove(cfg_path)
         result = runner.invoke(app, ["init", "--quick"])
-        assert result.exit_code == 0
+        assert result.exit_code == 0, f"init --quick crashed: {result.exception!r}"
         assert os.path.exists(cfg_path), "init --quick should create config.yaml"
+        # Regression: the REPO_USER template contains literal YAML braces, which
+        # str.format() consumed → KeyError('file') on every fresh init.
+        repo_user = os.path.join(os.getcwd(), "REPO_USER.md")
+        assert os.path.exists(repo_user), "init --quick should scaffold REPO_USER.md"
+        text = open(repo_user, encoding="utf-8").read()
+        assert "{file:" in text, "the YAML template must survive substitution intact"
+        assert os.path.basename(os.getcwd()) in text, "project name must be substituted"
 
     def test_init_existing_config(self, test_env):
         """init when config exists warns and exits gracefully"""
@@ -335,10 +346,15 @@ class TestCLI:
         assert result.exit_code == 0
 
     def test_monitor_help(self):
-        """monitor --help shows options"""
+        """monitor --help documents its ACTION argument and --interval.
+
+        Actions (start/stop/status) are argument *values*; they do not appear in the
+        help text, so asserting on the action name tested nothing.
+        """
         result = runner.invoke(app, ["monitor", "--help"])
         assert result.exit_code == 0
-        assert "start" in result.output
+        assert "ACTION" in result.output
+        assert "--interval" in result.output
 
     def test_monitor_status(self, test_env):
         """monitor status shows daemon state (not running by default)"""
@@ -377,13 +393,41 @@ class TestCLI:
 
 
 class TestStoreExport:
-    """Test store export functionality"""
+    """Test store export functionality.
 
-    def test_export_json_empty(self, test_env):
+    Isolated on purpose: these tests previously ran against the ambient database, so
+    "empty store" only held while the developer's real store happened to be empty, and
+    the export path was scraped from wrapped console output.
+    """
+
+    @pytest.fixture(autouse=True)
+    def isolated_data_dir(self, tmp_path, monkeypatch):
+        from hfpapers import paper_store
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("HFPAPERS_DATA_DIR", str(data_dir))
+        monkeypatch.setattr(paper_store, "_store_instance", None)
+        yield data_dir
+        paper_store._store_instance = None
+
+    @staticmethod
+    def _exported(data_dir, suffix: str):
+        files = sorted(
+            data_dir.glob(f"papers_export_*{suffix}"), key=lambda f: f.stat().st_mtime
+        )
+        assert files, f"no export artifact (*{suffix}) in {data_dir}"
+        return files[-1]
+
+    def test_export_json_empty(self, isolated_data_dir):
         """Empty store export reports no papers"""
         result = runner.invoke(app, ["store", "export", "json"])
         assert result.exit_code == 0
         assert "No papers" in result.output or "no papers" in result.output
+
+        assert not list(isolated_data_dir.glob("papers_export_*.json")), (
+            "an empty store must not produce an export file"
+        )
 
     def test_export_unsupported_format(self, test_env):
         """Unsupported format returns error 1"""
@@ -391,8 +435,10 @@ class TestStoreExport:
         assert result.exit_code == 1
         assert "Unsupported" in result.output
 
-    def test_export_json_with_papers(self, test_env):
+    def test_export_json_with_papers(self, isolated_data_dir):
         """Insert a paper, export JSON, verify content"""
+        import json
+
         from hfpapers.paper_store import ensure_paper
 
         sf_id, _ = ensure_paper("2501.12345", title="Export Test Paper", source="test")
@@ -401,22 +447,16 @@ class TestStoreExport:
         assert "Exported" in result.output
         assert ".json" in result.output
 
-        import json
-
-        output_line = [line for line in result.output.split("\n") if line.strip().startswith("/")][
-            0
-        ]
-        out_path = output_line.strip()
-        with open(out_path) as f:
-            data = json.load(f)
+        data = json.loads(self._exported(isolated_data_dir, ".json").read_text(encoding="utf-8"))
         assert isinstance(data, list)
-        assert len(data) >= 1
-        paper = data[0]
-        assert paper["title"] == "Export Test Paper"
-        assert paper["sf_id"] == sf_id
+        assert len(data) == 1
+        assert data[0]["title"] == "Export Test Paper"
+        assert data[0]["sf_id"] == sf_id
 
-    def test_export_csv_with_papers(self, test_env):
+    def test_export_csv_with_papers(self, isolated_data_dir):
         """Insert a paper, export CSV, verify content"""
+        import csv
+
         from hfpapers.paper_store import ensure_paper
 
         ensure_paper("2501.67890", title="CSV Export Paper", source="test")
@@ -425,54 +465,7 @@ class TestStoreExport:
         assert "Exported" in result.output
         assert ".csv" in result.output
 
-        import csv
-
-        output_line = [line for line in result.output.split("\n") if line.strip().startswith("/")][
-            0
-        ]
-        out_path = output_line.strip()
-        with open(out_path, newline="") as f:
-            reader = csv.reader(f)
-            rows = list(reader)
-        assert len(rows) >= 2  # header + data
-        assert rows[0][0] == "sf_id"
-        assert rows[1][1] == "CSV Export Paper"
-
-    def test_export_via_paperstore_direct(self, paper_store):
-        """Directly test PaperStore.export_papers() method"""
-        from hfpapers.paper_store import PaperRecord
-
-        for i in range(3):
-            r = PaperRecord(title=f"Test Paper {i}", source="direct_test")
-            paper_store.upsert_paper(r)
-
-        import json
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
-            tmp = f.name
-        try:
-            out = paper_store.export_papers(format="json", filepath=tmp)
-            with open(out) as f:
-                data = json.load(f)
-            assert len(data) == 3
-            assert data[0]["title"].startswith("Test Paper")
-        finally:
-            import os
-
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-
-        import csv
-
-        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:
-            tmp = f.name
-        try:
-            out = paper_store.export_papers(format="csv", filepath=tmp)
-            with open(out, newline="") as f:
-                reader = csv.reader(f)
-                rows = list(reader)
-            assert len(rows) == 4  # header + 3 data
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
+        with self._exported(isolated_data_dir, ".csv").open(newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        assert len(rows) == 1
+        assert rows[0]["title"] == "CSV Export Paper"

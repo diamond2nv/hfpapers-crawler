@@ -27,6 +27,7 @@ Usage:
 
 import json
 import logging
+import string
 import time
 from pathlib import Path
 from typing import Optional
@@ -2075,7 +2076,7 @@ def _import_dummy():
     pass
 
 
-REPO_USER_TEMPLATE = """# REPO_USER.md — {project} interest profile (hfpclawer recommendations)
+REPO_USER_TEMPLATE = """# REPO_USER.md — ${project} interest profile (hfpclawer recommendations)
 
 > This file is this repo's VIRTUAL-USER picture for hfpclawer: which research
 > direction consumes the paper store from here (see `hfpclawer recommend` and
@@ -2090,7 +2091,7 @@ REPO_USER_TEMPLATE = """# REPO_USER.md — {project} interest profile (hfpclawer
 ```yaml
 hfpclawer:
   schema: 2                     # declaration schema version (formatter)
-  profile: {project}
+  profile: ${project}
   queries:
     - query: "<your research keyword>"
       weight: 3
@@ -2122,7 +2123,13 @@ def _maybe_write_repo_user(cwd: Path, quick: bool = False) -> None:
     if p.exists():
         return
     try:
-        p.write_text(REPO_USER_TEMPLATE.format(project=cwd.name), encoding="utf-8")
+        # string.Template, not str.format: the template contains literal YAML
+        # braces (`evidence: {file: ...}`) that .format() would treat as fields
+        # and fail on with KeyError('file').
+        p.write_text(
+            string.Template(REPO_USER_TEMPLATE).substitute(project=cwd.name),
+            encoding="utf-8",
+        )
     except OSError as e:
         console.print(f"[yellow]⚠️  REPO_USER.md template skipped: {e}[/yellow]")
         return

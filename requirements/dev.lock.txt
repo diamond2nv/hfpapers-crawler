@@ -1,0 +1,462 @@
+# GENERATED — do not edit by hand.
+#
+# Resolved dependency lock, for auditing and reproducible installs:
+#   uv pip compile pyproject.toml -o requirements/dev.lock.txt          # core
+#   uv pip compile pyproject.toml --extra dev -o requirements/dev.lock.txt
+#
+# pyproject.toml remains the single source of dependency truth; this file exists so a
+# scanner (pip-audit, Dependabot) reviews the *resolved* set rather than a hand-copied
+# list that drifts. Reports: uvx pip-audit -r requirements/dev.lock.txt
+#
+aiohappyeyeballs==2.7.1
+    # via aiohttp
+aiohttp==3.14.3
+    # via
+    #   litellm
+    #   scrapy
+aiosignal==1.4.0
+    # via aiohttp
+annotated-doc==0.0.5
+    # via typer
+annotated-types==0.8.0
+    # via pydantic
+antlr4-python3-runtime==4.11.0
+    # via hfpclawer (pyproject.toml)
+anyio==4.15.1
+    # via
+    #   httpx
+    #   httpx2
+    #   openai
+attrs==26.1.0
+    # via
+    #   aiohttp
+    #   jsonschema
+    #   referencing
+    #   service-identity
+    #   twisted
+automat==25.4.16
+    # via twisted
+backports-zstd==1.7.0
+    # via scrapy
+beautifulsoup4==4.15.0
+    # via hfpclawer (pyproject.toml)
+bibtexparser==1.4.4
+    # via pyzotero
+blis==1.3.3
+    # via thinc
+boto3==1.43.96
+    # via litellm
+botocore==1.43.96
+    # via
+    #   boto3
+    #   s3transfer
+brotli==1.2.0
+    # via scrapy
+catalogue==2.0.10
+    # via
+    #   spacy
+    #   srsly
+    #   thinc
+certifi==2026.7.22
+    # via
+    #   httpcore
+    #   httpx
+    #   requests
+cffi==2.1.1
+    # via cryptography
+charset-normalizer==3.5.1
+    # via
+    #   requests
+    #   scrapy
+click==8.5.0
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   huggingface-hub
+    #   litellm
+    #   spacy
+cloudpathlib==0.25.0
+    # via weasel
+confection==1.3.3
+    # via
+    #   spacy
+    #   thinc
+    #   weasel
+constantly==23.10.4
+    # via twisted
+coverage==7.16.1
+    # via pytest-cov
+cryptography==50.0.1
+    # via
+    #   pyopenssl
+    #   scrapy
+    #   service-identity
+cssselect==1.5.0
+    # via
+    #   parsel
+    #   scrapy
+cymem==2.0.13
+    # via
+    #   preshed
+    #   spacy
+    #   thinc
+defusedxml==0.7.1
+    # via scrapy
+distro==1.9.0
+    # via openai
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+    # via hfpclawer (pyproject.toml)
+fastuuid==0.14.0
+    # via litellm
+feedparser==6.0.14
+    # via pyzotero
+feedparser-sgmllib==2.1.0
+    # via feedparser
+filelock==4.0.0
+    # via
+    #   huggingface-hub
+    #   tldextract
+flatbuffers==25.12.19
+    # via onnxruntime
+frozenlist==1.8.0
+    # via
+    #   aiohttp
+    #   aiosignal
+fsspec==2026.7.0
+    # via huggingface-hub
+h11==0.16.0
+    # via
+    #   httpcore
+    #   httpcore2
+hf-xet==1.6.0
+    # via huggingface-hub
+httpcore==1.0.9
+    # via httpx
+httpcore2==2.13.0
+    # via httpx2
+httpx==0.28.1
+    # via
+    #   huggingface-hub
+    #   litellm
+    #   openai
+    #   weasel
+httpx2==2.13.0
+    # via pyzotero
+huggingface-hub==1.31.0
+    # via tokenizers
+hyperlink==21.0.0
+    # via twisted
+idna==3.19
+    # via
+    #   anyio
+    #   httpx
+    #   httpx2
+    #   hyperlink
+    #   requests
+    #   tldextract
+    #   yarl
+importlib-metadata==8.9.0
+    # via litellm
+incremental==24.11.0
+    # via twisted
+iniconfig==2.3.0
+    # via pytest
+itemadapter==0.13.1
+    # via
+    #   itemloaders
+    #   scrapy
+itemloaders==1.4.0
+    # via scrapy
+jinja2==3.1.6
+    # via
+    #   litellm
+    #   spacy
+jiter==0.17.0
+    # via openai
+jmespath==1.1.0
+    # via
+    #   boto3
+    #   botocore
+    #   itemloaders
+    #   parsel
+jsonschema==4.26.0
+    # via litellm
+jsonschema-specifications==2025.9.1
+    # via jsonschema
+litellm==1.101.0
+    # via hfpclawer (pyproject.toml)
+lxml==6.1.3
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   parsel
+    #   scrapy
+markdown-it-py==4.2.0
+    # via rich
+markupsafe==3.0.3
+    # via jinja2
+mdurl==0.1.2
+    # via markdown-it-py
+multidict==6.8.0
+    # via
+    #   aiohttp
+    #   yarl
+murmurhash==1.0.15
+    # via
+    #   preshed
+    #   spacy
+    #   thinc
+networkx==3.6.1
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   pymupdf-layout
+nodeenv==1.10.0
+    # via pyright
+numpy==2.5.3
+    # via
+    #   blis
+    #   onnxruntime
+    #   pymupdf-layout
+    #   spacy
+    #   thinc
+onnxruntime==1.30.0
+    # via pymupdf-layout
+openai==2.54.0
+    # via litellm
+packaging==26.3
+    # via
+    #   huggingface-hub
+    #   incremental
+    #   onnxruntime
+    #   parsel
+    #   pytest
+    #   scrapy
+    #   spacy
+    #   thinc
+    #   weasel
+parsel==1.11.0
+    # via
+    #   itemloaders
+    #   scrapy
+platformdirs==4.11.9
+    # via scrapy
+pluggy==1.6.0
+    # via
+    #   pytest
+    #   pytest-cov
+preshed==3.0.13
+    # via
+    #   spacy
+    #   thinc
+propcache==0.5.4
+    # via
+    #   aiohttp
+    #   yarl
+protego==0.6.2
+    # via scrapy
+protobuf==7.36.1
+    # via onnxruntime
+psutil==7.2.2
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   pymupdf4llm
+pycparser==3.0
+    # via cffi
+pydantic==2.13.5
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   litellm
+    #   openai
+    #   pydantic-settings
+    #   spacy
+    #   thinc
+    #   weasel
+pydantic-core==2.46.5
+    # via pydantic
+pydantic-settings==2.15.0
+    # via litellm
+pydispatcher==2.0.7
+    # via scrapy
+pygments==2.21.0
+    # via
+    #   pytest
+    #   rich
+pymupdf==1.28.2
+    # via
+    #   pymupdf-layout
+    #   pymupdf4llm
+pymupdf-layout==1.28.2
+    # via pymupdf4llm
+pymupdf4llm==1.28.2
+    # via hfpclawer (pyproject.toml)
+pyopenssl==26.4.0
+    # via scrapy
+pyparsing==3.3.2
+    # via bibtexparser
+pyright==1.1.414
+    # via hfpclawer (pyproject.toml)
+pytest==9.1.1
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   pytest-asyncio
+    #   pytest-cov
+    #   pytest-mock
+    #   pytest-timeout
+pytest-asyncio==1.4.0
+    # via hfpclawer (pyproject.toml)
+pytest-cov==7.1.0
+    # via hfpclawer (pyproject.toml)
+pytest-mock==3.15.1
+    # via hfpclawer (pyproject.toml)
+pytest-timeout==2.4.0
+    # via hfpclawer (pyproject.toml)
+python-dateutil==2.9.0.post0
+    # via botocore
+python-dotenv==1.2.3
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   litellm
+    #   pydantic-settings
+pyyaml==6.0.3
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   huggingface-hub
+    #   pymupdf-layout
+pyzotero==1.15.1
+    # via hfpclawer (pyproject.toml)
+queuelib==1.10.0
+    # via scrapy
+redis==8.1.0
+    # via scrapy-redis
+referencing==0.37.0
+    # via
+    #   jsonschema
+    #   jsonschema-specifications
+regex==2026.9.10
+    # via tiktoken
+requests==2.34.2
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   requests-file
+    #   spacy
+    #   tiktoken
+    #   tldextract
+requests-file==3.0.1
+    # via tldextract
+rich==15.0.0
+    # via typer
+rpds-py==2026.6.3
+    # via
+    #   jsonschema
+    #   referencing
+ruff==0.16.8
+    # via hfpclawer (pyproject.toml)
+s3transfer==0.19.2
+    # via boto3
+scrapy==2.19.0
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   scrapy-redis
+scrapy-redis==0.9.1
+    # via hfpclawer (pyproject.toml)
+service-identity==26.1.0
+    # via scrapy
+setuptools==84.0.0
+    # via
+    #   spacy
+    #   thinc
+shellingham==1.5.4
+    # via typer
+six==1.17.0
+    # via
+    #   python-dateutil
+    #   scrapy-redis
+smart-open==8.0.1
+    # via weasel
+sniffio==1.3.1
+    # via openai
+soupsieve==2.9.2
+    # via beautifulsoup4
+spacy==3.8.16
+    # via hfpclawer (pyproject.toml)
+spacy-legacy==3.0.12
+    # via spacy
+spacy-loggers==1.0.5
+    # via spacy
+srsly==2.5.3
+    # via
+    #   spacy
+    #   thinc
+    #   weasel
+tabulate==0.10.0
+    # via pymupdf4llm
+thinc==8.3.13
+    # via spacy
+tiktoken==0.14.0
+    # via litellm
+tldextract==5.3.2
+    # via scrapy
+tokenizers==0.23.2
+    # via litellm
+tqdm==4.70.1
+    # via
+    #   huggingface-hub
+    #   openai
+    #   spacy
+truststore==0.10.4
+    # via
+    #   httpcore2
+    #   httpx2
+twisted==26.4.0
+    # via scrapy
+typer==0.27.2
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   spacy
+    #   weasel
+typing-extensions==4.16.0
+    # via
+    #   aiohttp
+    #   aiosignal
+    #   anyio
+    #   beautifulsoup4
+    #   httpx2
+    #   huggingface-hub
+    #   openai
+    #   pydantic
+    #   pydantic-core
+    #   pyopenssl
+    #   pyright
+    #   pytest-asyncio
+    #   referencing
+    #   twisted
+    #   typing-inspection
+typing-inspection==0.4.4
+    # via
+    #   pydantic
+    #   pydantic-settings
+urllib3==2.8.0
+    # via
+    #   botocore
+    #   requests
+w3lib==2.4.1
+    # via
+    #   parsel
+    #   scrapy
+wasabi==1.1.3
+    # via
+    #   spacy
+    #   thinc
+    #   weasel
+weasel==1.0.0
+    # via spacy
+whenever==0.10.5
+    # via pyzotero
+wrapt==2.4.1
+    # via smart-open
+yarl==1.25.1
+    # via aiohttp
+zipp==4.1.0
+    # via importlib-metadata
+zope-interface==8.6
+    # via
+    #   scrapy
+    #   twisted

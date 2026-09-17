@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hfpclawer"
-version = "0.17.3"
+version = "0.19.0"
 description = "Multi-source academic paper clawler for PDE/neural operator/physics-informed ML — OAI-PMH download + PDF download + SQLite paper_store + Cross-Ref + MCP server"
 authors = [
     {name = "Li Shen"},
@@ -42,8 +42,6 @@ dependencies = [
     "typer>=0.9",
     "psutil>=5.8",
     "pymupdf4llm>=1.28.0",
-    "pyzotero>=1.13.2",
-    "spacy>=3.8.0",
     "click>=8.4.2",
     "networkx>=3.0",
     "pydantic>=2.7",
@@ -64,8 +62,16 @@ quic = [
     "aioquic>=1.2.0",
 ]
 nlp = [
+    # spaCy is imported lazily (hfpapers/nlp degrades to "feature disabled"), so it
+    # lives here rather than in the core install: `pip install hfpclawer` should not
+    # pull a ~70 MB NLP stack for users who never touch entity enrichment.
     "spacy>=3.8.0",
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+]
+zotero = [
+    # pyzotero is imported behind a HAS_PYZOTERO guard (hfpclawer/zotero); the local API
+    # is reached over HTTP, so the client library is only needed to talk to it.
+    "pyzotero>=1.13.2",
 ]
 nlp-full = [
     "hfpclawer[nlp]",
@@ -77,6 +83,9 @@ graph = [
     "geopy>=2.4",
 ]
 pdf = [
+    # Compatibility alias: pymupdf4llm is a core dependency (PDF→Markdown is on the main
+    # path), so this extra adds nothing. Kept so `hfpclawer[pdf]` in older instructions
+    # keeps resolving instead of erroring on an unknown extra.
     "pymupdf4llm",
 ]
 scrapy = [
@@ -87,6 +96,8 @@ dev = [
     "hfpclawer[scrapy]",
     "hfpclawer[llm]",
     "hfpclawer[pdf]",
+    "hfpclawer[nlp]",
+    "hfpclawer[zotero]",
     "ruff",
     "pyright",
     "pytest>=7.0",
@@ -94,6 +105,10 @@ dev = [
     "pytest-cov>=4.0",
     "pytest-mock>=3.10",
     "pytest-timeout>=2.3",
+    # sympy's LaTeX parser needs the antlr runtime at import time (parse_latex), and it
+    # insists on exactly 4.11 — 4.13 raises an ImportError that reads like a missing
+    # package. Without it tests/test_verify_* fail on every machine.
+    "antlr4-python3-runtime==4.11.0",  # sympy 1.14 requires exactly the 4.11 runtime
 ]
 arxiv = [
     # NOTE: arxiv-metadata-service is NOT installable via PyPI (requires GitHub clone).
@@ -124,10 +139,15 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-q --tb=short"
+# The default run must be deterministic and finish: tests that spawn real servers or
+# CLIs, need a live service, or build a wheel in a temp venv are opt-in. Passing -m on
+# the command line overrides this expression (argparse keeps the last value).
+addopts = "-q --tb=short -m 'not slow and not network and not integration'"
 asyncio_mode = "auto"
 markers = [
-    "slow: marks tests as slow (e.g. venv creation + pip install), deselected by default",
+    "slow: builds a wheel/venv or otherwise takes minutes — opt in with -m slow",
+    "network: hits a live external service (arXiv/OpenAlex/S2/Zotero/Wolfram) — opt in with -m network",
+    "integration: spawns real servers/CLIs (MCP stdio, HTTP) and may not terminate in a bare environment — opt in with -m integration",
     "gate_b: Geometry/base functionality verification gates (B10-B11)",
     "gate_c: Topology/pipeline verification gates (C01-C02)",
     "gate_f: Magnitude/config verification gates (F01-F02) + state-location gates (F05-F06)",
@@ -161,12 +181,29 @@ ignore = ["E501"]
 "tests/test_audit.py" = ["F841"]
 "tests/test_semantic_service.py" = ["E402"]
 
+# Two dev definitions exist for one reason: pip reads
+# [project.optional-dependencies] (`pip install -e ".[dev]"`), uv reads PEP 735
+# [dependency-groups] (`uv sync --group dev`). They must stay in step — the suite needs
+# pytest-asyncio (asyncio_mode) and pytest-timeout (the network tests), and a missing
+# plugin turns those declarations into silent no-ops.
 [dependency-groups]
 dev = [
-    "fastapi>=0.139.0",
+    "hfpclawer[scrapy]",
+    "hfpclawer[llm]",
+    "hfpclawer[pdf]",
     "hfpclawer[graph]",
-    "pytest>=9.1.1",
+    "hfpclawer[nlp]",
+    "hfpclawer[zotero]",
+    "fastapi>=0.139.0",
     "sympy>=1.14.0",
+    "ruff",
+    "pyright",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=4.0",
+    "pytest-mock>=3.10",
+    "pytest-timeout>=2.3",
+    "antlr4-python3-runtime==4.11.0",  # sympy 1.14 requires exactly the 4.11 runtime
 ]
 
 [tool.pyright]

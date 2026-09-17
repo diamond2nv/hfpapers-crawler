@@ -175,6 +175,14 @@ twine upload dist/*
 `site-packages` 内部；F06 会让任何新增的 `Path(__file__).parent.parent` 状态路径直接失败。状态路径
 一律走 `hfpapers/paths.py`。
 
+### 跑测试（默认那一套**就是**门禁）
+
+`pytest tests/` 只跑确定性集合：标了 `slow`（要建 wheel 或 venv）、`network`（要连活服务）、
+`integration`（要起真实服务器/CLI）的测试由 `addopts` 排除，裸环境不可能把整轮跑挂住。更大范围要显式开：
+`-m slow`、`-m network`、`-m integration`，或 `-m ""` 全跑；在有网络与服务的机器上做发布检查用
+`pytest -m "" --timeout=120`。需要重环境的测试必须落在这些标记里，不能留在默认路径 ——
+默认那套一旦不可靠，人就会学会无视整套测试。
+
 先推 tag 再推分支：`git push <remote> vX.Y.Z`，然后 `git push <remote> main`。
 同一规则有测试覆盖（`TestChangelogGate` / `TestChangelogWindowGate`），条目缺失或窗口超预算
 会在本地就失败，而不是等到发布时。

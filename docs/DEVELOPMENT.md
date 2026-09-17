@@ -175,6 +175,16 @@ State locations are gated too: `tests/test_paths.py` (F05) proves an installed p
 data and config under the user directories — never inside `site-packages` — and F06 fails any new
 `Path(__file__).parent.parent` state path. Resolve paths through `hfpapers/paths.py`.
 
+### Running the tests (the default *is* the gate)
+
+`pytest tests/` runs the deterministic set: tests marked `slow` (builds a wheel or a
+venv), `network` (talks to a live service) or `integration` (spawns real servers/CLIs)
+are deselected by `addopts`, so a bare environment cannot hang the run. The wider sets are
+opt-in — `-m slow`, `-m network`, `-m integration`, or `-m ""` for everything — and
+`pytest -m "" --timeout=120` is the right release check where network and servers exist.
+A test that needs a fixture-heavy environment belongs in one of those markers, never in
+the default path: an unreliable default train people to ignore the suite.
+
 Push the tag **before** the branch: `git push <remote> vX.Y.Z`, then `git push <remote> main`.
 The same rules are covered by tests (`TestChangelogGate` / `TestChangelogWindowGate`), so a missing
 entry or an over-budget window fails locally instead of at release time.

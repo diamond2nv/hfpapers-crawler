@@ -123,13 +123,27 @@ class TestPaperStoreGate:
         got = store.get_paper_by_id(99999)
         assert got is None
 
-    def test_ensure_paper_dedup(self):
+    def test_ensure_paper_dedup(self, tmp_path, monkeypatch):
+        """Dedup is asserted on an isolated store, with an id nothing else can hold.
+
+        The previous version used the ambient database: once anything (an earlier run,
+        a real import) had stored that arXiv id, the first call legitimately returned
+        "not new" and the gate failed for a reason unrelated to dedup.
+        """
+        from hfpapers import paper_store
         from hfpapers.paper_store import ensure_paper
-        sf1, new1 = ensure_paper(arxiv_id="2501.00001", title="Paper A")
-        assert new1 is True
-        sf2, new2 = ensure_paper(arxiv_id="2501.00001", title="Paper A")
-        assert new2 is False
-        assert sf2 == sf1
+
+        monkeypatch.setenv("HFPAPERS_DATA_DIR", str(tmp_path / "store"))
+        # Drop any cached connection to the ambient database (monkeypatch restores it).
+        monkeypatch.setattr(paper_store, "_store_instance", None)
+        try:
+            sf1, new1 = ensure_paper(arxiv_id="2501.99999", title="Gate Dedup Paper")
+            assert new1 is True
+            sf2, new2 = ensure_paper(arxiv_id="2501.99999", title="Gate Dedup Paper")
+            assert new2 is False
+            assert sf2 == sf1
+        finally:
+            paper_store._store_instance = None
 
 
 # ═════════════════════════════════════════════════════════════════
@@ -370,6 +384,26 @@ class TestChangelogGate:
         assert "99.99.99" in result.stderr
         assert "## [" in result.stderr, "the failure must show the expected entry shape"
 
+    def test_public_line_section_entry_counts(self, tmp_path):
+        """The public line documents itself one level deeper, inside its own section.
+
+        Regression: the guard accepted only top-level entries, so a public release had
+        to be smuggled into the development list to pass — and the recut snapshot's own
+        test suite failed while the development line stayed green.
+        """
+        fake = tmp_path / "CHANGELOG.md"
+        fake.write_text(
+            "# CHANGELOG\n\n"
+            "## [2026-09-17] fix | v0.19.1 — development entry\n\n"
+            "## Public line — sanitized recuts\n\n"
+            "### [2026-09-17] release | v0.17.3 — public snapshot\n",
+            encoding="utf-8",
+        )
+        nowhere = str(tmp_path / "no-archive.md")
+        hit = self._run("0.17.3", "--changelog", str(fake), "--archive", nowhere)
+        assert hit.returncode == 0, hit.stderr
+        assert "public-line" in hit.stdout
+
     def test_version_prefix_is_not_a_match(self, tmp_path):
         """`v1.2.10` must not satisfy a lookup for `1.2.1` (substring traps)."""
         fake = tmp_path / "CHANGELOG.md"
@@ -383,18 +417,31 @@ class TestChangelogGate:
         assert long_one.returncode == 0, long_one.stderr
         assert short_one.returncode == 1, "prefix must not count as documented"
 
-    def test_public_line_entries_do_not_satisfy_the_gate(self, tmp_path):
-        """Public-line recuts are `###` subsections; only `##` entries count."""
-        fake = tmp_path / "CHANGELOG.md"
-        fake.write_text(
+    def test_public_line_entries_count_only_inside_their_section(self, tmp_path):
+        """A `###` entry counts under the public-line section — and nowhere else.
+
+        The section is how the public line documents its own version sequence. Before
+        this rule, only `##` entries counted, so a public release had to be smuggled
+        into the development list to pass — the workaround is gone, the protection
+        against stray subsections is not.
+        """
+        inside = tmp_path / "inside.md"
+        inside.write_text(
             "# CHANGELOG\n\n## Public line — sanitized recuts\n\n"
-            "### [2026-01-01] fix | v1.2.3 — a recut, not a release entry\n",
+            "### [2026-01-01] fix | v1.2.3 — a public recut\n",
             encoding="utf-8",
         )
-        result = self._run(
-            "1.2.3", "--changelog", str(fake), "--archive", str(tmp_path / "no-archive.md")
+        outside = tmp_path / "outside.md"
+        outside.write_text(
+            "# CHANGELOG\n\n## [2026-01-01] fix | v9.9.9 — development entry\n\n"
+            "### [2026-01-01] fix | v1.2.3 — a subsection, not an entry\n",
+            encoding="utf-8",
         )
-        assert result.returncode == 1, "a subsection must not satisfy a release entry"
+        nowhere = str(tmp_path / "no-archive.md")
+        nested = self._run("1.2.3", "--changelog", str(inside), "--archive", nowhere)
+        assert nested.returncode == 0, nested.stderr
+        stray = self._run("1.2.3", "--changelog", str(outside), "--archive", nowhere)
+        assert stray.returncode == 1, "a subsection must not satisfy a release entry"
 
     def test_guard_rejects_non_semver(self):
         assert self._run("not-a-version").returncode == 2
@@ -421,6 +468,52 @@ class TestChangelogGate:
 # shipped a 44 KB file), so the window is capped in bytes and rotated into
 # docs/CHANGELOG-archive.md. Rule and implementation: scripts/changelog_rotate.py.
 
+
+class TestChangelogPublicLineRotation:
+    """Public-line entries survive rotation as a section, header included."""
+
+    REPO_ROOT = Path(__file__).resolve().parent.parent
+    ROTATE = REPO_ROOT / "scripts" / "changelog_rotate.py"
+    GUARD = REPO_ROOT / "scripts" / "changelog_guard.py"
+
+    def _run(self, script, *args):
+        import subprocess
+        import sys
+        return subprocess.run(
+            [sys.executable, str(script), *args], capture_output=True, text=True
+        )
+
+    def test_rotating_the_public_line_section_keeps_its_entries_findable(self, tmp_path):
+        changelog = tmp_path / "CHANGELOG.md"
+        archive = tmp_path / "CHANGELOG-archive.md"
+        body = "# CHANGELOG\n\n"
+        for n in range(12):  # enough bulk to force rotation at a tiny budget
+            body += f"## [2026-09-{n + 1:02d}] fix | v0.19.{n} — entry {n}\n" + ("- filler\n" * 20) + "\n"
+        body += (
+            "## Public line — sanitized recuts\n\n"
+            "> The public repo is not a push mirror of `main`.\n\n"
+            "### [2026-09-11] fix | v0.17.2 — sanitised recut\n"
+            "- **M** placeholder\n"
+        )
+        changelog.write_text(body, encoding="utf-8")
+        archive.write_text("# CHANGELOG — archive\n\n", encoding="utf-8")
+
+        rotated = self._run(
+            self.ROTATE, "--changelog", str(changelog), "--archive", str(archive),
+            "--budget", "900",
+        )
+        assert rotated.returncode == 0, rotated.stderr
+
+        archived = archive.read_text(encoding="utf-8")
+        if "v0.17.2" in archived:  # the section may rotate as a unit
+            assert "Public line" in archived, (
+                "the section header must travel with its nested entries, or the guard "
+                "can no longer recognise them in the archive"
+            )
+            found = self._run(
+                self.GUARD, "0.17.2", "--changelog", str(changelog), "--archive", str(archive)
+            )
+            assert found.returncode == 0, found.stderr
 
 class TestChangelogWindowGate:
     """F04: the live changelog stays inside its byte budget and rotation loses nothing."""

@@ -6,7 +6,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/hfpclawer)](https://pypi.org/project/hfpclawer/)
 [![Python versions](https://img.shields.io/pypi/pyversions/hfpclawer)](https://pypi.org/project/hfpclawer/)
-[![License](https://img.shields.io/github/license/diamond2nv/hfpapers-crawler)](https://github.com/diamond2nv/hfpapers-clawler/blob/master/LICENSE)
+[![License](https://img.shields.io/github/license/diamond2nv/hfpapers-crawler)](https://github.com/diamond2nv/hfpapers-crawler/blob/master/LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/diamond2nv/hfpapers-crawler)
 
 > **Naming philosophy**: `claw` (sharp grasp) ≠ `crawl` (creep).
@@ -51,7 +51,7 @@ pip install hfpclawer
 
 ```bash
 git clone <your-repo>
-cd hfpapers-clawler
+cd hfpapers-crawler
 
 # Create virtual environment
 python3 -m venv venv
@@ -219,10 +219,10 @@ AI coding assistant that supports the Hermes skill format):
 
 | Skill | Purpose | Install |
 |-------|---------|---------|
-| `hfpclawer-paper-search` | Daily paper discovery → download → wiki | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-paper-search/SKILL.md` |
-| `hfpclawer-citation-audit` | Verify citations via S2 + OpenAlex | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-citation-audit/SKILL.md` |
-| `hfpclawer-academic-integrity` | Paper draft integrity: extract → verify → flag FABRICATED | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-academic-integrity/SKILL.md` |
-| `hfpclawer-formula-verify` | LaTeX formula cross-validation (SymPy ↔ Wolfram, dimensional) | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/main/skills/hfpclawer-formula-verify/SKILL.md` |
+| `hfpclawer-paper-search` | Daily paper discovery → download → wiki | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/master/skills/hfpclawer-paper-search/SKILL.md` |
+| `hfpclawer-citation-audit` | Verify citations via S2 + OpenAlex | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/master/skills/hfpclawer-citation-audit/SKILL.md` |
+| `hfpclawer-academic-integrity` | Paper draft integrity: extract → verify → flag FABRICATED | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/master/skills/hfpclawer-academic-integrity/SKILL.md` |
+| `hfpclawer-formula-verify` | LaTeX formula cross-validation (SymPy ↔ Wolfram, dimensional) | `hermes skills install https://raw.githubusercontent.com/diamond2nv/hfpapers-crawler/master/skills/hfpclawer-formula-verify/SKILL.md` |
 
 After installing, load with `skill_view(name='hfpclawer-paper-search')` in any
 Hermes conversation.

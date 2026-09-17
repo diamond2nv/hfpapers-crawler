@@ -1,0 +1,92 @@
+# GENERATED — do not edit by hand.
+#
+# Resolved dependency lock, for auditing and reproducible installs:
+#   uv pip compile pyproject.toml -o requirements/core.lock.txt          # core
+#   uv pip compile pyproject.toml --extra dev -o requirements/core.lock.txt
+#
+# pyproject.toml remains the single source of dependency truth; this file exists so a
+# scanner (pip-audit, Dependabot) reviews the *resolved* set rather than a hand-copied
+# list that drifts. Reports: uvx pip-audit -r requirements/core.lock.txt
+#
+annotated-doc==0.0.5
+    # via typer
+annotated-types==0.8.0
+    # via pydantic
+beautifulsoup4==4.15.0
+    # via hfpclawer (pyproject.toml)
+certifi==2026.7.22
+    # via requests
+charset-normalizer==3.5.1
+    # via requests
+click==8.5.0
+    # via hfpclawer (pyproject.toml)
+flatbuffers==25.12.19
+    # via onnxruntime
+idna==3.19
+    # via requests
+lxml==6.1.3
+    # via hfpclawer (pyproject.toml)
+markdown-it-py==4.2.0
+    # via rich
+mdurl==0.1.2
+    # via markdown-it-py
+networkx==3.6.1
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   pymupdf-layout
+numpy==2.5.3
+    # via
+    #   onnxruntime
+    #   pymupdf-layout
+onnxruntime==1.30.0
+    # via pymupdf-layout
+packaging==26.3
+    # via onnxruntime
+protobuf==7.36.1
+    # via onnxruntime
+psutil==7.2.2
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   pymupdf4llm
+pydantic==2.13.5
+    # via hfpclawer (pyproject.toml)
+pydantic-core==2.46.5
+    # via pydantic
+pygments==2.21.0
+    # via rich
+pymupdf==1.28.2
+    # via
+    #   pymupdf-layout
+    #   pymupdf4llm
+pymupdf-layout==1.28.2
+    # via pymupdf4llm
+pymupdf4llm==1.28.2
+    # via hfpclawer (pyproject.toml)
+python-dotenv==1.2.3
+    # via hfpclawer (pyproject.toml)
+pyyaml==6.0.3
+    # via
+    #   hfpclawer (pyproject.toml)
+    #   pymupdf-layout
+requests==2.34.2
+    # via hfpclawer (pyproject.toml)
+rich==15.0.0
+    # via typer
+shellingham==1.5.4
+    # via typer
+soupsieve==2.9.2
+    # via beautifulsoup4
+tabulate==0.10.0
+    # via pymupdf4llm
+typer==0.27.2
+    # via hfpclawer (pyproject.toml)
+typing-extensions==4.16.0
+    # via
+    #   beautifulsoup4
+    #   pydantic
+    #   pydantic-core
+    #   typing-inspection
+typing-inspection==0.4.4
+    # via pydantic
+urllib3==2.8.0
+    # via requests
