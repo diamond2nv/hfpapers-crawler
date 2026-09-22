@@ -13,6 +13,24 @@
 多源学术论文爪取器，专为 PDE / 神经算子 / 物理信息机器学习领域设计。
 内置 SQLite Paper Store、Crossref 交叉验证、反爬 Scrapy 管道和 MCP 服务器。
 
+## Exo 三件套的论文层 —— 论文 → 实验 → 机器可验证的证明
+
+三个独立 CLI，共用一条链。各自独立许可与发布节奏，只通过**文件与 CLI 调用**衔接，互不 import。
+
+| 层 | 工具 | 安装 |
+|:--|:--|:--|
+| **论文** | **hfpclawer**（本仓） | `uv tool install hfpclawer` |
+| 实验 | **expflow-pde** | `uv tool install expflow-pde` |
+| 证明 | **omega-architect**（`omega`） | `uv tool install "omega-architect @ git+https://github.com/diamond2nv/omega-architect@v0.2.3"` |
+
+成本按**设计分层：低 → 中 → 高**，并点明花 token 的步骤（摘要分流、排序、T1 校验）；
+机械路径不调 LLM、无需 API key，但带宽、磁盘、CPU 与 arXiv/OpenAlex 的上游限流仍然存在。
+
+**Agent 技能**（ClawHub，owner [`@diamond2nv`](https://clawhub.ai/diamond2nv)，建议先装入口技能）：
+`exo-suite-linkage` · `hfpclawer-paper-search` · `hfpclawer-citation-audit` · `hfpclawer-formula-verify` ·
+`hfpclawer-academic-integrity` · `expflow-pipeline-hpo` · `experiment-lifecycle-governance` ·
+`clearml-metrics-logging-pattern` · `competition-task-intelligence` · `omega-architect-formal-proof`
+
 ## ✨ 特性
 
 五项核心能力，一屏看完 —— 详细说明见 [`docs/cn/FEATURES.zh-CN.md`](FEATURES.zh-CN.md)。
@@ -21,7 +39,7 @@
 - **验证** —— 每篇论文带显式状态 `pending → verified / stale / suspect`；元数据冲突（如 DOI 解析出的 arXiv id 与记录不一致）由符号化 0-LLM 检查标出，需人工裁决 —— 既不静默覆盖，也不交给 LLM 判定。 → [详解](FEATURES.zh-CN.md#2-验证)
 - **推荐只用本地信号** —— 查询历史 × 相似度 × 相关性 × 验证状态门禁、仓库级虚拟用户画像（`REPO_USER.md` 的 accepts/rejects 即显式反馈）、可选 Zotero 回写、零配置正例池。完全离线：无外部服务，无需注册。 → [详解](FEATURES.zh-CN.md#3-推荐)
 - **私有数据保持私有** —— 被 gitignore 的 `config.local.yaml` 深度合并覆盖被跟踪配置，真实姓名、ORCID、检索式不会进入公开文件；数据源通过 `search.enabled` 启用（*注册不等于启用*），并共享同一套重试策略。 → [详解](FEATURES.zh-CN.md#4-配置与数据源)
-- **Agent 优先且默认低成本** —— CLI 优先 + MCP server；cron 用确定性 0-token 变化检测；TCP → QUIC 传输阶梯且每次抓取记 sha256；机械门禁（脱敏、变更日志覆盖与窗口、文档审计）用拒绝代替纪律。 → [详解](FEATURES.zh-CN.md#5-agent-优先)
+- **Agent 优先且默认低成本** —— CLI 优先 + MCP server；cron 用确定性变化检测（该路径不调 LLM）；TCP → QUIC 传输阶梯且每次抓取记 sha256；机械门禁（脱敏、变更日志覆盖与窗口、文档审计）用拒绝代替纪律。 → [详解](FEATURES.zh-CN.md#5-agent-优先)
 
 ---
 

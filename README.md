@@ -18,6 +18,26 @@
 A multi-source academic paper clawler for PDE / neural operator / physics-informed ML.
 Built with SQLite paper_store, Crossref cross-validation, anti-crawl Scrapy pipelines, and MCP server.
 
+## Part of the Exo suite — literature → experiments → machine-checked proof
+
+Three independent CLIs, one chain. Each keeps its own license and its own release cycle; they meet
+through **files and CLI calls**, never through imports.
+
+| Layer | Tool | Install |
+|:--|:--|:--|
+| Literature | **hfpclawer** ← this repo | `uv tool install hfpclawer` |
+| Experiments | **expflow-pde** | `uv tool install expflow-pde` |
+| Proofs | **omega-architect** (`omega`) | `uv tool install "omega-architect @ git+https://github.com/diamond2nv/omega-architect@v0.2.3"` |
+
+Cost is **tiered by design — low → medium → high** — with the LLM steps named (abstract triage,
+ranking, T1 verification). The mechanical paths issue no LLM call and need no API key, but bandwidth,
+disk, CPU and upstream rate limits still apply.
+
+**Agent skills** (ClawHub, owner [`@diamond2nv`](https://clawhub.ai/diamond2nv) — start from the entry skill):
+`exo-suite-linkage` · `hfpclawer-paper-search` · `hfpclawer-citation-audit` · `hfpclawer-formula-verify` ·
+`hfpclawer-academic-integrity` · `expflow-pipeline-hpo` · `experiment-lifecycle-governance` ·
+`clearml-metrics-logging-pattern` · `competition-task-intelligence` · `omega-architect-formal-proof`
+
 ## ✨ Features
 
 Five capabilities, one screen — full detail in [`docs/FEATURES.md`](docs/FEATURES.md).
@@ -26,15 +46,35 @@ Five capabilities, one screen — full detail in [`docs/FEATURES.md`](docs/FEATU
 - **Verification** — every paper carries an explicit `pending → verified / stale / suspect` state; metadata conflicts (e.g. a DOI resolving to a different arXiv id) are flagged by symbolic 0-LLM checks and require human adjudication — never a silent overwrite, never an LLM verdict. → [detail](docs/FEATURES.md#2-verification)
 - **Recommendations from local signals only** — search history × similarity × relevance × verification gating, repo-scoped virtual-user profiles (`REPO_USER.md` declarations as explicit feedback), optional Zotero sync-back, and a zero-config positive-example pool. Fully offline: no external service, nothing to sign up for. → [detail](docs/FEATURES.md#3-recommendations)
 - **Private stays private** — a gitignored `config.local.yaml` deep-merges over the tracked config, so real names, ORCIDs and query lists never reach the public file; sources enable through `search.enabled` (*registration is not enablement*), and one shared retry policy covers every adapter. → [detail](docs/FEATURES.md#4-configuration-and-sources)
-- **Agent-first and cheap by default** — CLI-first with an MCP server, deterministic 0-token change detection for cron, a TCP → QUIC transport ladder with a sha256 per fetch, and mechanical gates (sanitization, changelog coverage and window, doc audit) that refuse bad releases instead of relying on discipline. → [detail](docs/FEATURES.md#5-agent-first)
+- **Agent-first and cheap by default** — CLI-first with an MCP server, deterministic change detection that issues no LLM call (built for cron), a TCP → QUIC transport ladder with a sha256 per fetch, and mechanical gates (sanitization, changelog coverage and window, doc audit) that refuse bad releases instead of relying on discipline. → [detail](docs/FEATURES.md#5-agent-first)
 
 ---
 
 ## Quick Install
 
 ```bash
-pip install hfpclawer
+uv tool install hfpclawer        # recommended: the CLI lives in its own environment
+# equivalently: pip install hfpclawer   |   uvx hfpclawer@0.19.0 ...
 ```
+
+Start with the light core install — the heavier dependencies (NLP, PDF, ranking, Zotero, Scrapy…) are
+opt-in and are normally added **later, when you already know you need them**. Adding them to an existing
+install is fully supported, two ways:
+
+```bash
+uv tool install --force "hfpclawer[nlp]"                    # re-resolve with extras
+uv pip install --python "$(uv tool dir)/hfpclawer/bin/python" spacy   # inject a package
+```
+
+> ⚠️ **`uvx hfpclawer` can silently run an old version.** `uv tool run` prefers an *already installed*
+> tool environment, so on a machine that previously installed an older `uv tool install hfpclawer`,
+> `uvx hfpclawer` keeps using that one (`--refresh` does not change it). Fix with
+> `uv tool upgrade hfpclawer`, `uv tool install --force hfpclawer`, or pin explicitly
+> (`uvx hfpclawer@0.19.0`). `uv tool install` always resolves the current release.
+>
+> ⚠️ uv tool environments ship no `pip`, so `…/bin/python -m pip install …` fails inside them.
+> That is not a blocker — use `uv pip install --python "$(uv tool dir)/hfpclawer/bin/python" <pkg>`
+> (uv does not need `pip` inside the environment), or re-run `uv tool install --force "hfpclawer[extra]"`.
 
 ### Dependencies
 
