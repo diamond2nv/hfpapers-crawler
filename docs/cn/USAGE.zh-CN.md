@@ -4,7 +4,8 @@
 
 ```bash
 # 克隆项目
-cd ~/Gitlab/Agentic4Sci/hfpapers-crawler
+git clone https://github.com/diamond2nv/hfpapers-crawler
+cd hfpapers-crawler
 
 # 创建虚拟环境 (Python >= 3.10)
 python -m venv venv
@@ -14,6 +15,31 @@ source venv/bin/activate
 pip install -e .          # 基础安装
 pip install -e ".[scrapy]"  # 含 Scrapy（需额外依赖）
 pip install -e ".[dev]"     # 含开发工具
+pip install -e ".[arxiv]"   # 含 arXiv 本地检索（OAI-PMH 或 Kaggle — 见 [kaggle-metadata.md](../kaggle-metadata.md)）
+
+### 用 uv 装 CLI（推荐）—— 轻装起步，事后按需加装
+
+```bash
+uv tool install hfpclawer        # 只装核心；CLI 住在自己的环境里，不污染项目 venv
+# 用熟之后再上更重的功能，两种方式都实测可用：
+uv tool install --force "hfpclawer[nlp]"                              # 按 extra 重解析
+uv pip install --python "$(uv tool dir)/hfpclawer/bin/python" spacy   # 往已装环境注入单个包
+```
+
+> ⚠️ uv tool 环境**不含 pip**（`…/bin/python -m pip` 会报 No module named pip）——不是障碍：
+> 用 `uv pip install --python "$(uv tool dir)/hfpclawer/bin/python" <包>`，uv 不需要环境里有 pip。
+> ⚠️ `uvx hfpclawer` 可能**悄悄跑旧版**：`uv tool run` 优先复用已安装的 tool 环境，`--refresh` 也改不了。
+> 换版本用 `uv tool upgrade hfpclawer` ／ `uv tool install --force hfpclawer` ／ 显式 `uvx hfpclawer@0.19.0`。
+
+# 可选 extras —— 全部是惰性加载：缺失时功能降级并提示该装什么
+#   [quic]   HTTP/3 传输（aioquic）—— 部分网络下唯一能到达 arXiv 的通道
+#   [nlp]    spaCy + en_core_web_sm，用于关键词 / 标签 / 语义增强
+#   [zotero] pyzotero，访问本地 Zotero API 时需要
+#   [graph]  networkx + geopy，引文图谱命令需要
+#   [llm]    litellm，仅可选的大模型辅助路径需要
+# ⚠️ 从 PyPI 装：`pip install "hfpclawer[nlp]"` 只给 spaCy、**不含模型**——模型 wheel 是
+# 直链依赖，PyPI 不接受。需自行补：`python -m spacy download en_core_web_sm`
+# （也接受 md，且两者都在时优先用 md）。
 
 # 配置
 cp .env.template .env
@@ -67,6 +93,7 @@ hfpclawer store stats                # 存储统计
 hfpclawer store search --keyword "FNO"  # 搜索论文
 hfpclawer store search               # 列出所有论文
 hfpclawer store ensure --aid 2301.11167 --title "..."  # 确保论文存在
+hfpclawer store ensure --aid 2301.11167 --accept-unverified  # 有意接受低置信度的 DOI
 hfpclawer store verify --aid 2301.11167 --title "..."  # Crossref 交叉验证
 hfpclawer store ids --aid 2301.11167 # 查看论文标识符
 ```

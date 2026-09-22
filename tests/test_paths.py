@@ -148,11 +148,21 @@ class TestStateConsumers:
         monkeypatch.setenv("HFPAPERS_DATA_DIR", str(tmp_path / "elsewhere"))
         assert Path(_db_path()).parent == tmp_path / "elsewhere"
 
-    def test_pool_log_and_transport_paths_live_under_state_root(self):
+    def test_pool_log_and_transport_paths_live_under_state_root(self, monkeypatch):
+        """Every state consumer agrees with ``paths`` in the *default* configuration.
+
+        The suite harness points ``HFPAPERS_DATA_DIR`` at a temp dir (F08); the
+        invariant below is about the no-override case, so clear it explicitly —
+        pool/acquisition-log follow an absolute override while ``paths.data_dir()``
+        never has, and mixing the two is what made this test red on configured
+        machines.
+        """
         from hfpapers import paths
         from hfpapers.arxiv_transport import acquisition_log_path
         from hfpapers.logger import LOG_DIR
         from hfpapers.pool import default_pool_path
+
+        monkeypatch.delenv("HFPAPERS_DATA_DIR", raising=False)
 
         assert LOG_DIR == paths.logs_dir()
         assert default_pool_path().parent == paths.data_dir()

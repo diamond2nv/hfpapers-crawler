@@ -168,10 +168,12 @@ def test_corrupt_line_skipped(tmp_path):
     assert len(rows) == 1
 
 
-def test_default_pool_path_in_data_dir():
+def test_default_pool_path_in_data_dir(monkeypatch):
+    """The default pool path sits in the state root's data dir (no override)."""
+    monkeypatch.delenv("HFPAPERS_DATA_DIR", raising=False)
     p = default_pool_path()
     assert p.name == "positive_pool.jsonl"
-    assert "data" in str(p)
+    assert p.parent.name == "data"
 
 
 def test_sync_profile_accepted_folds_paper_declarations(store, tmp_path):

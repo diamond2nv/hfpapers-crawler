@@ -5,13 +5,16 @@ description: >
   SymPy roundtrip → Wolfram CAS comparison → dimensional consistency.
   Supports single FID and batch verification with LaTeX report generation.
 category: research
+tags: [formula-verification, sympy, latex, cas, wolfram]
 author: HFPClawer Maintainers
-version: 1.0.0
+version: 1.2.3
+permissions: [shell, file_read, file_write, network]
 metadata:
   hermes:
+    homepage: https://github.com/diamond2nv/hfpapers-crawler
+    pypi: https://pypi.org/project/hfpclawer/
     tags: [formula, verification, CAS, LaTeX, cross-validation, wolfram, sympy]
     related_skills: [hfpclawer-citation-audit, hfpclawer-paper-search]
-tags: [formula, verification, CAS, LaTeX, cross-validation, wolfram, sympy]
 ---
 
 # hfpclawer Formula Cross-Validation
@@ -68,12 +71,44 @@ The verification pipeline checks each formula through up to 4 layers:
 
 ## Prerequisites
 
-- `pip install hfpclawer>=0.14.0`
+**Python ≥ 3.10.** Pick the install that matches how you work — **uv is recommended**, because the CLI then lives in its own environment (no conflicts with your project's dependencies):
+
+```bash
+# 1) Recommended — uv tool: isolated CLI install, `hfpclawer` on your PATH
+uv tool install hfpclawer
+hfpclawer init                    # writes config.yaml
+
+# 2) Try it without installing anything (ephemeral, one-off runs)
+# pin the version — `uvx`/`uv tool run` reuse an installed tool env (may run an older
+# release), and an unpinned launch is a supply-chain (rug-pull) risk
+uvx "hfpclawer==0.19.0" --help
+
+# 3) Inside an existing project / venv (uv-managed)
+uv pip install hfpclawer
+
+# 4) No uv yet — pip and pipx both work
+pip install hfpclawer             # or: python -m pip install hfpclawer
+pipx install hfpclawer            # CLI-style install, functionally like `uv tool`
+```
+
+**Optional extras** — the core install stays deliberately small:
+
+| Extra | Adds | Install |
+|:--|:--|:--|
+| `zotero` | `pyzotero` — the Zotero read / write / ingest paths | `uv tool install "hfpclawer[zotero]"` |
+| `nlp` | spaCy pipeline for entity enrichment | `uv tool install "hfpclawer[nlp]"` |
+| `graph` | networkx + geopy for the citation graph | `uv tool install "hfpclawer[graph]"` |
+| `llm` | litellm for opt-in LLM helpers (`sniff`) | `uv tool install "hfpclawer[llm]"` |
+
+> ⚠️ **`nlp` extra + PyPI** (checked against the published 0.19.0 metadata): PyPI strips the direct-URL spaCy model, so that extra installs `spacy` only — fetch the model yourself with `python -m spacy download en_core_web_sm`. The loader falls back `configured → en_core_web_md → en_core_web_sm` and logs one actionable hint when none is present: entity enrichment degrades, nothing else breaks.
+
+**Where to find it**: repo <https://github.com/diamond2nv/hfpapers-crawler> · PyPI <https://pypi.org/project/hfpclawer/> · registry: `clawhub inspect <slug>`
+
 - **Optional**: Local Wolfram Engine for CAS cross-validation (L1b)
   - Download from https://www.wolfram.com/engine/
   - Set `WOLFRAMSCRIPT_PATH` in `.env` (default: `/usr/bin/wolframscript`)   - Without Wolfram, L1b skips with a warning; all other layers still run
 
-## Quick Start
+Quick Start
 
 ### 1. Add a Formula to the Registry
 
@@ -184,6 +219,51 @@ hfpclawer verify stats
 # 4. Generate full report
 hfpclawer verify report --all --output maxwell-verify.tex
 ```
+
+## Hermes Agent Environment
+
+hfpclawer is built to run inside **Hermes Agent** (and OpenCode) as a first-class tool —
+the agent discovers the skill, and every command below is callable without leaving the session.
+
+**1. Install the skill** — place this folder under `~/.hermes/skills/research/<slug>/`
+(or install from ClawHub: `clawhub inspect <slug> --file SKILL.md`); Hermes loads it automatically
+and `skill_view(name='<slug>')` returns this file.
+
+**2. Register the MCP server** so the agent calls the CLI as tools:
+
+```yaml
+# ~/.hermes/config.yaml
+mcp:
+  servers:
+    hfpclawer:
+      command: "hfpclawer"
+      args: ["mcp"]        # stdio mode — Hermes native MCP client
+```
+For OpenCode / debugging use HTTP mode: `hfpclawer mcp --mode http --port 8765`.
+
+**3. Environment variables** — every one is optional; the pipeline runs with none set:
+
+| Variable | Purpose |
+|:--|:--|
+| `HFPAPERS_DATA_DIR` | state/DB root (XDG `~/.local/share/hfpclawer` when installed; the checkout when run from source) |
+| `HFPAPERS_CONFIG` / `HFPAPERS_LOCAL_CONFIG` | config file + private overlay |
+| `S2_API_KEY` | Semantic Scholar — 10x faster (anonymous tier works) |
+| `OPENALEX_POLITE_EMAIL` | OpenAlex polite pool — 10x faster |
+| `ZOTERO_API_URL` | Zotero local API base (default `http://127.0.0.1:23119/api/`) |
+| `HFPCLAWER_PEER_REPOS` / `HFPCLAWER_REPO_MAP` | address private sibling repos by tag instead of hard-coded paths |
+
+**4. Cost profile** — the mechanical layer (search / dedup / verify / audit / Zotero) needs
+**low-cost by design — not zero-cost.** The core path (search / dedup / verify / audit / Zotero)
+issues no LLM call and needs no API key, so the marginal cost per run is small; it is still **not
+zero** — bandwidth, disk and CPU are spent, and rate-limited upstreams (arXiv / OpenAlex / Semantic
+Scholar) can throttle or expect a key at volume. LLM features (`sniff`, abstract triage) are opt-in
+and metered where they run; `rank` trains locally with lightgbm. Describe the cost as **low**, and
+keep the LLM steps explicit — do not advertise the stack as zero-token.
+
+**5. Keep private data private** — real author lists, ORCIDs and Zotero ids belong in
+`config.local.yaml` (gitignored) or `~/.hfpclawer/profile.yaml`, never in tracked files.
+The repo-side profile (the `hfpclawer:` block in a project `AGENTS.md`) is deliberately
+**public-safe**: neutral academic keywords only.
 
 ## Common Pitfalls
 

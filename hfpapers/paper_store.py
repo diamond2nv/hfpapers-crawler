@@ -37,6 +37,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -374,6 +375,7 @@ class PaperStore:
                     year        INTEGER DEFAULT 0,
                     source      TEXT DEFAULT '',       -- First source
                     venue       TEXT DEFAULT '',       -- Venue
+                    item_type   TEXT DEFAULT '',       -- Carrier form; Zotero-shaped vocabulary (item_types.py)
                     relevance   INTEGER DEFAULT 0,     -- Relevance 0-100
                     has_code    INTEGER DEFAULT 0,     -- Has code
                     code_url    TEXT DEFAULT '',
@@ -457,6 +459,43 @@ class PaperStore:
                     conn.execute(col_sql)
                 except Exception:
                     pass  # Already exists
+
+            # Migration v5: item_type (v0.19.5+)
+            #   item_type     = carrier form (journalArticle / conferencePaper / preprint / report / …)
+            #   item_type_src = who decided it: "derived" (rule-matched) | "manual" | "" (never classified)
+            #   Rationale + the subset we keep: docs/ITEM_TYPE.md
+            for col_sql in [
+                "ALTER TABLE papers ADD COLUMN item_type TEXT DEFAULT ''",
+                "ALTER TABLE papers ADD COLUMN item_type_src TEXT DEFAULT ''",
+                "ALTER TABLE papers ADD COLUMN item_type_at TEXT DEFAULT ''",
+            ]:
+                try:
+                    conn.execute(col_sql)
+                except Exception:
+                    pass  # Already exists
+
+            # Migration v6: row-level event log (v0.19.6+)
+            #   The repo kept run-level accounting (ledger.jsonl) but nothing recorded *row* changes:
+            #   a data-integrity pass deleted 25 identifiers and 16 records with no trace in the store,
+            #   so "who removed this DOI, and why" was unanswerable. One append-only table covers
+            #   identifier attach/detach, record removal, item_type decisions and pre-destructive
+            #   snapshots. See docs/AUDIT_CRITIQUE.md §6.
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS store_events (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    at          TEXT DEFAULT (datetime('now')),
+                    sf_id       INTEGER DEFAULT 0,
+                    kind        TEXT NOT NULL,          -- identifier_add|identifier_remove|record_remove
+                                                        -- |item_type_set|snapshot
+                    detail      TEXT DEFAULT '',        -- JSON payload (what changed, before → after)
+                    actor       TEXT DEFAULT '',        -- who: import-cmd|reconcile|dedup|agent|human
+                    reason      TEXT DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_store_events_sf ON store_events(sf_id);
+                CREATE INDEX IF NOT EXISTS idx_store_events_at ON store_events(at DESC);
+                """
+            )
 
     # ─── Paper CRUD ───────────────────────────
 
@@ -754,13 +793,105 @@ class PaperStore:
 
     # ─── Identifier Management ──────────────────────────
 
+    def carries_unverified_tag(self, sf_id: int) -> bool:
+        """True when the record carries the explicit ``accepted-unverified`` tag.
+
+        The record-level form of "a sub-threshold identifier on this record is intentional".
+        Consulted by :meth:`add_identifier`'s confidence gate and by :meth:`crossref_attach` before
+        it decides whether a candidate may also rewrite ``venue``/``year``.
+        """
+        from hfpapers.invariants import ACCEPTED_UNVERIFIED_TAG
+
+        with self._lock, self._conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM identifiers WHERE sf_id=? AND id_type='tag' AND id_value=? LIMIT 1",
+                (sf_id, ACCEPTED_UNVERIFIED_TAG),
+            ).fetchone()
+        return row is not None
+
     def add_identifier(
-        self, sf_id: int, id_type: str, id_value: str, source: str = "", confidence: float = 1.0
+        self,
+        sf_id: int,
+        id_type: str,
+        id_value: str,
+        source: str = "",
+        confidence: float = 1.0,
+        *,
+        actor: str = "",
+        method: str = "",
+        accept_unverified: bool = False,
     ) -> bool:
-        """Add an identifier mapping to a paper. Skip if exists."""
+        """Add an identifier mapping to a paper. Skip if exists.
+
+        Every attach is recorded in ``store_events`` — not only the value but **how it was found**
+        (``method``: which query/similarity produced it) and by whom (``actor``).  The critique's
+        first finding was that an attached identifier carried no method, so a wrong one could not be
+        traced or ranked against a checked one; this is the smallest change that fixes it.
+
+        **Confidence gate (v0.19.7).** An identifier whose ``confidence`` is below
+        ``invariants.LOW_CONFIDENCE_THRESHOLD`` is **refused unless explicitly accepted** — which
+        happened three times in three days on this store (a 2001 *Neuroreport* chapter DOI on an
+        ICLR 2026 paper, a 2013 *Nature* news DOI on a long-context paper, a 1990 psychology chapter
+        DOI on a 2026 preprint; confidences 0.51–0.58, all auto-attached by ``ensure_paper``).
+        Acceptance is explicit: pass ``accept_unverified=True``, or tag the record
+        ``accepted-unverified`` first.  A refusal is loud (WARNING + an ``identifier_rejected`` event
+        carrying the candidate and its confidence) and returns ``False`` — silence was the problem,
+        not the caution.
+
+        **What the return value means to a caller — honour it.** ``False`` = the attach did *not*
+        happen (refused by the gate, or an error).  ``True`` = the row is present afterwards, whether
+        this call inserted it or it was already there (``INSERT OR IGNORE``).  An auto-attach caller
+        that ignores it keeps counting a refused candidate as found and keeps stamping its
+        ``venue``/``year`` onto the record; ``crossref_attach`` is the store-side version of this rule.
+        """
+        from hfpapers.invariants import ACCEPTED_UNVERIFIED_TAG, LOW_CONFIDENCE_THRESHOLD
+
+        if confidence < LOW_CONFIDENCE_THRESHOLD:
+            if not (accept_unverified or self.carries_unverified_tag(sf_id)):
+                logger.warning(
+                    "[identifier] refused %s=%s for sf_id=%s: confidence %.2f < %.2f — "
+                    "pass accept_unverified=True (or tag the record %r) to accept it deliberately",
+                    id_type, id_value, sf_id, confidence, LOW_CONFIDENCE_THRESHOLD,
+                    ACCEPTED_UNVERIFIED_TAG,
+                )
+                self.log_event(
+                    sf_id,
+                    "identifier_rejected",
+                    {
+                        "id_type": id_type,
+                        "id_value": id_value,
+                        "confidence": round(float(confidence), 3),
+                        "source": source,
+                        "method": method,
+                        "threshold": LOW_CONFIDENCE_THRESHOLD,
+                    },
+                    actor=actor or source or "api",
+                    reason=f"confidence {confidence:.2f} < {LOW_CONFIDENCE_THRESHOLD} (refused; explicit acceptance required)",
+                )
+                return False
+            # Deliberate acceptance is recorded as well, so a wrong-but-intentional attach stays
+            # distinguishable from a wrong-and-unnoticed one.
+            self.log_event(
+                sf_id,
+                "identifier_accepted_unverified",
+                {
+                    "id_type": id_type,
+                    "id_value": id_value,
+                    "confidence": round(float(confidence), 3),
+                    "source": source,
+                    "method": method,
+                    "threshold": LOW_CONFIDENCE_THRESHOLD,
+                    "via": "accept_unverified=True"
+                    if accept_unverified
+                    else f"record tag {ACCEPTED_UNVERIFIED_TAG!r}",
+                },
+                actor=actor or source or "api",
+                reason=f"confidence {confidence:.2f} < {LOW_CONFIDENCE_THRESHOLD} accepted deliberately",
+            )
+
         try:
             with self._lock, self._conn() as conn:
-                conn.execute(
+                cur = conn.execute(
                     """
                     INSERT OR IGNORE INTO identifiers
                         (sf_id, id_type, id_value, source, confidence)
@@ -768,10 +899,254 @@ class PaperStore:
                 """,
                     (sf_id, id_type, id_value, source, confidence),
                 )
-                return True
+                added = bool(cur.rowcount)
+            self.log_event(
+                sf_id,
+                "identifier_add",
+                {
+                    "id_type": id_type,
+                    "id_value": id_value,
+                    "confidence": round(float(confidence), 3),
+                    "source": source,
+                    "method": method,
+                    "inserted": added,
+                },
+                actor=actor or source or "api",
+                reason=method,
+            )
+            return True
         except Exception as e:
             logger.warning(f"add_identifier failed: {e}")
             return False
+
+    def crossref_attach(
+        self, sf_id: int, arxiv_id: str, title: str, *, accept_unverified: bool = False
+    ) -> str:
+        """Attach the Crossref candidate for an arXiv paper — the one place the store decides.
+
+        Returns ``"attached"``, ``"refused"`` or ``"none"`` (no candidate, or the query failed).
+        ``"refused"`` means nothing was written **and nothing was rewritten**: a candidate is only
+        worth having if it can be trusted, and a sub-threshold hit used to also stamp its own
+        ``venue``/``year`` onto the record — the half of the live bug that made a 2026 preprint look
+        like a 1990 psychology chapter.  Acceptance is explicit, by the same two routes
+        :meth:`add_identifier` honours: ``accept_unverified=True`` or the record's
+        ``accepted-unverified`` tag.  Every caller (``ensure_paper``, ``store ensure``, batch
+        verification) goes through here so the gate cannot be side-stepped by a new call site.
+        """
+        from hfpapers.invariants import LOW_CONFIDENCE_THRESHOLD
+
+        if not (arxiv_id and title):
+            return "none"
+        try:
+            result = get_crossref().cross_verify(arxiv_id, title)
+        except Exception as e:
+            logger.debug(f"[CROSSREF] {arxiv_id} Search failed: {e}")
+            return "none"
+        if not (result and result.get("doi")):
+            return "none"
+
+        doi = result["doi"]
+        conf = float(result.get("confidence", 0.0))
+        if conf < LOW_CONFIDENCE_THRESHOLD and not (
+            accept_unverified or self.carries_unverified_tag(sf_id)
+        ):
+            logger.warning(
+                "[CROSSREF] %s candidate DOI=%s conf=%.2f REJECTED (below %.2f): "
+                "not attached, venue/year left untouched; accept deliberately via "
+                "`store ensure --accept-unverified` if the match is right",
+                arxiv_id, doi, conf, LOW_CONFIDENCE_THRESHOLD,
+            )
+            self.log_event(
+                sf_id,
+                "identifier_rejected",
+                {
+                    "id_type": "doi",
+                    "id_value": doi,
+                    "confidence": round(conf, 3),
+                    "source": "crossref",
+                    "method": "crossref_attach (sub-threshold; venue/year not applied)",
+                    "threshold": LOW_CONFIDENCE_THRESHOLD,
+                    "crossref_venue": result.get("venue", ""),
+                    "crossref_year": result.get("year", 0),
+                },
+                actor="crossref",
+                reason=f"confidence {conf:.2f} < {LOW_CONFIDENCE_THRESHOLD} (refused; explicit acceptance required)",
+            )
+            return "refused"
+
+        self.add_identifier(
+            sf_id,
+            "doi",
+            doi,
+            source="crossref",
+            confidence=conf,
+            accept_unverified=accept_unverified,
+            method="crossref cross_verify",
+        )
+        if result.get("venue"):
+            record = self.get_paper_by_id(sf_id)
+            if record and not record.venue:
+                record.venue = result["venue"]
+                record.year = result.get("year", 0)
+                self.upsert_paper(record)
+        self.verify_paper(sf_id)
+        logger.info(f"[CROSSREF] {arxiv_id} → DOI={doi} (conf={conf:.2f})")
+        return "attached"
+
+    def remove_identifier(
+        self, sf_id: int, *, id_type: str = "", id_value: str = "", actor: str = "", reason: str = ""
+    ) -> int:
+        """Detach identifiers from a record, recording what was removed.
+
+        Requires at least one of ``id_type`` / ``id_value`` so a caller cannot wipe a record by
+        accident — the destructive-op discipline the critique asks for (§6), enforced by signature
+        rather than by review.
+        """
+        if not id_type and not id_value:
+            raise ValueError("remove_identifier requires id_type or id_value (refusing to match everything)")
+        where = "sf_id=?" + (" AND id_type=?" if id_type else "") + (" AND id_value=?" if id_value else "")
+        params: list[str | int] = [sf_id] + ([id_type] if id_type else []) + ([id_value] if id_value else [])
+        with self._lock, self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT id_type, id_value, COALESCE(confidence,1.0) FROM identifiers WHERE {where}", params  # noqa: S608
+            ).fetchall()
+            if rows:
+                conn.execute(f"DELETE FROM identifiers WHERE {where}", params)  # noqa: S608
+        for t, v, conf in rows:
+            self.log_event(
+                sf_id,
+                "identifier_remove",
+                {"id_type": t, "id_value": v, "confidence": round(float(conf), 3)},
+                actor=actor or "api",
+                reason=reason,
+            )
+        return len(rows)
+
+    def transfer_identifier(
+        self, from_sf: int, to_sf: int, id_type: str, id_value: str, *, actor: str = "", reason: str = ""
+    ) -> bool:
+        """Re-point an existing identifier at another record, recording the move.
+
+        This has to be an ``UPDATE``, not ``add_identifier``: ``identifiers`` is
+        ``UNIQUE(id_type, id_value)``, so while the row is still attached to the source record an
+        ``INSERT OR IGNORE`` on the target silently does nothing.  A merge built on insert therefore
+        *drops* identifiers — the exact failure that lost three arXiv ids on 2026-09-19, caught here
+        by `store dedup`'s post-move verification before it could happen again.
+        """
+        with self._lock, self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE identifiers SET sf_id=? WHERE sf_id=? AND id_type=? AND id_value=?",
+                (to_sf, from_sf, id_type, id_value),
+            )
+            moved = bool(cur.rowcount)
+        self.log_event(
+            to_sf,
+            "identifier_transfer",
+            {"from": from_sf, "to": to_sf, "id_type": id_type, "id_value": id_value, "moved": moved},
+            actor=actor or "api",
+            reason=reason,
+        )
+        return moved
+
+    def remove_paper(self, sf_id: int, *, actor: str = "", reason: str = "") -> bool:
+        """Delete a record **and its identifiers**, after writing a full row-level snapshot event.
+
+        The snapshot inside the event is what makes removal auditable: a later question ("was this
+        DOI ever there?") is answerable from the store itself rather than from somebody's /tmp file.
+        """
+        with self._lock, self._conn() as conn:
+            row = conn.execute("SELECT * FROM papers WHERE sf_id=?", (sf_id,)).fetchone()
+            if row is None:
+                return False
+            before = {k: row[k] for k in row.keys()} if hasattr(row, "keys") else dict(row)
+            ids = [
+                {"id_type": r[0], "id_value": r[1], "source": r[2], "confidence": r[3]}
+                for r in conn.execute(
+                    "SELECT id_type, id_value, COALESCE(source,''), COALESCE(confidence,1.0)"
+                    " FROM identifiers WHERE sf_id=?",
+                    (sf_id,),
+                )
+            ]
+            conn.execute("DELETE FROM identifiers WHERE sf_id=?", (sf_id,))
+            conn.execute("DELETE FROM papers WHERE sf_id=?", (sf_id,))
+        self.log_event(
+            sf_id, "record_remove", {"record": before, "identifiers": ids},
+            actor=actor or "api", reason=reason,
+        )
+        return True
+
+    def log_event(
+        self, sf_id: int, kind: str, detail: dict | None = None, *, actor: str = "", reason: str = ""
+    ) -> None:
+        """Append one row to the store's event log. Never raises into the caller's path."""
+        try:
+            with self._lock, self._conn() as conn:
+                conn.execute(
+                    "INSERT INTO store_events (sf_id, kind, detail, actor, reason) VALUES (?,?,?,?,?)",
+                    (int(sf_id or 0), kind, json.dumps(detail or {}, ensure_ascii=False), actor, reason),
+                )
+        except Exception as e:  # logging must not break the operation it describes
+            logger.debug(f"log_event failed: {e}")
+
+    def events(self, *, limit: int = 50, sf_id: int = 0, kind: str = "") -> list[dict]:
+        """Most recent events first (optionally for one record / one kind)."""
+        where, params = [], []
+        if sf_id:
+            where.append("sf_id=?")
+            params.append(int(sf_id))
+        if kind:
+            where.append("kind=?")
+            params.append(kind)
+        sql = "SELECT id, at, sf_id, kind, detail, actor, reason FROM store_events"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(int(limit))
+        with self._lock, self._conn() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [
+            {
+                "id": r[0], "at": r[1], "sf_id": r[2], "kind": r[3],
+                "detail": r[4], "actor": r[5], "reason": r[6],
+            }
+            for r in rows
+        ]
+
+    def snapshot(self, *, dest: str = "", reason: str = "") -> str:
+        """Write every paper + identifier to a timestamped JSON file and log the act.
+
+        Callers that are about to change or delete rows call this first; the critique's §6 finding
+        was that recovery relied on a snapshot somebody happened to have written by hand.
+        """
+        from hfpapers.paths import data_dir
+
+        with self._lock, self._conn() as conn:
+            papers = [dict(r) for r in conn.execute("SELECT * FROM papers").fetchall()]
+            ids = [dict(r) for r in conn.execute("SELECT * FROM identifiers").fetchall()]
+        out_dir = Path(dest) if dest else Path(data_dir()) / "snapshots"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"papers-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+        path.write_text(json.dumps({"papers": papers, "identifiers": ids}, ensure_ascii=False), encoding="utf-8")
+        self.log_event(0, "snapshot", {"path": str(path), "papers": len(papers), "identifiers": len(ids)},
+                       actor="store.snapshot", reason=reason)
+        return str(path)
+
+    def iter_identity_groups(self) -> dict[str, list[int]]:
+        """``{identity_key: [sf_id, …]}`` — the grouping the duplicate invariant and `store dedup` use."""
+        from hfpapers.invariants import identity_key
+
+        with self._lock, self._conn() as conn:
+            papers = conn.execute("SELECT sf_id, COALESCE(title,''), COALESCE(year,0) FROM papers").fetchall()
+            ids = conn.execute("SELECT sf_id, id_type, id_value FROM identifiers").fetchall()
+        by_record: dict[int, list[tuple[str, str]]] = {}
+        for sf_id, t, v in ids:
+            by_record.setdefault(sf_id, []).append((t, v))
+        groups: dict[str, list[int]] = {}
+        for sf_id, title, year in papers:
+            key = identity_key(title, year, by_record.get(sf_id, []))
+            if key:
+                groups.setdefault(key, []).append(sf_id)
+        return groups
 
     def get_identifiers(self, sf_id: int) -> list[PaperIdentifier]:
         with self._conn() as conn:
@@ -861,6 +1236,123 @@ class PaperStore:
             )
         except Exception:
             pass
+
+    # ─── item_type (carrier form) ─────────────
+
+    def set_item_type(self, sf_id: int, item_type: str, *, src: str = "manual") -> None:
+        """Set a record's carrier form.
+
+        ``src`` records **who** decided it — ``"derived"`` for a rule match, ``"manual"``
+        for a human or a caller who knows better.  Names are normalised, so callers may
+        write ``"arXiv"`` or ``"whitepaper"`` (see ``hfpapers.item_types``).
+        """
+        from hfpapers.item_types import coerce_item_type
+
+        name = coerce_item_type(item_type)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._lock, self._conn() as conn:
+            prior = conn.execute(
+                "SELECT COALESCE(item_type,''), COALESCE(item_type_src,'') FROM papers WHERE sf_id=?",
+                (sf_id,),
+            ).fetchone()
+            conn.execute(
+                """UPDATE papers SET
+                    item_type=?, item_type_src=?, item_type_at=?, updated_at=datetime('now')
+                WHERE sf_id=?""",
+                (name, src, now, sf_id),
+            )
+        self.log_event(
+            sf_id,
+            "item_type_set",
+            {
+                "before": (prior[0] if prior else ""),
+                "before_src": (prior[1] if prior else ""),
+                "after": name,
+                "after_src": src,
+            },
+            actor=src or "api",
+        )
+
+    def get_item_type(self, sf_id: int) -> tuple[str, str]:
+        """Return ``(item_type, item_type_src)``; ``("", "")`` when never classified."""
+        with self._lock, self._conn() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(item_type,''), COALESCE(item_type_src,'') FROM papers WHERE sf_id=?",
+                (sf_id,),
+            ).fetchone()
+        return (row[0], row[1]) if row else ("", "")
+
+    def item_type_stats(self) -> dict:
+        """Distribution of ``item_type`` (and of who decided it).
+
+        ``unclassified`` counts both "never looked at" (``''``) and "looked at, no rule
+        matched" (``'unknown'``) — the CLI reports them separately, because the second
+        group is the one that needs a human or a new rule.
+        """
+        with self._lock, self._conn() as conn:
+            by_type = {
+                (row[0] or ""): row[1]
+                for row in conn.execute(
+                    "SELECT item_type, COUNT(*) FROM papers GROUP BY item_type ORDER BY 2 DESC"
+                )
+            }
+            by_src = {
+                (row[0] or ""): row[1]
+                for row in conn.execute("SELECT item_type_src, COUNT(*) FROM papers GROUP BY 1")
+            }
+            total = conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
+        return {
+            "total": total,
+            "by_type": by_type,
+            "by_source": by_src,
+            "never_classified": by_type.get("", 0),
+            "no_rule_matched": by_type.get("unknown", 0),
+        }
+
+    def iter_item_type_inputs(
+        self, *, only_unclassified: bool = True, limit: int = 0
+    ) -> list[dict]:
+        """The rows a classification pass needs: venue/title/has_code + identifier and tag types.
+
+        Tags are stored as ``identifiers`` rows with ``id_type='tag'`` (see ``add_tag``), so a
+        single query answers "what does this record look like" without per-row round trips.
+        """
+        sql = """
+            SELECT p.sf_id, p.venue, p.title, p.has_code,
+                   (SELECT GROUP_CONCAT(i2.id_type) FROM identifiers i2 WHERE i2.sf_id = p.sf_id),
+                   (SELECT GROUP_CONCAT(i3.id_value) FROM identifiers i3
+                     WHERE i3.sf_id = p.sf_id AND i3.id_type = 'tag')
+              FROM papers p
+        """
+        if only_unclassified:
+            sql += " WHERE COALESCE(p.item_type,'') = '' OR p.item_type = 'unknown'"
+        sql += " ORDER BY p.sf_id"
+        if limit and limit > 0:
+            sql += f" LIMIT {int(limit)}"
+        with self._lock, self._conn() as conn:
+            rows = conn.execute(sql).fetchall()
+        return [
+            {
+                "sf_id": r[0],
+                "venue": r[1] or "",
+                "title": r[2] or "",
+                "has_code": bool(r[3]),
+                "id_types": (r[4] or "").split(",") if r[4] else [],
+                "tags": (r[5] or "").split(",") if r[5] else [],
+            }
+            for r in rows
+        ]
+
+    def item_type_coverage(self) -> dict:
+        """How many records carry a type this vocabulary recognises (used by the gate test)."""
+        from hfpapers.item_types import ITEM_TYPES
+
+        with self._lock, self._conn() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT item_type FROM papers WHERE COALESCE(item_type,'') <> ''"
+            ).fetchall()
+        stray = sorted({(r[0] or "") for r in rows} - set(ITEM_TYPES))
+        return {"distinct_types": len(rows), "unknown_names": stray}
 
     def get_audit_level(self, sf_id: int) -> int:
         """Get current audit level for a paper. Returns 0 if not found."""
@@ -1337,6 +1829,7 @@ def ensure_paper(
     doi: str = "",
     skip_crossref: bool = False,
     imported_via: str = "",
+    accept_unverified: bool = False,
 ) -> tuple[int, bool]:
     """Ensure paper exists, returns (sf_id, is_new).
 
@@ -1345,6 +1838,10 @@ def ensure_paper(
     and defers cross-verification to separate audit script.
 
     When imported_via is set, records it for audit trail.
+
+    ``accept_unverified=True`` admits a sub-threshold Crossref candidate on purpose — the same
+    acceptance the record-level ``accepted-unverified`` tag grants (v0.19.7).  Without either, a
+    sub-threshold candidate is refused, recorded, and leaves ``venue``/``year`` untouched.
     """
     store = get_store()
     existing = None
@@ -1401,30 +1898,10 @@ def ensure_paper(
     if doi:
         store.add_identifier(sf_id, "doi", doi, source=source)
 
-    # If title is provided, try Crossref validation
+    # If title is provided, try Crossref validation — one decision point, owned by the store, so
+    # every caller (import, CLI, batch) meets the same confidence gate.
     if title and arxiv_id and not skip_crossref:
-        try:
-            cr = get_crossref()
-            result = cr.cross_verify(arxiv_id, title)
-            if result and result.get("doi"):
-                doi = result["doi"]
-                store.add_identifier(
-                    sf_id,
-                    "doi",
-                    doi,
-                    source="crossref",
-                    confidence=result["confidence"],
-                )
-                if result.get("venue"):
-                    record = store.get_paper_by_id(sf_id)
-                    if record and not record.venue:
-                        record.venue = result["venue"]
-                        record.year = result.get("year", 0)
-                        store.upsert_paper(record)
-                store.verify_paper(sf_id)
-                logger.info(f"[CROSSREF] {arxiv_id} → DOI={doi} (conf={result['confidence']:.2f})")
-        except Exception as e:
-            logger.debug(f"[CROSSREF] {arxiv_id} Search failed: {e}")
+        store.crossref_attach(sf_id, arxiv_id, title, accept_unverified=accept_unverified)
 
     return sf_id, True
 

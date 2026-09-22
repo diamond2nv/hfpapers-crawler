@@ -252,10 +252,16 @@ def extract_pdf_annotations(pdf_path: str) -> list[dict]:
           - color_label (str): Human-readable color with emoji
     """
     try:
-        import fitz  # PyMuPDF
-    except ImportError:
-        logger.error("PyMuPDF not installed. Run: uv add pymupdf")
-        return []
+        # `import pymupdf` is the current name; the `fitz` alias is deprecated and, on
+        # PyMuPDF >= 1.28, announces that with a print() — which lands on a closed
+        # capture stream under pytest and raises ValueError instead of the warning.
+        import pymupdf as fitz
+    except ImportError:  # PyMuPDF < 1.24 ships only the legacy alias
+        try:
+            import fitz
+        except ImportError:
+            logger.error("PyMuPDF not installed. Run: uv add pymupdf")
+            return []
 
     doc = fitz.open(pdf_path)
     results: list[dict] = []

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from hfpapers.config import get as cfg_get
+from hfpapers.paths import pdf_dir as _default_pdf_dir
 
 logger = logging.getLogger("hfpapers.pdf_downloader")
 
@@ -37,7 +38,7 @@ class AsyncPdfDownloader:
     ):
         self.max_concurrent = max_concurrent
         self.sem = asyncio.Semaphore(max_concurrent)
-        self.pdf_dir = Path(pdf_dir or cfg_get("paths.pdf_dir", "pdfs"))
+        self.pdf_dir = Path(pdf_dir or cfg_get("paths.pdf_dir", str(_default_pdf_dir())))
         self.md_dir = Path(md_dir or cfg_get("paths.md_dir", "mds"))
         self.progress_cb = progress_cb
         os.makedirs(self.pdf_dir, exist_ok=True)

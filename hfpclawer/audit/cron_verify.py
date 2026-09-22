@@ -37,6 +37,7 @@ class VerifyStats:
     verified_new: int = 0
     already_verified: int = 0
     doi_found: int = 0
+    doi_rejected: int = 0
     venue_found: int = 0
     retractions: int = 0
     errors: int = 0
@@ -45,7 +46,7 @@ class VerifyStats:
     def summary_line(self) -> str:
         return (
             f"total={self.total}, verified_new={self.verified_new}, "
-            f"doi={self.doi_found}, venue={self.venue_found}, "
+            f"doi={self.doi_found}, doi_rejected={self.doi_rejected}, venue={self.venue_found}, "
             f"retracted={self.retractions}, title_changed={self.titles_changed}, "
             f"errors={self.errors}"
         )
@@ -169,11 +170,24 @@ def batch_verify(
 
         if result and result.get("doi"):
             doi = result["doi"]
-            store.add_identifier(
+            conf = float(result.get("confidence", 0.0))
+            attached = store.add_identifier(
                 sf_id, "doi", doi,
                 source="crossref",
-                confidence=result.get("confidence", 0.0),
+                confidence=conf,
             )
+            if not attached:
+                # The confidence gate refused this candidate.  Nothing was written, so nothing may
+                # be counted as found and venue/year must NOT be taken from a match just rejected —
+                # otherwise the refusal only half-works and the record still inherits the wrong
+                # paper's metadata (v0.19.7).
+                stats.doi_rejected += 1
+                logger.warning(
+                    "[%s] DOI=%s refused (confidence %.2f < threshold); venue/year left untouched",
+                    arxiv_id, doi, conf,
+                )
+                time.sleep(rate)
+                continue
             stats.doi_found += 1
             stats.verified_new += 1
 
@@ -208,6 +222,7 @@ def format_report(stats: VerifyStats, elapsed: float) -> str:
         f"   扫描论文:       {stats.total}",
         f"   新增已验证:     {stats.verified_new}",
         f"   DOI 匹配:       {stats.doi_found}",
+        f"   DOI 拒收:       {stats.doi_rejected}",
         f"   Venue 补全:     {stats.venue_found}",
         f"   撤稿/异常:      {stats.retractions}",
         f"   标题变更:       {stats.titles_changed}",
@@ -224,6 +239,7 @@ def format_report_json(stats: VerifyStats, elapsed: float) -> str:
         "verified_new": stats.verified_new,
         "already_verified": stats.already_verified,
         "doi_found": stats.doi_found,
+        "doi_rejected": stats.doi_rejected,
         "venue_found": stats.venue_found,
         "retractions": stats.retractions,
         "titles_changed": stats.titles_changed,

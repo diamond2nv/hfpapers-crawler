@@ -14,13 +14,14 @@ from hfpapers.config import get as cfg_get
 from hfpapers.config import load_config
 from hfpapers.hardware import HardwareProbe
 from hfpapers.paper_store import ensure_paper, get_store
+from hfpapers.paths import pdf_dir as _default_pdf_dir
 from hfpapers.paths import state_root
 
 logger = logging.getLogger("hfpapers.evolved")
 
 BASE_DIR = state_root()
 DATA_DIR = BASE_DIR / cfg_get("paths.data_dir", "data")
-PDF_DIR = BASE_DIR / cfg_get("paths.pdf_dir", "pdfs")
+PDF_DIR = _default_pdf_dir() if not cfg_get("paths.pdf_dir", "") else Path(cfg_get("paths.pdf_dir"))
 MD_DIR = BASE_DIR / cfg_get("paths.md_dir", "mds")
 
 os.makedirs(DATA_DIR, exist_ok=True)

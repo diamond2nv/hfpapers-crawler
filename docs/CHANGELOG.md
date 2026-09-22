@@ -1,6 +1,12 @@
 # CHANGELOG
 
-<!-- changelog-window rule="bytes<=24576" kept=10 of=11 bytes=22601 rotated=2026-09-17 -->
+<!-- changelog-window rule="bytes<=24576" kept=8 of=9 bytes=22160 rotated=2026-09-22 -->
+
+
+
+
+
+
 
 
 
@@ -28,6 +34,14 @@
 > window states its own rule in the comment above). Rotated entries stay findable — the guard
 > searches both files.
 >
+> **Where releases live.** **GitHub releases** —
+> <https://github.com/diamond2nv/hfpapers-crawler/releases> carries the public line, which has used
+> the same version numbers as PyPI since 2026-09-17 (the retired `0.17.x` public sequence stays
+> visible in history); **Release history** — <https://pypi.org/project/hfpclawer/#history> lists
+> every published version with its upload date. PyPI can be **newer than the public repository's
+> content**, because the `0.x.0` releases with odd `x` come from the development line — that is a
+> property of the two lineages, not a missing release.
+>
 > **Provenance.** Entries down to **v0.16.14** were written at release time. Entries for
 > **v0.17.0 – v0.18.14** were written **after the fact on 2026-09-17**, reconstructed from commit
 > subjects, `git diff --stat <previous>..<tag>` and spot-checks against the code, because those
@@ -41,6 +55,38 @@ release, and it is versioned on its own sequence (`0.17.x`) independently of the
 (`0.18.x`). Tags `v0.17.0`, `v0.17.1` and `v0.17.2` point at **public-line** commits, which is why
 the development line's own `v0.17.0` / `v0.17.1` release commits are untagged. Only the three
 public cuts are listed here; their functional content is covered by the development-line entries.
+
+### [2026-09-17] release | v0.19.0 — public snapshot, version-aligned with PyPI
+
+- The public repository now carries the **same version numbers as PyPI** (policy change, rule 10 of
+  `AGENTS.md`): PyPI accepts only `0.x.0` with an odd `x` for this project, so the public line uses
+  those numbers too and the old `0.17.x` sequence is retired.
+- Cut from the `v0.19.0` tag itself, so this commit's tree **is** the published 0.19.0 content
+  (modulo sanitization), not a later development tip. Every version on PyPI — 0.5.0, 0.15.0, 0.17.0,
+  0.19.0 — now has a same-named tag here.
+- Tag SHAs differ per remote by construction: `v0.19.0` here is this sanitized snapshot, on the
+  private mirror it is the development commit. The tag *name* is the shared identity; history is
+  appended to, never force-pushed.
+- Content carried: biomedical sources (Europe PMC / bioRxiv / medRxiv), the verification state
+  machine, first-party recommendation signals, the `config.local.yaml` overlay, install-safe state
+  paths (user directories instead of `site-packages`), the changelog coverage/window gates, the
+  doc-surface audit, the deterministic-by-default test suite, and the dependency tiering
+  (`nlp`/`zotero` extras + generated locks).
+
+### [2026-09-21] release | v0.21.0 — drop the v0.1.3-era requirement freezes; Exo-suite cross-links
+
+- **M** `requirements/` — the public snapshot no longer carries `requirements_all_0.1.3.txt`,
+  `requirements_core.txt` and `requirements_dev.txt`: 188/…-line freezes of the **v0.1.3** environment
+  that the development line dropped long ago. They pinned ancient transitive versions
+  (aiohttp / cryptography / mcp / scrapy / starlette / transformers …) and were the **sole** source of
+  the repository's open Dependabot advisories. The audited locks (`core.lock.txt`, `dev.lock.txt`) are
+  unchanged: re-running `uv pip compile` against this tree changed **no pin**, i.e. they were current.
+- **A** Exo-suite cross-links — `README.md` + `docs/cn/README.zh-CN.md` (suite block, uv-first install,
+  the "light start, add heavy extras later" paths, the `uvx`-reuses-an-old-tool-env trap), and the 10
+  published ClawHub skills (entry skill `exo-suite-linkage`; `uvx` launch versions pinned for rug-pull
+  hygiene; top-level `tags:` added where missing).
+- **note** — no public history is rewritten; this is a new sanitized recut on the public sequence
+(the first cut of the 0.21 line; public cuts use odd `0.x.0` to match what PyPI accepts).
 
 ### [2026-09-11] fix | v0.17.2 — remove real ORCIDs and third-party names from tracked files
 
@@ -149,186 +195,132 @@ never finished, 12+ failures. Suite runtime makes it usable as a release check.
   (the whole v0.16 state-semantics section had never been translated) — now translated,
   and `env.template` (an unreferenced duplicate of `.env.template`) is gone.
 
-## [2026-09-17] release | v0.19.0 — first PyPI release of the 0.18 line (with dependency tiering)
+## [2026-09-21] fix | v0.19.7 — a low-confidence identifier can no longer land silently
 
-> `pip install hfpclawer` has served **0.17.0** since 2026-09-05: none of the 0.18 work — the
-> biomedical sources, the verification state machine, the private-config overlay, the
-> install-safe state paths — and it still wrote its database into `site-packages`. This
-> release closes that gap. `0.19.0` keeps the project's PyPI rule (`0.x.0`, odd `x`).
+> Three live occurrences in three days, all from Crossref auto-attach: a 2001 *Neuroreport* chapter
+> DOI on an ICLR 2026 paper, a 2013 *Nature* news DOI on a long-context paper, and a 1990 psychology
+> chapter DOI on a 2026 preprint — confidences 0.51–0.58. v0.19.6 *reported* that band; this release
+> refuses it, at every call site.
 
-- **the 0.18 line, delivered**: Europe PMC / bioRxiv / medRxiv behind one source registry,
-  `pending → verified / stale / suspect` state with symbolic 0-LLM conflict detection,
-  recommendations from first-party signals only, `config.local.yaml` overlay, dateless/
-  DOI-only dedup that keeps records, shared retry policy, changelog coverage and window
-  gates, the doc-surface audit, and state that resolves to the user's directories once
-  installed instead of into `site-packages`.
+- **M** `add_identifier(..., accept_unverified=False)` (`hfpapers/paper_store.py`) refuses any
+  identifier below `invariants.LOW_CONFIDENCE_THRESHOLD` unless the caller passes
+  `accept_unverified=True` or the record carries the `accepted-unverified` tag. Refusal is loud (a
+  WARNING naming the escape hatch) plus an `identifier_rejected` event with the candidate, its
+  confidence and the threshold; a deliberate acceptance is recorded too
+  (`identifier_accepted_unverified`), so a wrong-but-intentional attach stays distinguishable from a
+  wrong-and-unnoticed one. The return value now states what a caller must act on: `False` = nothing
+  written (refused or error), `True` = the row is present afterwards.
+- **A** `PaperStore.crossref_attach()` — the single place the store decides a Crossref candidate,
+  returning `"attached"` / `"refused"` / `"none"`. `"refused"` writes nothing **and rewrites
+  nothing**: the sub-threshold hit also used to stamp its own `venue`/`year` — the half of the live bug
+  that made a 2026 preprint look like a 1990 psychology chapter. `ensure_paper`, `store ensure` and
+  batch verification all route through it, so a new call site cannot side-step the gate.
+- **M** `hfpclawer/audit/cron_verify.py` + `scripts/hfpclawer-audit-verify.py` both ignored the
+  verdict, still counting a refused candidate as found and still stamping `venue`/`year`. They now
+  report it as `doi_rejected` and leave the record alone — the scheduled path was the one most likely
+  to run unattended.
+- **F** `store ensure --accept-unverified` — the route as first written did nothing: it tagged the
+  record and re-ran, but `ensure_paper` returns early for an existing record, so no candidate was ever
+  attempted. It now tags the record and runs the attach explicitly, printing the verdict.
+- **A** `tests/test_confidence_gate.py` (13 cases) — refusal, boundary, both acceptance routes (via
+  `add_identifier` and via `crossref_attach`), the three verdicts, and the batch-verify path.
+  `tests/test_invariants.py` seeds its risky DOI with SQL now: the invariant's job is the rows the
+  write path never saw (a restore, a snapshot import, an older writer) — what the gate cannot police.
+- **Scope** — development line only: PyPI takes `0.x.0` with an odd `x`, so this reaches PyPI with
+  the next `0.21.0`.
 
-### Core install slimmed: 13 dependencies → 11
+## [2026-09-19] feat | v0.19.6 — review-driven: invariants as a gate, events for every row change
 
-- **M** `spacy` moved from core to the `nlp` extra; `pyzotero` moved to a new `zotero`
-  extra. Both are imported lazily behind guards (`hfpapers/nlp` catches `ImportError`,
-  `hfpclawer/zotero` uses `HAS_PYZOTERO`), so nothing breaks by their absence.
-- **M** absence is now visible instead of silent: no spaCy → one warning naming
-  `pip install "hfpclawer[nlp]"`; no model — the *expected* state on PyPI, which will not
-  host the direct-URL model wheel — names `python -m spacy download en_core_web_md`; the
-  Zotero guard names `pip install "hfpclawer[zotero]"`.
-- **verified** on a core-only install: 35 packages, no spaCy/pyzotero, `hfpclawer version`
-  and `store status` work, both hints fire as intended.
+> `docs/AUDIT_CRITIQUE.md` measured the store rather than reading it and found 25 DOIs belonging to
+> other papers, 14 impossible years, 18 duplicate records and 21 identifier-less records — while every
+> existing gate was green. This release turns the critique into machinery: a deterministic gate over
+> the artifact, a row-level event log, and one command for the merge that had been done by hand.
 
-### Dependency auditing became possible
+- **A** `hfpapers/invariants.py` — offline checks (year domain, missing identifiers, title hygiene,
+  identifier vocabulary, low-confidence DOIs, non-paper DOI shapes, duplicate identity) with a
+  coverage report; **A** `hfpapers/invariants_network.py` — the opt-in sampled DOI ↔ Crossref title
+  check, so the core stays instant and offline.
+- **A** `hfpclawer store invariants [--strict|--json|--network|--update-baseline]` — per-check counts
+  plus a **ratchet baseline** (kept beside the store): a check that grew fails the gate, a check that
+  shrank is reported. A gate that is red on day one gets ignored; a gate that can hide findings is
+  worse.
+- **A** row-level event log (`store_events`, migration v6) with `store events`: identifier
+  add/remove/**transfer**, record removal (full row snapshot inside the event), `item_type` decisions
+  and pre-destructive snapshots. `store snapshot` writes the full store on demand.
+- **A** `store dedup [--apply]` — groups by `identity_key`, keeps the identifier-richest record,
+  refuses mismatched titles and same-work/different-artefact pairs (a journal paper and its OSTI
+  report are two records, not a duplicate), snapshots first, **verifies every identifier moved before
+  deleting anything**.
+- **M** one canonical `paths.pdf_dir()`: two directories held 62 PDFs between them and `fetch` wrote
+  to the one the audit never reads; the stray files are moved and the divergent defaults collapse.
+- **M** `derive_item_type` inputs unchanged, but the two defects the invariant found in practice —
+  a classifier fed by a venue inherited from a wrong DOI, and a `--limit` that silently capped a
+  backfill at 20 of 1182 — are now recorded rather than silent.
+- **Tests** `tests/test_invariants.py` (29 cases) — every check has a failing example from the live
+  store, a clean store stays quiet, the ratchet detects regressions, and `dedup` proves the
+  identifier-move verification that the manual merge lacked.
+- **Scope** — development line only: PyPI takes `0.x.0` with an odd `x`, so this reaches PyPI with
+  the next `0.21.0`.
 
-- **M** `requirements/` — three stale hand-copied lists removed: `requirements_core.txt` and
-  `requirements_dev.txt` (May mirrors of `pyproject.toml` that had drifted) plus
-  `requirements_all_0.1.3.txt`, a 188-line freeze of the **v0.1.3** environment that a
-  scanner reviews as if it were today's dependency set. Replaced by generated locks —
-  `requirements/core.lock.txt` and `requirements/dev.lock.txt` (`uv pip compile
-  pyproject.toml …`), each with a "do not edit" header and its regeneration command.
-- **M** `pyproject.toml` — `dev` in both definitions now pulls `hfpclawer[nlp]` and
-  `hfpclawer[zotero]`, so a dev environment still has every test dependency.
+## [2026-09-19] feat | v0.19.5 — what a record *is*: `item_type`, learned from Zotero
 
-## [2026-09-17] release | v0.17.3 — public snapshot of the 0.18 line
+> `venue` was doing three jobs at once (container title, repository name, arXiv category) and 48%
+> of rows had none; material class lived in hand-applied free-text tags. A store that cannot
+> answer "is this peer reviewed?" cannot back a citation claim, so every record now carries a
+> **carrier form** from a closed vocabulary borrowed from Zotero's `itemType` names.
 
-- **Public line** (`0.17.x`, its own sequence): public cut of the development line's `0.18.0` – `0.18.22` work: Europe PMC / bioRxiv / medRxiv
-  behind one source registry, the verification status machine, recommendations from local signals,
-  install-safe state resolution (XDG user directories instead of `site-packages`), changelog
-  coverage/window gates, the doc-surface audit, and the restructured documentation (README five
-  feature points, `docs/FEATURES.md`, light root pages).
-- **Sanitization coverage widened**: alongside sensitive values (real ORCIDs, LAN IPs, machine
-  codenames, personal emails, tokens) the gate now rejects internal **layout and project names** —
-  local directory layouts, private sibling repository names, internal wiki/mirror hosts. The older
-  patterns could not see that class (`/home/[a-z]+` cannot match `~/`); peer repositories are
-  declared through the environment instead of being hard-coded.
-- `scripts/sanitize-patterns.sh` is the single definition, read by the git hook, the public-release
-  script and `tests/test_sanitization.py`.
+- **A** `hfpapers/item_types.py` — the vocabulary (`journalArticle`, `conferencePaper`,
+  `preprint`, `report`, `thesis`, `book`, `bookSection`, `dataset`, `software`, `webpage`, plus
+  our `unknown`), peer-review status *derived* from the type rather than stored beside it, and a
+  pure `derive_item_type(...) -> (item_type, reason)` that needs no network. Three ordered rules
+  exist because the store was wrong without them: explicit markers beat naming heuristics;
+  "under review" beats a conference acronym (`arXiv:2508.04349 (ICLR 2026 under review)` is a
+  preprint, not an ICLR paper); and marker matching is **word-bounded**, so `synthesis` no
+  longer fires the `thesis` marker and `Oracle` does not fire `acl`.
+- **M** `hfpapers/paper_store.py` — migration v5 adds `item_type`, `item_type_src`
+  (`derived` / `manual`) and `item_type_at`, plus `set_item_type`, `get_item_type`,
+  `item_type_stats`, `item_type_coverage` and `iter_item_type_inputs` (one query per pass, tags
+  read through the identifier table).
+- **A** `hfpclawer store types | classify | set-type` — inventory, a dry-run-first backfill
+  (`--apply`, `--all`, `--max`) and single-record correction. `--limit` prints rows while
+  `--max` bounds the work: they were one option once, and a backfill silently wrote 20 of 1182.
+- **A** `docs/ITEM_TYPE.md` — what was copied from Zotero and what was deliberately left out
+  (per-type field tables, typed creators, child items), the three-axis model
+  (item_type × venue × source), how to extend the rules, and the known limits.
+- **Backfill** — 1182 records classified: preprint 821, journalArticle 260, conferencePaper 89,
+  report 7, webpage 1, unknown 4. `unknown` is a first-class answer, reported separately from
+  "never classified", and a manual decision is never overwritten by a rule.
+- **Scope** — development line only: PyPI takes `0.x.0` with an odd `x`, so this reaches PyPI
+  with the next `0.21.0`.
 
-- **note** — the public line's earlier recuts (`v0.17.0` – `v0.17.2`) stay in the
-  [public-line section](#public-line--sanitized-recuts) below; the guard needs a top-level entry, so
-  public releases are recorded here too.
+## [2026-09-19] fix | v0.19.4 — the importer stops writing placeholder metadata when arXiv is unreachable
 
-## [2026-09-17] fix | v0.18.22 — install-safe state paths, and the sanitization gate learns the layout class
+> A 245-reference batch ingest left records titled with their own arXiv ids (`title = "2604.10098"`,
+> `year = 0`) while the CLI printed a success line for each of them. Three causes, one symptom: the
+> metadata call used `http://`, had no retry, and had no fallback source — and the failure was
+> swallowed inside the importer, so nothing upstream could notice.
 
-> The public-install defect recorded in v0.18.21: `hfpclawer` resolved its data directory as
-> `Path(__file__).parent.parent / "data"`. In a checkout that is the repository root and everything
-> works; installed from a wheel it is `site-packages`, so `hfpclawer store status` created
-> `<site-packages>/data/papers.db`. Read-only or system-wide installs fail outright, the library
-> disappears with the environment, and nothing tells the user where their data went.
+- **M** `hfpclawer/import_paper/importer.py` — `_fetch_arxiv_meta` split into `_parse_arxiv_atom`
+  (pure parsing, testable without a network) plus a fetch path that uses **https**, retries with
+  backoff, and falls back to **DataCite**; `ImportResult` gains `metadata_source`, so an unresolved
+  record is now an explicit `""` instead of an empty title.
+- **A** placeholder guard — when no source resolves, the importer warns rather than writing the raw
+  identifier as a title; batch runners key their backfill on `metadata_source == ""`.
+- **Evidence** — reproduced on a real batch (245 references, Attention-Sink survey): 102 records
+  carried unusable metadata until a DataCite/Crossref backfill repaired them. The import path is now
+  covered by `tests/test_import.py`.
+- **Scope** — development line only: PyPI takes `0.x.0` with an odd `x` for this project, so 0.19.4
+  stays on the private line and reaches PyPI with the next `0.21.0`.
 
-- **A** `hfpapers/paths.py` — one resolver, two modes: the repository when the package sits in a
-  checkout (a `pyproject.toml` beside it, not under `site-packages`/`dist-packages`, writable);
-  otherwise the platform user directories (`$XDG_DATA_HOME/hfpclawer` → `~/.local/share/hfpclawer`
-  for data/logs, `$XDG_CONFIG_HOME/hfpclawer` → `~/.config/hfpclawer` for config/`.env`).
-  `HFPCLAWER_STATE_DIR` / `HFPCLAWER_CONFIG_DIR` override outright; `HFPAPERS_DATA_DIR` still wins
-  for the database. Checkout behaviour is byte-identical to before.
-- **M** ~25 call sites migrated (`config`, `settings`, `paper_store`, `cli`, `logger`, `evolved`,
-  `pool`, `pipelines`, `download_queue`, `search_queue`, `enrich_entities`, `arxiv_search`,
-  `arxiv_transport`, `tex_converter`, `fix_entity_map`, `graph/stepping`, `hfpclawer/download/*`,
-  `hfpclawer/cli_cron`, `hfpclawer/zotero/cli`); `hfpapers/__init__.py` reads `pyproject.toml`
-  through the checkout check and no longer touches the install directory.
-- **A** `tests/test_paths.py` — F05 `InstallPathGate` (installed mode resolves under XDG; the
-  containment invariant: never inside the installation, even with a stray `pyproject.toml`) and F06
-  `NoAdHocStatePathGate` (a source scan fails any new `Path(__file__).parent.parent` state path —
-  the defect returned three times through new call sites, so it is gated, not remembered).
-- **M** `DEPLOY.md` (state root + per-mode paths), `AGENTS.md` (state-path rule in Repo Standards),
-  `docs/DEVELOPMENT.md` + zh (F05/F06 in the gate list).
+## [2026-09-17] docs | v0.19.3 — one release-surface pair, stated the same way everywhere
 
-### The same pass found a gate blind spot, and it is now closed
+> The two release links were described four different ways (README, this header, `pyproject.toml`,
+> the GitHub release notes), and this header still claimed the public line runs on its own `0.17.x`
+> sequence — retired by the version-alignment policy of 2026-09-17. Same URLs, one phrasing.
 
-- **A** `scripts/sanitize-patterns.sh` — the sanitization patterns in one place, read by `pre-push`,
-  `publish-public.sh` *and* `tests/test_sanitization.py` (F07), so tightening a pattern cannot miss a
-  consumer. Two classes with different severities: **sensitive values** (real ORCIDs, LAN IPs, machine
-  codenames, personal emails, tokens — documented/implemented files stay exempt) and **internal layout
-  and project names** (local directory layout, private sibling repository names, internal wiki/mirror
-  hosts — only the gate scripts themselves are exempt).
-- **why** — the old patterns could not see the second class: `/home/[a-z]+` cannot match `~/`, so
-  a home-directory path into a private sibling project and the sibling project names sat in code, docstrings
-  and the currently published `public` branch. Running the extended gate against that branch flags 20+
-  lines, including two in its `PLAN.md`/`ROADMAP.md` that no earlier review had found.
-- **M** peer repositories became configuration: `hfpapers.paths.peer_repo()` / `peer_roots()` read
-  `HFPCLAWER_PEER_REPOS` (or `HFPCLAWER_PEER_<TAG>`), and the callers that used to hard-code a home
-  layout now ask for a declared peer — `hfpclawer graph ingest`, `graph ingest-citations`,
-  `hfpclawer audit traceability` (bib detection), `cli_cron` project detection, the Zotero PDF
-  fallback (`state_root()`), and `scripts/cron-multi-repo-arxiv-fetch.py` (map from env or the
-  gitignored `scripts/cron-repos.local.json`, with a committed `cron-repos.example.json`). Real values
-  are in gitignored files; `_detect_repo_name()` no longer guesses identities from directory markers.
-- **M** docs neutralised: `AGENTS.md` (layout block, `<lan-wiki>`), `docs/ROADMAP.md` (NAS wiki link,
-  the peer-repo diagram label), `docs/use/verify-guide.md` + zh (project names → "private downstream
-  projects"), `hfpapers/graph/__init__.py` docstrings.
-- **M** `.gitignore` — `scripts/cron-repos.local.json`.
-
-- **note** — the fix is what the pyproject readiness pass found, not a side quest: an install-time
-  write into the installation is a defect a public release would ship; so is publishing the
-  names of the private projects next to this one.
-
-## [2026-09-17] chore | v0.18.21 — pyproject public-release hygiene, and what the install test found
-
-> A public-push readiness pass: build the artifact, install it into a clean environment, and read
-> the metadata a PyPI/GitHub user will actually see. Three small defects, one real one.
-
-- **M** `pyproject.toml` — `Changelog` URL pointed at `blob/main/`, but the public repo's default
-  branch is `master` (broken link for every visitor); `[dependency-groups] dev` asked for
-  `geopy[graph]`, and geopy provides no `graph` extra (`dev`, `dev-lint`, `dev-test`, `dev-docs`,
-  `aiohttp`, `requests`, `timezone` only) — a silent no-op, now `hfpclawer[graph]`; license metadata
-  moved to PEP 639 (`license = "MIT"` + `license-files = ["LICENSE"]`, build requires
-  `setuptools>=77`), dropping the deprecated `License :: OSI Approved :: MIT License` classifier. The
-  built wheel now carries `License-Expression: MIT` and ships `LICENSE`.
-- **note (known issue, public install)** — installing the wheel and running
-  `hfpclawer store status` from an arbitrary directory creates
-  `<site-packages>/data/papers.db`: the package resolves its data directory as
-  `Path(__file__).parent.parent / "data"`, which is the repo root in a checkout but the install
-  directory once installed. Reproduced in a clean venv (delete the directory, re-run, it returns).
-  Harmless for checkout users, wrong for anyone installing from PyPI — read-only or system-wide
-  installs will fail, and library state hides inside the environment. Fix design (checkout dir when
-  present, else XDG user dirs) is next, as it touches every data-path resolution.
-
-## [2026-09-17] docs | v0.18.20 — root CHANGELOG.md becomes a version-line summary
-
-> The root `CHANGELOG.md` was only a pointer, and the repository has **90 tags across 17 version
-> lines** with per-release entries starting at v0.9.13 — so "how did this evolve?" had no answer
-> outside git archaeology.
-
-- **M** `CHANGELOG.md` (root) — line-level summary: one row per `0.x` line (0.2 → 0.18) with period,
-  theme and what it delivered, plus the release rules in force. Coverage is stated honestly: rows
-  before v0.9.13 are **reconstructed from commit history**, entries are contemporaneous from v0.9.13
-  on; the detail stays in `docs/CHANGELOG.md` (window) and `docs/CHANGELOG-archive.md`.
-- **M** `AGENTS.md` — the Repo Standards table still promised `release.sh VERSION --push`, which
-  targets the internal GitLab rather than NAS; corrected to the actual two-step flow.
-- **note** — root changelog stays English-only, matching the rule already declared for the
-  changelog surface.
-
-## [2026-09-17] docs | v0.18.19 — README keeps five feature points, the detail moves to docs/FEATURES.md
-
-> Twelve feature bullets in the README had grown into a wall of prose whose "readability" cost is
-> paid on every visit. The README now states five capabilities, each one sentence and one link; the
-> evidence, caveats and cross-references live in a page of their own.
-
-- **M** `README.md` — features reduced to five points (Discovery · Verification · Recommendations ·
-  Private stays private · Agent-first and cheap by default), each linking into the detail page;
-  `## Links` gained the feature-detail entry.
-- **A** `docs/FEATURES.md` — the detail: per capability, what shipped (with versions), the
-  guard-rails and the deliberate non-goals, cross-linked to USAGE / ARCHITECTURE / paper_store /
-  verify-guide / AGENTS / ROADMAP.
-- **A** `docs/cn/FEATURES.zh-CN.md` — line-aligned Chinese mirror (52/52), as the doc convention
-  requires; `docs/cn/README.zh-CN.md` mirrors the same five points.
-
-## [2026-09-17] docs | v0.18.18 — root docs become light summaries (function + agent first)
-
-> The four root-level markdown files were either stale by ~100 releases (`PLAN.md`, `ROADMAP.md`
-> still described the v0.6.x era of 2026-06-28) or written as an operator transcript (`DEPLOY.md`).
-> They are now short, function-first summaries that point at `docs/` for detail — the root is a
-> front page, not an archive.
-
-- **M** `ROADMAP.md` — rewritten as a light roadmap: what the project is for, the version line, the
-  current `0.18.x` working set as a status table, a short "next", and the non-goals *corrected*
-  (paper recommendation is no longer a non-goal — it shipped; the Scrapy/Redis queue design still
-  is not implemented). The v0.6.x-era text stays in git.
-- **M** `PLAN.md` — rewritten as a one-screen summary: the five functions (find / fetch / verify /
-  store / serve) and how to work in the repo agent-first (CLI first, deterministic by default,
-  nothing personal in tracked files, gates over discipline, no hard-coded paths).
-- **M** `DEPLOY.md` — de-transcribed: requirements, install (`hfpclawer[pdf,quic]`), a smoke test an
-  agent can run (`source-list` / `fetch` / `store status` / `check-new`), where data lives, and the
-  actual LAN shape (independent nodes sharing only the dedup file). The never-implemented
-  scrapy-redis path is marked as such instead of being presented as a deployment option.
-- **A** `CHANGELOG.md` (root) — a pointer to `docs/CHANGELOG.md`, since the conventional root path
-  otherwise resolves to nothing.
-- **note** — root docs reference no hard-coded machine paths, and the doc audit
-  (`scripts/doc_audit.py`) now covers them: every command and path they mention is checked.
+- **M** `docs/CHANGELOG.md` (header) — **GitHub releases** keeps its URL and is now described as the
+  public line *on the same version numbers as PyPI* (the retired `0.17.x` sequence stays visible in
+  history); the second link is labelled **Release history**, matching `README.md` and
+  `[project.urls]` in `pyproject.toml`.
+- **M** GitHub release `v0.19.0` (published surface, edited in place) — carries the same pair, so a
+  visitor arriving from PyPI finds where releases live without leaving the page.

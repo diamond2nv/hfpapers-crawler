@@ -87,6 +87,17 @@ def data_dir(pkg_dir: Path | None = None) -> Path:
     return state_root(pkg_dir) / "data"
 
 
+def pdf_dir(pkg_dir: Path | None = None) -> Path:
+    """Canonical PDF directory: ``<data>/pdfs``.
+
+    One accessor, because the alternative was measured: two directories — ``<repo>/pdfs`` and
+    ``<data>/pdfs`` — held 62 PDFs between them, and ``hfpclawer fetch`` wrote to the one the store,
+    the config and the audit do not look at.  A record could therefore be "downloaded" and stay
+    invisible to every later check (docs/AUDIT_CRITIQUE.md §8).
+    """
+    return data_dir(pkg_dir) / "pdfs"
+
+
 def logs_dir(pkg_dir: Path | None = None) -> Path:
     """Default log directory — ``<state root>/logs``."""
     return state_root(pkg_dir) / "logs"

@@ -21,6 +21,7 @@ import logging
 import sys
 
 from hfpapers import __version__
+from hfpapers.paths import pdf_dir as _default_pdf_dir
 
 logger = logging.getLogger("hfpapers.mcp")
 
@@ -206,7 +207,7 @@ def _handle_stats(args: dict) -> str:
 
     dedup_path = os.path.expanduser(cfg_get("paths.global_dedup"))
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    pdf_dir = os.path.join(base, cfg_get("paths.pdf_dir", "pdfs"))
+    pdf_dir = str(cfg_get("paths.pdf_dir", str(_default_pdf_dir())))
     md_dir = os.path.join(base, cfg_get("paths.md_dir", "mds"))
 
     with open(dedup_path) as f:

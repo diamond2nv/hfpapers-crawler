@@ -20,6 +20,7 @@ from hfpapers.config import get as cfg_get
 from hfpapers.config import load_config
 from hfpapers.items import PaperItem
 from hfpapers.paper_store import ensure_paper, get_store
+from hfpapers.paths import pdf_dir as _default_pdf_dir
 from hfpapers.paths import state_root
 
 logger = logging.getLogger(__name__)
@@ -224,7 +225,7 @@ class DownloadPipeline:
         self.session.headers.update({"User-Agent": "Mozilla/5.0"})
 
         base = str(state_root())
-        self.pdf_dir = os.path.join(base, cfg_get("paths.pdf_dir", "pdfs"))
+        self.pdf_dir = str(cfg_get("paths.pdf_dir", str(_default_pdf_dir())))
         self.md_dir = os.path.join(base, cfg_get("paths.md_dir", "mds"))
         os.makedirs(self.pdf_dir, exist_ok=True)
         os.makedirs(self.md_dir, exist_ok=True)

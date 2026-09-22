@@ -30,6 +30,11 @@ _SPACY_MODEL: str | None = (
 )
 _NLP_INSTANCE = None  # Cached spaCy Language object
 
+# Models an install can actually provide, most capable first: `md` carries the word
+# vectors the semantic paths want, `sm` is what the `nlp` extra ships (PyPI refuses
+# the direct-URL model wheel). See _load_spacy().
+_MODEL_CANDIDATES: tuple[str, ...] = ("en_core_web_md", "en_core_web_sm")
+
 
 def configure(model: str = "en_core_web_md") -> bool:
     """Configure and load the spaCy model.
@@ -71,20 +76,16 @@ def _model_mb(nlp) -> float:
 def _load_spacy() -> Optional[object]:
     """Get the spaCy Language object, loading if necessary.
 
-    Returns None if spaCy or model is unavailable.
+    Returns None if spaCy or a model is unavailable.
     """
-    global _NLP_INSTANCE, _SPACY_MODEL
+    global _NLP_INSTANCE, _SPACY_MODEL, _SPACY_WARNED, _MODEL_WARNED
     if _NLP_INSTANCE is not None:
         return _NLP_INSTANCE
-    model = _SPACY_MODEL or "en_core_web_md"
     try:
         import spacy
-        _NLP_INSTANCE = spacy.load(model)
-        return _NLP_INSTANCE
     except ImportError:
         # spaCy is an extra (pip install "hfpclawer[nlp]"), so a silent debug line
         # would leave the user wondering why every NLP feature returns nothing.
-        global _SPACY_WARNED
         if not _SPACY_WARNED:
             _SPACY_WARNED = True
             logger.warning(
@@ -92,20 +93,34 @@ def _load_spacy() -> Optional[object]:
                 'search) are disabled. Install with: pip install "hfpclawer[nlp]"'
             )
         return None
-    except OSError:
-        # The model wheel is a direct-URL dependency, which PyPI will not host: a wheel
-        # installed from PyPI has spaCy but no model, so this branch is the *expected*
-        # path there and must say what to do instead of failing quietly.
-        global _MODEL_WARNED
-        if not _MODEL_WARNED:
-            _MODEL_WARNED = True
-            logger.warning(
-                "spaCy model '%s' is not installed — NLP features are disabled. "
-                "Install it with: python -m spacy download %s",
-                model,
-                model,
-            )
-        return None
+    # Try the configured model first, then the alternatives an install can actually
+    # provide. The `nlp` extra ships en_core_web_sm because PyPI will not host the
+    # direct-URL model wheel; en_core_web_md (word vectors, used by the semantic
+    # paths) is what `python -m spacy download` gives. Insisting on a single name
+    # disabled NLP on a correctly installed extra.
+    candidates: list[str] = []
+    for name in (_SPACY_MODEL, *_MODEL_CANDIDATES):
+        if name and name not in candidates:
+            candidates.append(name)
+    for name in candidates:
+        try:
+            _NLP_INSTANCE = spacy.load(name)
+        except OSError:
+            continue
+        _SPACY_MODEL = name
+        return _NLP_INSTANCE
+    # The model wheel is a direct-URL dependency, which PyPI will not host: a wheel
+    # installed from PyPI has spaCy but no model, so this branch is the *expected*
+    # path there and must say what to do instead of failing quietly.
+    if not _MODEL_WARNED:
+        _MODEL_WARNED = True
+        logger.warning(
+            "spaCy is installed but no model could be loaded (tried: %s) — NLP "
+            "features are disabled. Install one with: python -m spacy download %s",
+            ", ".join(candidates),
+            _MODEL_CANDIDATES[0],
+        )
+    return None
 
 
 def get_nlp() -> Optional[object]:

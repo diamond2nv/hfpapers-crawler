@@ -8,6 +8,252 @@
 > Nothing is lost by rotation — every past state of `docs/CHANGELOG.md` is also preserved in git
 > (`git log -- docs/CHANGELOG.md`).
 
+## [2026-09-17] fix | v0.19.2 — a test run no longer depends on the machine it runs on
+
+> Two LAN peers ran the suite and reported three red tests plus a *test row inside a real
+> 3976-paper library*. Every symptom had one cause: the fixtures assumed a machine that exports
+> nothing, so an exported `HFPAPERS_DATA_DIR` — or a real `config.local.yaml` — redirected the
+> **tests** at the production store. The same commit could therefore be green, red, or
+> destructive depending on the host, which makes the suite useless as evidence.
+
+- **M** `tests/conftest.py` — `test_env` points `HFPAPERS_DATA_DIR` at the test's temp dir and clears
+  the `HFPCLAWER_*` roots for every test, restoring the machine's values after the temp-dir context
+  (a test that deleted its own cwd must not break restoration). In-test `monkeypatch` still wins.
+- **A** `tests/test_isolation.py` — gate **F08** (`StateHermeticityGate`): no ambient override is
+  visible to a test, the database and the positive pool resolve inside the temp dir and never
+  inside the working copy, and an explicit in-test override still wins.
+- **M** `tests/test_paths.py`, `tests/test_pool.py` — both path-invariant tests clear
+  `HFPAPERS_DATA_DIR` themselves and assert the default explicitly (`p.parent.name == "data"`, not
+  the substring `"data" in str(p)`, which held for any path containing it).
+- **M** `tests/test_config.py::test_local_config_absent_is_noop` — points the overlay at a
+  nonexistent path instead of unsetting the variable; unset, the loader fell back to the machine's
+  real `config.local.yaml`, so the assertion only held on an unconfigured machine.
+- **M** `hfpapers/cli.py::monitor` — the `ACTION` positional declares `metavar="ACTION"`. typer
+  ≥ 0.27 renders a positional *with a default* as lowercase `[action]`, so `test_monitor_help` was
+  red on a current toolchain and green on the pinned one: one commit, two verdicts.
+- **M** `hfpapers/nlp/__init__.py` — the loader tries the configured model, then `en_core_web_md`,
+  then `en_core_web_sm`, recording which loaded: the `nlp` extra ships `sm` (PyPI refuses the
+  direct-URL `md` wheel) while the loader insisted on `md`, so a correctly installed extra had NLP
+  silently disabled. **A** `tests/test_nlp_model.py` covers that chain.
+- **M** `hfpclawer/zotero/annotations.py` — import `pymupdf` (legacy `fitz` alias only below 1.24):
+  current PyMuPDF prints a deprecation notice into pytest's *closed* capture stream, surfacing as
+  two `ValueError: I/O operation on closed file` failures; conftest redirects `PYMUPDF_MESSAGE` for
+  the third-party paths still on the alias.
+- **M** `scripts/publish-public.sh --status` — reports the latest *public* tag again. The matcher
+  looked for `v0.1x.*` and could not see the alignment-era local name `public-vX.Y.Z`, so status
+  named the retired `v0.17.3` as newest while the remote already carried `v0.19.0`.
+- **M** `docs/USAGE.md`, `docs/cn/USAGE.zh-CN.md` — install section: clone command instead of a
+  developer home path, `cp .env.template .env`, the optional extras, and the PyPI caveat that `[nlp]`
+  brings no model. Same block in both, so the mirror stays aligned. **M** `AGENTS.md` — F08 in the
+  gate inventory plus the rule behind it.
+
+## [2026-09-17] docs | v0.19.1 — release surfaces made explicit
+
+> Where do releases live? Until now the answer was implicit: PyPI served versions the public
+> repository had never heard of, and the release surfaces were undocumented.
+
+- **M** `README.md` — a Releases section naming both: GitHub releases (the public line's own
+  sequence, its tags visible there) and the PyPI release history (every published version with its
+  date, which can be *ahead* of the public repository's content). Plus a release-history badge.
+- **M** `pyproject.toml` — `Release history` in `[project.urls]`. Note: 0.19.0 is already uploaded,
+  so this reaches PyPI with the next published version.
+- **M** `docs/CHANGELOG.md` — the header states the arrangement, so "PyPI is newer than this
+  repository" reads as a property of the two lineages rather than a missing release.
+- **M** `AGENTS.md` — rule 10 extended with tag visibility: `github` carries the public line's
+  `v0.17.x` tags, development-line tags (`v0.18.x`/`v0.19.x`) stay on `forgejo`, and users reach
+  those versions through PyPI (`0.x.0`, odd `x`).
+- **finding (no change yet)** — mirroring the public-line tags to the NAS was refused by the
+  sanitization gate, correctly: the public **history** still carries content that today's gate
+  rejects — one real ORCID in `config.yaml` at `v0.17.1` (removed by `v0.17.2`) and the internal
+  layout / project names that the widened pattern class now catches, in ~13 files across
+  `v0.17.0`–`v0.17.2`. The current public tree (`v0.17.3`) is clean; the exposure is in the older
+  commits, which remain reachable from the branch. Rewriting that history is a deliberate,
+  irreversible step and is pending a decision.
+
+## [2026-09-17] release | v0.19.0 — first PyPI release of the 0.18 line (with dependency tiering)
+
+> `pip install hfpclawer` has served **0.17.0** since 2026-09-05: none of the 0.18 work — the
+> biomedical sources, the verification state machine, the private-config overlay, the
+> install-safe state paths — and it still wrote its database into `site-packages`. This
+> release closes that gap. `0.19.0` keeps the project's PyPI rule (`0.x.0`, odd `x`).
+
+- **the 0.18 line, delivered**: Europe PMC / bioRxiv / medRxiv behind one source registry,
+  `pending → verified / stale / suspect` state with symbolic 0-LLM conflict detection,
+  recommendations from first-party signals only, `config.local.yaml` overlay, dateless/
+  DOI-only dedup that keeps records, shared retry policy, changelog coverage and window
+  gates, the doc-surface audit, and state that resolves to the user's directories once
+  installed instead of into `site-packages`.
+
+### Core install slimmed: 13 dependencies → 11
+
+- **M** `spacy` moved from core to the `nlp` extra; `pyzotero` moved to a new `zotero`
+  extra. Both are imported lazily behind guards (`hfpapers/nlp` catches `ImportError`,
+  `hfpclawer/zotero` uses `HAS_PYZOTERO`), so nothing breaks by their absence.
+- **M** absence is now visible instead of silent: no spaCy → one warning naming
+  `pip install "hfpclawer[nlp]"`; no model — the *expected* state on PyPI, which will not
+  host the direct-URL model wheel — names `python -m spacy download en_core_web_md`; the
+  Zotero guard names `pip install "hfpclawer[zotero]"`.
+- **verified** on a core-only install: 35 packages, no spaCy/pyzotero, `hfpclawer version`
+  and `store status` work, both hints fire as intended.
+
+### Dependency auditing became possible
+
+- **M** `requirements/` — three stale hand-copied lists removed: `requirements_core.txt` and
+  `requirements_dev.txt` (May mirrors of `pyproject.toml` that had drifted) plus
+  `requirements_all_0.1.3.txt`, a 188-line freeze of the **v0.1.3** environment that a
+  scanner reviews as if it were today's dependency set. Replaced by generated locks —
+  `requirements/core.lock.txt` and `requirements/dev.lock.txt` (`uv pip compile
+  pyproject.toml …`), each with a "do not edit" header and its regeneration command.
+- **M** `pyproject.toml` — `dev` in both definitions now pulls `hfpclawer[nlp]` and
+  `hfpclawer[zotero]`, so a dev environment still has every test dependency.
+
+## [2026-09-17] release | v0.17.3 — public snapshot of the 0.18 line
+
+- **Public line** (`0.17.x`, its own sequence): public cut of the development line's `0.18.0` – `0.18.22` work: Europe PMC / bioRxiv / medRxiv
+  behind one source registry, the verification status machine, recommendations from local signals,
+  install-safe state resolution (XDG user directories instead of `site-packages`), changelog
+  coverage/window gates, the doc-surface audit, and the restructured documentation (README five
+  feature points, `docs/FEATURES.md`, light root pages).
+- **Sanitization coverage widened**: alongside sensitive values (real ORCIDs, LAN IPs, machine
+  codenames, personal emails, tokens) the gate now rejects internal **layout and project names** —
+  local directory layouts, private sibling repository names, internal wiki/mirror hosts. The older
+  patterns could not see that class (`/home/[a-z]+` cannot match `~/`); peer repositories are
+  declared through the environment instead of being hard-coded.
+- `scripts/sanitize-patterns.sh` is the single definition, read by the git hook, the public-release
+  script and `tests/test_sanitization.py`.
+
+- **note** — the public line's earlier recuts (`v0.17.0` – `v0.17.2`) stay in the
+  [public-line section](#public-line--sanitized-recuts) below; the guard needs a top-level entry, so
+  public releases are recorded here too.
+
+## [2026-09-17] fix | v0.18.22 — install-safe state paths, and the sanitization gate learns the layout class
+
+> The public-install defect recorded in v0.18.21: `hfpclawer` resolved its data directory as
+> `Path(__file__).parent.parent / "data"`. In a checkout that is the repository root and everything
+> works; installed from a wheel it is `site-packages`, so `hfpclawer store status` created
+> `<site-packages>/data/papers.db`. Read-only or system-wide installs fail outright, the library
+> disappears with the environment, and nothing tells the user where their data went.
+
+- **A** `hfpapers/paths.py` — one resolver, two modes: the repository when the package sits in a
+  checkout (a `pyproject.toml` beside it, not under `site-packages`/`dist-packages`, writable);
+  otherwise the platform user directories (`$XDG_DATA_HOME/hfpclawer` → `~/.local/share/hfpclawer`
+  for data/logs, `$XDG_CONFIG_HOME/hfpclawer` → `~/.config/hfpclawer` for config/`.env`).
+  `HFPCLAWER_STATE_DIR` / `HFPCLAWER_CONFIG_DIR` override outright; `HFPAPERS_DATA_DIR` still wins
+  for the database. Checkout behaviour is byte-identical to before.
+- **M** ~25 call sites migrated (`config`, `settings`, `paper_store`, `cli`, `logger`, `evolved`,
+  `pool`, `pipelines`, `download_queue`, `search_queue`, `enrich_entities`, `arxiv_search`,
+  `arxiv_transport`, `tex_converter`, `fix_entity_map`, `graph/stepping`, `hfpclawer/download/*`,
+  `hfpclawer/cli_cron`, `hfpclawer/zotero/cli`); `hfpapers/__init__.py` reads `pyproject.toml`
+  through the checkout check and no longer touches the install directory.
+- **A** `tests/test_paths.py` — F05 `InstallPathGate` (installed mode resolves under XDG; the
+  containment invariant: never inside the installation, even with a stray `pyproject.toml`) and F06
+  `NoAdHocStatePathGate` (a source scan fails any new `Path(__file__).parent.parent` state path —
+  the defect returned three times through new call sites, so it is gated, not remembered).
+- **M** `DEPLOY.md` (state root + per-mode paths), `AGENTS.md` (state-path rule in Repo Standards),
+  `docs/DEVELOPMENT.md` + zh (F05/F06 in the gate list).
+
+### The same pass found a gate blind spot, and it is now closed
+
+- **A** `scripts/sanitize-patterns.sh` — the sanitization patterns in one place, read by `pre-push`,
+  `publish-public.sh` *and* `tests/test_sanitization.py` (F07), so tightening a pattern cannot miss a
+  consumer. Two classes with different severities: **sensitive values** (real ORCIDs, LAN IPs, machine
+  codenames, personal emails, tokens — documented/implemented files stay exempt) and **internal layout
+  and project names** (local directory layout, private sibling repository names, internal wiki/mirror
+  hosts — only the gate scripts themselves are exempt).
+- **why** — the old patterns could not see the second class: `/home/[a-z]+` cannot match `~/`, so
+  a home-directory path into a private sibling project and the sibling project names sat in code, docstrings
+  and the currently published `public` branch. Running the extended gate against that branch flags 20+
+  lines, including two in its `PLAN.md`/`ROADMAP.md` that no earlier review had found.
+- **M** peer repositories became configuration: `hfpapers.paths.peer_repo()` / `peer_roots()` read
+  `HFPCLAWER_PEER_REPOS` (or `HFPCLAWER_PEER_<TAG>`), and the callers that used to hard-code a home
+  layout now ask for a declared peer — `hfpclawer graph ingest`, `graph ingest-citations`,
+  `hfpclawer audit traceability` (bib detection), `cli_cron` project detection, the Zotero PDF
+  fallback (`state_root()`), and `scripts/cron-multi-repo-arxiv-fetch.py` (map from env or the
+  gitignored `scripts/cron-repos.local.json`, with a committed `cron-repos.example.json`). Real values
+  are in gitignored files; `_detect_repo_name()` no longer guesses identities from directory markers.
+- **M** docs neutralised: `AGENTS.md` (layout block, `<lan-wiki>`), `docs/ROADMAP.md` (NAS wiki link,
+  the peer-repo diagram label), `docs/use/verify-guide.md` + zh (project names → "private downstream
+  projects"), `hfpapers/graph/__init__.py` docstrings.
+- **M** `.gitignore` — `scripts/cron-repos.local.json`.
+
+- **note** — the fix is what the pyproject readiness pass found, not a side quest: an install-time
+  write into the installation is a defect a public release would ship; so is publishing the
+  names of the private projects next to this one.
+
+## [2026-09-17] chore | v0.18.21 — pyproject public-release hygiene, and what the install test found
+
+> A public-push readiness pass: build the artifact, install it into a clean environment, and read
+> the metadata a PyPI/GitHub user will actually see. Three small defects, one real one.
+
+- **M** `pyproject.toml` — `Changelog` URL pointed at `blob/main/`, but the public repo's default
+  branch is `master` (broken link for every visitor); `[dependency-groups] dev` asked for
+  `geopy[graph]`, and geopy provides no `graph` extra (`dev`, `dev-lint`, `dev-test`, `dev-docs`,
+  `aiohttp`, `requests`, `timezone` only) — a silent no-op, now `hfpclawer[graph]`; license metadata
+  moved to PEP 639 (`license = "MIT"` + `license-files = ["LICENSE"]`, build requires
+  `setuptools>=77`), dropping the deprecated `License :: OSI Approved :: MIT License` classifier. The
+  built wheel now carries `License-Expression: MIT` and ships `LICENSE`.
+- **note (known issue, public install)** — installing the wheel and running
+  `hfpclawer store status` from an arbitrary directory creates
+  `<site-packages>/data/papers.db`: the package resolves its data directory as
+  `Path(__file__).parent.parent / "data"`, which is the repo root in a checkout but the install
+  directory once installed. Reproduced in a clean venv (delete the directory, re-run, it returns).
+  Harmless for checkout users, wrong for anyone installing from PyPI — read-only or system-wide
+  installs will fail, and library state hides inside the environment. Fix design (checkout dir when
+  present, else XDG user dirs) is next, as it touches every data-path resolution.
+
+## [2026-09-17] docs | v0.18.20 — root CHANGELOG.md becomes a version-line summary
+
+> The root `CHANGELOG.md` was only a pointer, and the repository has **90 tags across 17 version
+> lines** with per-release entries starting at v0.9.13 — so "how did this evolve?" had no answer
+> outside git archaeology.
+
+- **M** `CHANGELOG.md` (root) — line-level summary: one row per `0.x` line (0.2 → 0.18) with period,
+  theme and what it delivered, plus the release rules in force. Coverage is stated honestly: rows
+  before v0.9.13 are **reconstructed from commit history**, entries are contemporaneous from v0.9.13
+  on; the detail stays in `docs/CHANGELOG.md` (window) and `docs/CHANGELOG-archive.md`.
+- **M** `AGENTS.md` — the Repo Standards table still promised `release.sh VERSION --push`, which
+  targets the internal GitLab rather than NAS; corrected to the actual two-step flow.
+- **note** — root changelog stays English-only, matching the rule already declared for the
+  changelog surface.
+
+## [2026-09-17] docs | v0.18.19 — README keeps five feature points, the detail moves to docs/FEATURES.md
+
+> Twelve feature bullets in the README had grown into a wall of prose whose "readability" cost is
+> paid on every visit. The README now states five capabilities, each one sentence and one link; the
+> evidence, caveats and cross-references live in a page of their own.
+
+- **M** `README.md` — features reduced to five points (Discovery · Verification · Recommendations ·
+  Private stays private · Agent-first and cheap by default), each linking into the detail page;
+  `## Links` gained the feature-detail entry.
+- **A** `docs/FEATURES.md` — the detail: per capability, what shipped (with versions), the
+  guard-rails and the deliberate non-goals, cross-linked to USAGE / ARCHITECTURE / paper_store /
+  verify-guide / AGENTS / ROADMAP.
+- **A** `docs/cn/FEATURES.zh-CN.md` — line-aligned Chinese mirror (52/52), as the doc convention
+  requires; `docs/cn/README.zh-CN.md` mirrors the same five points.
+
+## [2026-09-17] docs | v0.18.18 — root docs become light summaries (function + agent first)
+
+> The four root-level markdown files were either stale by ~100 releases (`PLAN.md`, `ROADMAP.md`
+> still described the v0.6.x era of 2026-06-28) or written as an operator transcript (`DEPLOY.md`).
+> They are now short, function-first summaries that point at `docs/` for detail — the root is a
+> front page, not an archive.
+
+- **M** `ROADMAP.md` — rewritten as a light roadmap: what the project is for, the version line, the
+  current `0.18.x` working set as a status table, a short "next", and the non-goals *corrected*
+  (paper recommendation is no longer a non-goal — it shipped; the Scrapy/Redis queue design still
+  is not implemented). The v0.6.x-era text stays in git.
+- **M** `PLAN.md` — rewritten as a one-screen summary: the five functions (find / fetch / verify /
+  store / serve) and how to work in the repo agent-first (CLI first, deterministic by default,
+  nothing personal in tracked files, gates over discipline, no hard-coded paths).
+- **M** `DEPLOY.md` — de-transcribed: requirements, install (`hfpclawer[pdf,quic]`), a smoke test an
+  agent can run (`source-list` / `fetch` / `store status` / `check-new`), where data lives, and the
+  actual LAN shape (independent nodes sharing only the dedup file). The never-implemented
+  scrapy-redis path is marked as such instead of being presented as a deployment option.
+- **A** `CHANGELOG.md` (root) — a pointer to `docs/CHANGELOG.md`, since the conventional root path
+  otherwise resolves to nothing.
+- **note** — root docs reference no hard-coded machine paths, and the doc audit
+  (`scripts/doc_audit.py`) now covers them: every command and path they mention is checked.
+
 ## [2026-09-17] docs | v0.18.17 — stop the doc surface from lying about v0.17/v0.18
 
 > A mechanical audit of `docs/`, `skills/` and `AGENTS.md` (referenced paths, documented CLI

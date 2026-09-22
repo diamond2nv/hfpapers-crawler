@@ -39,10 +39,20 @@ window, or a lost entry (`tests/test_gates.py::TestChangelogGate` / `TestChangel
 
 ## Release rules in force
 
-- `pyproject.toml` is the single version source; the public line is versioned independently.
+- `pyproject.toml` is the single version source. **Two lineages share one numbering**: the public
+  repository (`github`) and PyPI carry the same versions — `0.x.0` with an **odd** `x` only
+  (`0.19.0` is the latest published). The retired independent `0.17.x` public sequence stays visible
+  in history only.
 - A release is blocked without: a changelog entry for that version, a changelog window inside its
   byte budget, and no entry missing from live + archive.
 - Push order is tag first, then branch; `scripts/pre-push` checks version/tag consistency on `main`
   and scans every push for sensitive tokens.
-- PyPI carries `0.x.0` releases with odd `x` only (`0.17.0` is the latest published); fix releases on
-  the even lines stay GitHub/NAS-only.
+- Fix releases on an **even `x`** line (e.g. `0.20.1`) stay on the **private line** (`forgejo`/NAS)
+  as private bookkeeping and are folded into the next aligned public release — they never reach the
+  public repository, and PyPI never sees them.
+- **A public-line tag is a release surface, not a progress record.** The public line gets exactly one
+  tag per published version (odd `0.x.0`, the same name as its GitHub Release), so its `x` *skips the
+  private even lines by design* — `0.15 → 0.17 → 0.19 → 0.21`. Patch-level continuity
+  (`v0.19.0 … v0.19.6`) is the **development line's** job and lives on `forgejo`/NAS. Do not add
+  even-`x` tags to the public line to make it look continuous: `recut-public.py` refuses a version
+  PyPI could not carry, and a tag without a matching release would invent a third numbering story.

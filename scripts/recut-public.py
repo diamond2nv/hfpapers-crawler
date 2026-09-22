@@ -108,11 +108,25 @@ def preflight(args) -> tuple[str, str]:
         )
         raise SystemExit(2)
 
+    # The public line shares the version numbers PyPI carries, so a public release must
+    # obey PyPI's rule for this project: 0.x.0 with an odd x. (These are the versions
+    # that exist on both surfaces; a dev-line fix release such as 0.19.1 is NAS-only
+    # bookkeeping and is folded into the next aligned release.)
+    major, minor, patch = (int(x) for x in args.version.split("."))
+    if not (major == 0 and patch == 0 and minor % 2 == 1):
+        print(
+            f"{args.version} cannot be a public release: PyPI accepts only 0.x.0 with an odd x "
+            "for this project (0.19.0, 0.21.0, ...). Aligning GitHub with PyPI means using the "
+            "same numbers.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
     latest = git("tag", "--sort=-v:refname", "--merged", args.branch, check=False).stdout.split()
-    latest_public = next((t for t in latest if re.fullmatch(r"v0\.17\.\d+", t)), "")
+    latest_public = next((t for t in latest if re.fullmatch(r"v\d+\.\d+\.\d+", t)), "")
     if latest_public:
         cur = tuple(int(x) for x in latest_public.lstrip("v").split("."))
-        new = tuple(int(x) for x in args.version.split("."))
+        new = (major, minor, patch)
         if new <= cur:
             print(
                 f"version {args.version} is not above the latest public tag {latest_public}",
@@ -130,6 +144,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Recut the public line from the development line.")
     parser.add_argument("--version", required=True, help="public version to cut (semver, e.g. 0.17.4)")
     parser.add_argument("--source", default="main", help="development branch to cut from (default: main)")
+    parser.add_argument(
+        "--source-ref",
+        default="",
+        help="exact ref to take the tree from (e.g. 'v0.19.0^{}'); defaults to the source branch tip",
+    )
     parser.add_argument("--branch", default="public", help="local public branch (default: public)")
     parser.add_argument("--remote", default="github", help="public remote (default: github)")
     parser.add_argument(
@@ -172,8 +191,9 @@ def main(argv: list[str] | None = None) -> int:
         git("worktree", "add", "--detach", str(worktree), args.branch)
         print(f"checked out {args.branch} at {worktree}")
 
-        step(f"sync content from {args.source}")
-        git("checkout", args.source, "--", ".", cwd=worktree)
+        source_ref = args.source_ref or args.source
+        step(f"sync content from {source_ref}")
+        git("checkout", source_ref, "--", ".", cwd=worktree)
         changed = git("status", "--porcelain", cwd=worktree).stdout.count("\n")
         print(f"{changed} path(s) differ from the current public tree")
 
@@ -252,7 +272,21 @@ def main(argv: list[str] | None = None) -> int:
         print(stat.splitlines()[-1] if stat else "(no changes)")
 
         if args.push:
-            run(["/bin/sh", str(PUBLISH_SCRIPT), args.version, "--push"], cwd=worktree)
+            # publish-public.sh operates on the branch, not on a detached HEAD — without this
+            # the publish step refuses and, if its output is swallowed, the release looks done
+            # while nothing was pushed (that is exactly what happened on 2026-09-17).
+            git("checkout", args.branch, cwd=worktree)
+            res = subprocess.run(
+                ["/bin/sh", str(PUBLISH_SCRIPT), args.version, "--push"],
+                cwd=worktree,
+                capture_output=True,
+                text=True,
+            )
+            print(res.stdout.strip() or "(no output)")
+            if res.returncode != 0:
+                print(res.stderr.strip(), file=sys.stderr)
+                print("✗ the publish step failed — nothing was verified.", file=sys.stderr)
+                return 1
             verify = git("ls-remote", args.remote, f"refs/heads/{args.public_remote_branch}").stdout.strip()
             local = git("rev-parse", "HEAD", cwd=worktree).stdout.strip()
             print(f"\nremote {args.public_remote_branch}: {verify.split()[0][:8]}")

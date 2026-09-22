@@ -4,7 +4,8 @@
 
 ```bash
 # Clone project
-cd ~/Gitlab/Agentic4Sci/hfpapers-clawler
+git clone https://github.com/diamond2nv/hfpapers-crawler
+cd hfpapers-crawler
 
 # Create virtual environment (Python >= 3.10)
 python -m venv venv
@@ -16,8 +17,18 @@ pip install -e ".[scrapy]"  # With Scrapy (requires extra dependencies)
 pip install -e ".[dev]"     # With development tools
 pip install -e ".[arxiv]"   # With arXiv local search (OAI-PMH or Kaggle — see [kaggle-metadata.md](kaggle-metadata.md))
 
+# Optional extras — every one is lazy: the feature degrades and says what to install
+#   [quic]   HTTP/3 transport (aioquic) — the channel that reaches arXiv from some networks
+#   [nlp]    spaCy + en_core_web_sm for keyword / tag / semantic enrichment
+#   [zotero] pyzotero, needed to talk to a local Zotero API
+#   [graph]  networkx + geopy for the citation-graph commands
+#   [llm]    litellm, only for the optional LLM-assisted paths
+# ⚠️ From PyPI, `pip install "hfpclawer[nlp]"` gives spaCy *without* a model: the model
+# wheel is a direct URL, which PyPI refuses to host. Add one yourself —
+# `python -m spacy download en_core_web_sm` (md also accepted, and preferred when present).
+
 # Configuration
-cp env.template .env
+cp .env.template .env
 # Edit .env to fill in API keys
 
 # Verify
@@ -72,6 +83,7 @@ hfpclawer store stats                # Storage statistics
 hfpclawer store search --keyword "FNO"  # Search papers
 hfpclawer store search               # List all papers
 hfpclawer store ensure --aid 2301.11167 --title "..."  # Ensure paper exists
+hfpclawer store ensure --aid 2301.11167 --accept-unverified  # Deliberately admit a sub-threshold DOI
 hfpclawer store verify --aid 2301.11167 --title "..."  # CrossRef cross-verification
 hfpclawer store ids --aid 2301.11167  # Lookup paper identifiers
 ```

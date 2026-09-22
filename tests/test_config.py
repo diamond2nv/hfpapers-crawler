@@ -42,7 +42,10 @@ def test_local_config_absent_is_noop(tmp_path, monkeypatch):
 
     base = _write(tmp_path / "config.yaml", "search:\n  enabled: [hf_cli]\n")
     monkeypatch.setenv("_TEST_HFPAPERS_CONFIG", base)
-    monkeypatch.delenv("_TEST_HFPAPERS_LOCAL_CONFIG", raising=False)
+    # Point the overlay at a path that does not exist rather than unsetting the
+    # variable: unset, the loader falls back to the machine's real
+    # config.local.yaml, so this test only passes on an unconfigured machine.
+    monkeypatch.setenv("_TEST_HFPAPERS_LOCAL_CONFIG", str(tmp_path / "no-overlay.yaml"))
 
     config.load_config(reload=True)
     assert config.get("search.enabled") == ["hf_cli"]

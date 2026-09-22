@@ -44,7 +44,7 @@ from hfpapers.paper_store import get_crossref, get_store
 def batch_verify(store, cr, since: str = "", retraction_only: bool = False) -> dict:
     """Verify unverified papers in batch (rate-limited for Crossref API)."""
     stats = {"total": 0, "verified_new": 0, "already_verified": 0,
-             "doi_found": 0, "venue_found": 0, "retractions": 0, "errors": 0}
+             "doi_found": 0, "doi_rejected": 0, "venue_found": 0, "retractions": 0, "errors": 0}
 
     # 查询未验证的 cron 来源论文
     with store._conn() as conn:
@@ -122,11 +122,19 @@ def batch_verify(store, cr, since: str = "", retraction_only: bool = False) -> d
 
             if result and result.get("doi"):
                 doi = result["doi"]
-                store.add_identifier(
+                attached = store.add_identifier(
                     sf_id, "doi", doi,
                     source="crossref",
                     confidence=result["confidence"],
                 )
+                if not attached:
+                    # Refused by the confidence gate (v0.19.7): nothing was written, so nothing may
+                    # be counted and venue/year must not be inherited from a match just rejected.
+                    stats["doi_rejected"] += 1
+                    print(f"  ⚠️  [{arxiv_id}] DOI refused "
+                          f"(confidence {result['confidence']:.2f}); venue/year left untouched")
+                    time.sleep(1.1)
+                    continue
                 stats["doi_found"] += 1
                 stats["verified_new"] += 1
 
@@ -157,6 +165,7 @@ def print_report(stats: dict, elapsed: float):
     print(f"   扫描论文:       {stats['total']}")
     print(f"   新增已验证:     {stats['verified_new']}")
     print(f"   DOI 匹配:       {stats['doi_found']}")
+    print(f"   DOI 拒收:       {stats['doi_rejected']}")
     print(f"   Venue 补全:     {stats['venue_found']}")
     print(f"   撤稿/异常:      {stats['retractions']}")
     print(f"   错误:           {stats['errors']}")
@@ -181,7 +190,7 @@ def main():
                 "SELECT sf_id FROM papers WHERE source LIKE 'cron:%'"
             ).fetchall()
         stats = {"total": len(rows), "verified_new": 0, "already_verified": 0,
-                 "doi_found": 0, "venue_found": 0, "retractions": 0, "errors": 0}
+                 "doi_found": 0, "doi_rejected": 0, "venue_found": 0, "retractions": 0, "errors": 0}
         for row in rows:
             sf_id = row["sf_id"]
             ids = store.get_identifiers(sf_id)
@@ -192,10 +201,13 @@ def main():
             try:
                 result = cr.cross_verify(arxiv_id, paper.title)
                 if result and result.get("doi"):
-                    store.add_identifier(sf_id, "doi", result["doi"],
-                                         source="crossref", confidence=result["confidence"])
-                    store.verify_paper(sf_id)
-                    stats["verified_new"] += 1
+                    if store.add_identifier(sf_id, "doi", result["doi"],
+                                            source="crossref", confidence=result["confidence"]):
+                        store.verify_paper(sf_id)
+                        stats["verified_new"] += 1
+                    else:
+                        # refused by the confidence gate — recorded as such, not as a match
+                        stats["doi_rejected"] += 1
                 time.sleep(1.1)
             except Exception:
                 stats["errors"] += 1

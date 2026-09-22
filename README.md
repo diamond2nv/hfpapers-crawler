@@ -8,6 +8,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/hfpclawer)](https://pypi.org/project/hfpclawer/)
 [![License](https://img.shields.io/github/license/diamond2nv/hfpapers-crawler)](https://github.com/diamond2nv/hfpapers-crawler/blob/master/LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/diamond2nv/hfpapers-crawler)
+[![Release history](https://img.shields.io/badge/releases-PyPI%20history-blue)](https://pypi.org/project/hfpclawer/#history)
 
 > **Naming philosophy**: `claw` (sharp grasp) ≠ `crawl` (creep).
 > `hfpclawer` = **H**ugging**F**ace **P**apers + **claw** + **er**
@@ -285,6 +286,14 @@ This project incorporates code adapted from:
     abstain-as-first-class-state, and COVERAGE_FLOOR ratchet discipline shaped the
     v0.16 metadata verification & self-assessment roadmap.
   Licensed under its own terms (https://github.com/thetahealth/mirobody)
+
+## Releases
+
+- **GitHub releases** — <https://github.com/diamond2nv/hfpapers-crawler/releases> (the public line's
+  own version sequence; its tags are visible here)
+- **Release history** — <https://pypi.org/project/hfpclawer/#history> (every published version with
+  its upload date; PyPI carries the newest release, which can be ahead of this repository's public
+  line — see the changelog's public-line section)
 
 ## Links
 

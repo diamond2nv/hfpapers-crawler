@@ -46,6 +46,7 @@ from rich.table import Table
 
 from hfpapers.config import get, load_config
 from hfpapers.hardware import HardwareProbe
+from hfpapers.paths import pdf_dir as _default_pdf_dir
 from hfpapers.paths import state_root
 
 app = typer.Typer(name="hfpclawer", help="HF Papers crawler + Wiki integration")
@@ -695,7 +696,7 @@ def dedup():
     from hfpapers.evolved import DedupEngine
 
     d = DedupEngine()
-    pdf_dir = Path(get("paths.pdf_dir", "pdfs")).expanduser()
+    pdf_dir = Path(get("paths.pdf_dir", str(_default_pdf_dir()))).expanduser()
     md_dir = Path(get("paths.md_dir", "mds")).expanduser()
 
     stats = Table(title="📊 Dedup Statistics")
@@ -1317,12 +1318,39 @@ def fetch(
 
 @app.command()
 def store(
-    action: str = typer.Argument("stats", help="stats | ensure | search | export | verify | ids | status | conflicts | suspect | clear-suspect"),
-    arg: str = typer.Argument("", help="Argument: keyword(for search) / format(for export)"),
+    action: str = typer.Argument(
+        "stats",
+        help="stats | types | classify | set-type | invariants | events | snapshot | dedup | ensure | search | export | verify | ids | status | conflicts | suspect | clear-suspect",
+    ),
+    arg: str = typer.Argument("", help="Argument: keyword(for search) / format(for export) / item type(for set-type)"),
     arxiv_id: str = typer.Option("", "--aid", "-a", help="arXiv ID"),
     title: str = typer.Option("", "--title", "-t", help="Paper title"),
     keyword: str = typer.Option("", "--keyword", "-k", help="Search keyword"),
     limit: int = typer.Option(20, "--limit", "-l", help="Result limit"),
+    sf_id_arg: str = typer.Option("", "--sf-id", help="Snowflake id (set-type)"),
+    apply_changes: bool = typer.Option(
+        False, "--apply", help="classify: write the derived types (default is a dry run)"
+    ),
+    include_classified: bool = typer.Option(
+        False, "--all", help="classify: also re-derive records that already carry a type"
+    ),
+    max_records: int = typer.Option(
+        0, "--max", help="classify: cap how many records to process (0 = every candidate)"
+    ),
+    network: bool = typer.Option(
+        False, "--network", help="invariants: also verify DOI titles against Crossref (slow, sampled)"
+    ),
+    sample: int = typer.Option(0, "--sample", help="invariants: cap the network check at N DOIs (0 = all)"),
+    strict: bool = typer.Option(False, "--strict", help="invariants: exit non-zero when any error is found"),
+    as_json: bool = typer.Option(False, "--json", help="invariants/events: machine-readable output"),
+    reason: str = typer.Option("", "--reason", help="snapshot/dedup: why this is happening (recorded)"),
+    update_baseline: bool = typer.Option(
+        False, "--update-baseline", help="invariants: record the current counts as the new baseline (ratchet: may only shrink)"
+    ),
+    accept_unverified: bool = typer.Option(
+        False, "--accept-unverified",
+        help="ensure: accept a sub-threshold Crossref DOI deliberately (tags the record accepted-unverified)",
+    ),
 ):
     """Paper store management (SQLite + Snowflake ID + Crossref)"""
     from hfpapers.paper_store import ensure_paper, get_crossref, get_store, store_stats
@@ -1342,10 +1370,254 @@ def store(
             table.add_row(f"  Identifier: {t}", str(c))
         console.print(table)
 
+    elif action == "types":
+        from hfpapers.item_types import ITEM_TYPES
+
+        st = store_obj.item_type_stats()
+        table = Table(title="🏷  Item types — Zotero-shaped vocabulary (docs/ITEM_TYPE.md)")
+        table.add_column("item_type", style="cyan")
+        table.add_column("Label", style="white")
+        table.add_column("Peer-reviewed", style="magenta")
+        table.add_column("In store", justify="right", style="green")
+        table.add_column("Zotero", style="dim")
+        for name, spec in ITEM_TYPES.items():
+            peer = {True: "yes", False: "no", None: "—"}[spec.peer_reviewed]
+            table.add_row(
+                name, spec.label, peer, str(st["by_type"].get(name, 0)), "yes" if spec.in_zotero else "our extension"
+            )
+        console.print(table)
+        console.print(
+            f"total={st['total']}  never-classified={st['never_classified']}  "
+            f"no-rule-matched={st['no_rule_matched']}  decided-by={st['by_source']}"
+        )
+        console.print(
+            "[dim]Three axes: item_type (form) × venue (container) × source (provenance). "
+            "`store classify` derives the first from the other two — dry run unless --apply.[/dim]"
+        )
+
+    elif action == "classify":
+        from hfpapers.item_types import derive_item_type, is_peer_reviewed
+
+        rows = store_obj.iter_item_type_inputs(
+            only_unclassified=not include_classified, limit=max_records
+        )
+        plan = [
+            (
+                r["sf_id"],
+                *derive_item_type(
+                    venue=r["venue"],
+                    title=r["title"],
+                    id_types=r["id_types"],
+                    tags=r["tags"],
+                    has_code=r["has_code"],
+                ),
+            )
+            for r in rows
+        ]
+        counts: dict[str, int] = {}
+        for _, name, _reason in plan:
+            counts[name] = counts.get(name, 0) + 1
+        if not plan:
+            console.print("[green]✅ Nothing to classify[/green] (use --all to re-derive)")
+            return
+        table = Table(title=f"🏷  classify — {len(plan)} record(s){'' if apply_changes else ' (dry run)'}")
+        table.add_column("sf_id", style="dim")
+        table.add_column("item_type", style="cyan")
+        table.add_column("Peer-reviewed", style="magenta")
+        table.add_column("Reason / evidence", style="white")
+        for sf, name, reason in plan[:limit if limit else 20]:
+            table.add_row(str(sf), name, str(is_peer_reviewed(name)), reason)
+        console.print(table)
+        if not apply_changes:
+            console.print(
+                f"[yellow]dry run[/yellow] — would write {len(plan)} record(s): {counts}. "
+                "Re-run with --apply to persist."
+            )
+            return
+        written = 0
+        for sf, name, _reason in plan:
+            store_obj.set_item_type(sf, name, src="derived")
+            written += 1
+        console.print(f"✅ classified {written} record(s): {counts}")
+        if counts.get("unknown"):
+            console.print(
+                f"[yellow]{counts['unknown']} left as 'unknown'[/yellow] — no rule matched. "
+                "Set those by hand with `store set-type <type> --sf-id <id>`, or add a rule "
+                "(see docs/ITEM_TYPE.md § extending the rules)."
+            )
+
+    elif action == "set-type":
+        from hfpapers.item_types import is_peer_reviewed
+
+        if not sf_id_arg or not arg:
+            console.print("[red]❌ Usage: hfpclawer store set-type <item_type> --sf-id <sf_id>[/red]")
+            raise typer.Exit(1)
+        try:
+            target = int(sf_id_arg)
+        except ValueError:
+            console.print(f"[red]❌ --sf-id must be an integer, got {sf_id_arg!r}[/red]")
+            raise typer.Exit(1)
+        try:
+            store_obj.set_item_type(target, arg, src="manual")
+        except ValueError as exc:
+            console.print(f"[red]❌ {exc}[/red]")
+            raise typer.Exit(1)
+        name, decided_by = store_obj.get_item_type(target)
+        console.print(
+            f"✅ sf_id={target} → item_type={name} (peer_reviewed={is_peer_reviewed(name)}, "
+            f"decided_by={decided_by})"
+        )
+
+    elif action == "invariants":
+        import json as _json
+        from pathlib import Path as _Path
+
+        from hfpapers.invariants import baseline_diff, check_store, format_report, report_json
+
+        rep = check_store(store_obj, network=network, sample=sample)
+        if as_json:
+            # typer.echo, not console.print: Rich folds long lines and a folded line inside a
+            # JSON string is a control character — valid for the eye, invalid for json.loads.
+            typer.echo(report_json(rep))
+        else:
+            console.print(format_report(rep, limit=limit or 20))
+        # The baseline belongs to the store it describes, not to a global data directory: a test
+        # store, a copy of the library and the live one each get their own ratchet.
+        baseline_path = _Path(str(store_obj.db_path)).with_name("invariant-baseline.json")
+        if update_baseline:
+            baseline_path.parent.mkdir(parents=True, exist_ok=True)
+            baseline_path.write_text(_json.dumps({"by_check": rep.by_check(), "errors": len(rep.errors),
+                                                  "warnings": len(rep.warnings)}, indent=1), encoding="utf-8")
+            console.print(f"✅ baseline recorded → {baseline_path}")
+            return
+        if strict:
+            if baseline_path.exists():
+                recorded = _json.loads(baseline_path.read_text(encoding="utf-8")).get("by_check", {})
+                regressions, improvements = baseline_diff(rep, recorded)
+                if improvements:
+                    console.print("[green]improved vs baseline:[/green] " + "; ".join(improvements))
+                if regressions:
+                    console.print("[red]❌ invariant regression vs baseline:[/red] " + "; ".join(regressions))
+                    raise typer.Exit(1)
+                console.print("[green]✅ no invariant regressions vs baseline[/green] "
+                              "(ratchet: the baseline may only shrink)")
+                return
+            if rep.errors:
+                console.print(f"[red]❌ {len(rep.errors)} invariant error(s) with no baseline recorded[/red]")
+                console.print("[dim]Record one with `store invariants --update-baseline` once the "
+                              "findings are triaged; the baseline may only shrink afterwards.[/dim]")
+                raise typer.Exit(1)
+
+    elif action == "events":
+        import json as _json
+
+        rows = store_obj.events(limit=limit or 30, sf_id=int(sf_id_arg) if sf_id_arg else 0, kind=arg)
+        if as_json:
+            typer.echo(_json.dumps(rows, ensure_ascii=False, indent=1))
+        else:
+            table = Table(title=f"🗒  store events — {len(rows)} most recent")
+            table.add_column("at", style="dim")
+            table.add_column("sf_id", style="dim")
+            table.add_column("kind", style="cyan")
+            table.add_column("actor", style="magenta")
+            table.add_column("detail", style="white")
+            for r in rows:
+                table.add_row(str(r["at"]), str(r["sf_id"]), str(r["kind"]), str(r["actor"]), str(r["detail"])[:78])
+            console.print(table)
+            console.print("[dim]Row-level trail for identifier attach/detach, record removal, item_type and "
+                          "snapshots — `store events --sf-id N` narrows it to one record.[/dim]")
+
+    elif action == "snapshot":
+        path = store_obj.snapshot(reason=reason or "manual")
+        console.print(f"✅ snapshot → {path}")
+
+    elif action == "dedup":
+        from hfpapers.invariants import normalise_title as _norm_title
+
+        groups = {k: v for k, v in store_obj.iter_identity_groups().items() if len(v) > 1}
+        planned = []
+        for key, members in groups.items():
+            rows = [(sf, store_obj.get_identifiers(sf) or []) for sf in members]
+            ranked = sorted(rows, key=lambda kv: (-len(kv[1]), kv[0]))
+            keep_sf, keep_ids = ranked[0]
+            keep_t = store_obj.get_paper_by_id(keep_sf)
+            keep_kinds = {i.id_type for i in keep_ids}
+            for drop_sf, drop_ids in ranked[1:]:
+                drop_t = store_obj.get_paper_by_id(drop_sf)
+                same_title = _norm_title(keep_t.title if keep_t else "") == _norm_title(drop_t.title if drop_t else "")
+                # Different identifier *kinds* (one copy has the DOI, the other the arXiv id) is the
+                # signature of one work filed twice, and is safe to merge. Overlapping kinds means two
+                # artefacts of the same work — a journal paper and its OSTI technical report, both with
+                # a DOI — which are legitimately separate items: never merged automatically.
+                disjoint = not (keep_kinds & {i.id_type for i in drop_ids})
+                ky, dy = (keep_t.year if keep_t else 0), (drop_t.year if drop_t else 0)
+                same_year = (ky == dy) or not ky or not dy
+                planned.append((key, keep_sf, drop_sf, len(keep_ids), len(drop_ids), same_title,
+                                disjoint and same_year, [i.id_value for i in drop_ids]))
+        if not planned:
+            console.print("[green]✅ No duplicate identities[/green]")
+            return
+        table = Table(title=f"🔁 dedup — {len(groups)} group(s), {len(planned)} record(s) to merge")
+        for c in ("identity", "keep", "drop", "ids(k/d)", "titles match", "mergeable", "identifiers moved"):
+            table.add_column(c, style="white" if c == "identifiers moved" else "dim")
+        for key, keep_sf, drop_sf, kn, dn, same, disjoint, vals in planned:
+            verdict = "✅" if (same and disjoint) else ("[yellow]manual[/yellow]" if same else "[red]✗[/red]")
+            table.add_row(key[:26], str(keep_sf), str(drop_sf), f"{kn}/{dn}",
+                          "✅" if same else "[red]✗[/red]", verdict, ", ".join(vals)[:30])
+        console.print(table)
+        if not apply_changes:
+            console.print("[yellow]dry run[/yellow] — re-run with --apply to merge. A snapshot is written "
+                          "first; mismatched titles and same-work/different-artefact pairs are always skipped.")
+            return
+        snap = store_obj.snapshot(reason=reason or "pre-dedup")
+        merged = skipped = 0
+        for key, keep_sf, drop_sf, _kn, _dn, same, disjoint, _vals in planned:
+            if not (same and disjoint):
+                skipped += 1
+                if same and not disjoint:
+                    console.print(
+                        f"[yellow]manual[/yellow] {keep_sf} / {drop_sf}: same title but overlapping "
+                        "identifier kinds — two artefacts of one work, left for a human"
+                    )
+                continue
+            drop_ids = store_obj.get_identifiers(drop_sf) or []
+            for ident in drop_ids:
+                # Transfer, do not re-add: the unique constraint means an insert while the row still
+                # belongs to the source record is silently ignored.
+                store_obj.transfer_identifier(
+                    drop_sf, keep_sf, ident.id_type, ident.id_value,
+                    actor="dedup", reason=f"duplicate of {keep_sf} ({key})",
+                )
+            # Verification that the old ad-hoc script lacked: every identifier must now resolve to
+            # the keeper. A silent zero-move (which dropped three arXiv ids on 2026-09-19) fails here.
+            keeper_values = {i.id_value for i in (store_obj.get_identifiers(keep_sf) or [])}
+            missing = [i.id_value for i in drop_ids if i.id_value not in keeper_values]
+            if missing:
+                console.print(f"[red]❌ refusing to drop {drop_sf}: identifiers not moved: {missing}[/red]")
+                skipped += 1
+                continue
+            store_obj.remove_paper(drop_sf, actor="dedup", reason=f"duplicate of {keep_sf} ({key})")
+            merged += 1
+        console.print(f"✅ merged {merged} record(s), skipped {skipped} | snapshot {snap}")
+
     elif action == "ensure":
+        from hfpapers.invariants import ACCEPTED_UNVERIFIED_TAG
+
         if not arxiv_id:
             console.print("[red]❌ Requires --aid[/red]")
             raise typer.Exit(1)
+        if accept_unverified:
+            # Deliberate acceptance.  The record is tagged first — the tag, not a bypass, is what
+            # admits the candidate — and then the Crossref attempt is run explicitly, because
+            # ensure_paper stops at an existing record (so a second call would never retry it).
+            sf_pre, _ = ensure_paper(arxiv_id, title=title, source="cli", skip_crossref=True)
+            store_obj.add_identifier(sf_pre, "tag", ACCEPTED_UNVERIFIED_TAG, source="cli", actor="human",
+                                     method="store ensure --accept-unverified")
+            console.print(f"[yellow]⚠ sf_id={sf_pre} tagged '{ACCEPTED_UNVERIFIED_TAG}': a "
+                          "sub-threshold Crossref candidate will be accepted on purpose[/yellow]")
+            verdict = store_obj.crossref_attach(sf_pre, arxiv_id, title or arxiv_id,
+                                                accept_unverified=True)
+            console.print(f"  crossref: [bold]{verdict}[/bold]")
         sf_id, is_new = ensure_paper(arxiv_id, title=title, source="cli")
         paper = store_obj.get_paper_by_id(sf_id)
         ids = store_obj.get_identifiers(sf_id) or []
@@ -2311,7 +2583,9 @@ HTTPS_PROXY=
 
 @app.command()
 def monitor(
-    action: str = typer.Argument("status", help="start | stop | status"),
+    action: str = typer.Argument(
+        "status", metavar="ACTION", help="start | stop | status"
+    ),
     interval: int = typer.Option(
         900, "--interval", "-i", help="Poll interval (seconds, default 900=15min)"
     ),

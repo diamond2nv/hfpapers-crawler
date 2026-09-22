@@ -3,7 +3,7 @@
 # settings.py
 import os
 
-from hfpapers.paths import state_root
+from hfpapers.paths import pdf_dir, state_root
 
 BOT_NAME = "hfpapers"
 
@@ -64,7 +64,7 @@ EXTENSIONS = {
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = str(state_root())
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
-PDF_DIR = os.path.join(PROJECT_ROOT, "pdfs")
+PDF_DIR = str(pdf_dir())  # one canonical location, see paths.pdf_dir
 MD_DIR = os.path.join(PROJECT_ROOT, "mds")
 LOG_DIR = os.path.join(PROJECT_ROOT, "logs")
 

@@ -10,12 +10,21 @@ working on this project. It describes the project structure, key patterns, pitfa
 └── any LAN mirror path → symlink → the checkout above (see .hermes/internal-guide.md)
 ├── hfpapers/             # Main Python package
 ├── hfpclawer/            # Download pipeline (OAI-PMH, Kaggle, monitor)
-├── tests/                # pytest tests
-├── scripts/              # Utility scripts (publish, OAI download)
+├── hfpapers/paths.py     # state-location resolver (checkout → else XDG user dirs)
+├── tests/                # pytest tests: test_paths + test_sanitization are gates (F05-F07)
+├── scripts/              # Gates, tooling and publishing:
+│   ├── sanitize-patterns.sh   # the sanitization patterns — single source (hook + publish + F07)
+│   ├── changelog_guard.py     # "is this version documented?" (release.sh + F03)
+│   ├── changelog_rotate.py    # bounded changelog window, archive, --verify-history (F04)
+│   ├── doc_audit.py           # advisory doc-surface audit (C1-C7)
+│   ├── recut-public.py        # cut a public release: gates + tag + push, dry run by default
+│   └── pre-push               # the installed git hook (version + sanitization gates)
+├── requirements/*.lock.txt # generated locks (`uv pip compile`) — the audit target, never edited
 ├── docs/                 # English documentation
-│   └── cn/               # 中文文档 (Chinese docs)
-├── config.yaml           # Main config (YAML + .env override)
-├── pyproject.toml        # Package config (setuptools)
+│   └── cn/               # 中文文档 (Chinese docs, line-aligned)
+├── config.yaml           # Main config — structure only; real values in config.local.yaml
+├── config.local.yaml     # gitignored overlay, deep-merged over config.yaml
+├── pyproject.toml        # Package config (setuptools) + the single version source
 ├── run.sh                # One-click pipeline runner
 ├── AGENTS.md             # ← This file
 └── .gitignore
@@ -88,32 +97,33 @@ working on this project. It describes the project structure, key patterns, pitfa
 6. **User-Agent strings** must use `dev@example.com` unless a real public
    contact is intended.
 7. **Before pushing `master` to `github` or releasing**: run
+   `bash scripts/publish-public.sh --check` (read-only), or `python3 scripts/recut-public.py
+   --version X.Y.Z` for a full cut with its gates.
 
-   ```bash
-   git ls-files -z | xargs -0 grep -nE \
-     '192\.168\.|(^|[^0-9A-Za-z._=:-])10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)|172\.(1[6-9]|2[0-9]|3[01])\.|/home/[a-z]+|HUAWEI|Speaker|\bWSL\b|0000-000[0-9]-[0-9]{4}-[0-9]{3}[0-9X]|sk-[A-Za-z0-9]{16}|@(126|163|qq|gmail)\.com'
-   ```
+   The patterns live in **`scripts/sanitize-patterns.sh`** — single source, read by the git hook,
+   the publish script and `tests/test_sanitization.py` (F07), so tightening a pattern cannot miss a
+   consumer. Two classes, two severities:
 
-   and confirm zero hits (excluding `pyproject.toml` authors). Two things this
-   pattern learned the hard way on 2026-09-11:
+   - **sensitive values** — real ORCIDs, LAN IPs, machine codenames, personal emails, tokens.
+     Files that document or implement the rules are exempt (a rule must be able to name what it
+     bans), so read the residual hits rather than counting them: this file, the approved
+     placeholders, the "Replace with A's IP" examples in the deploy docs, and the
+     platform-detection code in `hfpclawer/zotero`.
+   - **internal layout and project names** — local directory layouts, private sibling repository
+     names, internal wiki/mirror hosts. Only the gate scripts themselves are exempt; there is no
+     other back door, because this is the class a reviewer is least likely to notice.
 
-   - **The ORCID pattern was missing entirely.** Real ORCIDs (which identify an
-     individual) sat in tracked files while the older, narrower command reported
-     clean. A check that cannot see the category it exists to protect is worse
-     than no check, because it grants false confidence. `0000-0002-1825-0097`
-     is ORCID's own spec example and is the approved placeholder.
-   - **`10.x` needs the version-number guard.** A bare
-     `10\.[0-9]+\.[0-9]+\.[0-9]+` also matches dependency pins such as
-     `name==10.4.0.35`, drowning the real finding in noise. The lookbehind keeps
-     URLs and hosts while dropping `==`/`-` version context.
+   Two lessons, both paid for:
 
-   Expected residual hits, which are acceptable — read them rather than merely
-   counting them: this file (`AGENTS.md`), placeholder examples
-   (`<windows-host-lan-ip>`, `0000-0000-0000-0000`), example IPs in the
-   distributed-deploy docs (marked "Replace with A's IP"), and platform-detection
-   code that must name the platform (e.g. `hfpclawer/zotero` checks whether it
-   runs inside a given subsystem) — the last is the "functional code that
-   legitimately needs the token" exception.
+   - **A missing category is worse than a missing check** (2026-09-11). The ORCID pattern did not
+     exist, so real ORCIDs sat in tracked files while a narrower command reported clean — a check
+     that cannot see what it exists to protect grants false confidence. `0000-0002-1825-0097` is
+     ORCID's own spec example and is the approved placeholder.
+   - **`/home/[a-z]+` cannot see `~/`** (2026-09-17). Hard-coded home-directory paths pointing into a private sibling
+     project, and the sibling project names themselves, passed the gate while sitting in package code,
+     docstrings and one published branch. Peer repositories are environment data now (rule 3), and
+     the class is gated.
+
 8. **Commit messages are public too**: never put real person names, ORCIDs,
    private IPs, or internal emails in commit messages (subject or body). Use
    neutral wording
@@ -122,18 +132,42 @@ working on this project. It describes the project structure, key patterns, pitfa
    slipped in.
 9. **Commit hygiene**: sensitive-only changes → push to `forgejo` (NAS), not to a
    public remote. Public release is a separate, deliberate step.
-10. **Two lineages, two local branches** — never push one to the other's remote:
+10. **Two lineages, aligned version numbers** — the public repository carries the same versions
+    PyPI does. PyPI accepts only `0.x.0` with an **odd** `x` (0.19.0, 0.21.0, …) for this project,
+    so that is what a public release uses; the older `0.17.x` public sequence is retired, and
+    development-line fix releases such as `0.19.1` stay private bookkeeping, folded into the next
+    aligned release.
 
-   | Branch | Lineage | Tracks | Push with |
-   |--------|---------|--------|-----------|
-   | `main` | dev line, `0.18.x` | `forgejo/main` | `git push forgejo main` |
-   | `public` | public line, `0.17.x` | `github/master` | `bash scripts/publish-public.sh VERSION --push` |
+    | Branch | Lineage | Tracks | Release with |
+    |--------|---------|--------|--------------|
+    | `main` | development line | `forgejo/main` | `bash scripts/release.sh VERSION`, then `git push forgejo vX.Y.Z && git push forgejo main` |
+    | `public` | public line, PyPI's numbers | `github/master` | `python3 scripts/recut-public.py --version X.Y.Z --push` |
 
-   Separate histories and separate version sequences sharing one tag namespace, so
-   a gate comparing "pyproject vs newest tag" reports a false red across them.
-   Publish only through `scripts/publish-public.sh`; never
-   `git push github master`, which resolves to a **local** branch named `master`
-   rather than to your work (the script uses the explicit refspec `public:master`).
+    `recut-public.py` lays a sanitized snapshot in a scratch worktree, sets the version **after**
+    the sync (the sync reverts it), commits as the public identity, runs the three gates
+    (changelog coverage, sanitization, snapshot tests) and only then pushes — a dry run by default,
+    refusing a version PyPI could not carry or one not above the current public tag. Never
+    `git push github master`: that resolves to a **local** branch named `master` rather than to your
+    work (the script uses the explicit refspec `public:master`). **No force-push** — history is
+    appended to.
+
+    **Tag namespaces.** Alignment means one version number has two commits — the public snapshot
+    and the development commit — while a repository's tag namespace is shared. So the public tag
+    exists locally under the namespaced name **`public-vX.Y.Z`** and is pushed with an explicit
+    refspec onto the real name on the remote:
+    `git push github refs/tags/public-vX.Y.Z:refs/tags/vX.Y.Z`. The development line's own
+    `vX.Y.Z` is therefore never moved, and the refusal to move a published tag stays honest.
+    Consequence: `git fetch --tags github` in this checkout collides on those names — verify with
+    `git ls-remote` instead (as `recut-public.py` does). `publish-public.sh` implements all of
+    this; `v0.19.0` on `github` is the public snapshot, on `forgejo` the development commit.
+
+    **One tag per published version.** The public line's tag set *is* its release surface —
+    odd `0.x.0` only, the same name as its GitHub Release — so consecutive public tags skip the
+    private even lines by design (`0.15 → 0.17 → 0.19 → 0.21`). Patch-level continuity is the
+    development line's job (`v0.19.0 … v0.19.6` on `forgejo`/NAS). Never add even-`x` tags to
+    the public line for appearance: `recut-public.py` refuses a version PyPI could not carry,
+    and a public tag without a release invents a numbering story nothing else follows.
+
 11. **Only the maintainer's primary machine is authorized to publish**: of the
     machines on this LAN, only that one holds GitHub credentials. The others push
     to NAS, and the primary machine reviews before anything is published. Failing
@@ -255,6 +289,57 @@ Creating new tests:
 3. Mock network requests (requests / subprocess)
 4. Don't depend on external API responses
 
+> ⚠️ **`scripts/publish.sh` bypass**: it refuses to run when the tree is dirty, so the
+> direct-url strip (step 1 above) has to be done by hand: `python -m build` +
+> `python /tmp/twine_v4.py upload …`, then `git checkout pyproject.toml`. See the
+> `pypi-publish` skill.
+
+> ⚠️ **Release discipline**: `scripts/release.sh` is the development line's single entry
+> (version source = `pyproject.toml`). Do **not** pass `--push` — it targets `origin`, the
+> internal GitLab; push the NAS yourself, tag before branch:
+> `git push forgejo vX.Y.Z && git push forgejo main`. `scripts/pre-push` is two gates:
+> ① version consistency, for `refs/heads/main` only (the public line carries its own state);
+> ② sanitization, for every push, covering both the sensitive-value class and the internal
+> layout / project-name class. Install and verify with
+> `cp scripts/pre-push .git/hooks/pre-push && diff -q scripts/pre-push .git/hooks/pre-push`.
+> The three changelog gates (entry exists / window budget / no entry lost) live in
+> `release.sh`. A public release is a *separate*, aligned step: `scripts/recut-public.py`
+> (rule 10).
+
+### Testing Before Release
+
+- `ruff check` must be clean **for the files you touched** — the repository still carries
+  pre-existing lint in legacy scripts and tests, so a whole-tree count is not the signal.
+- `pytest tests/` must be green: the default run is the deterministic set (see the gate
+  inventory below); environment-heavy classes are opt-in via markers.
+- `pyright` warnings about missing imports (torch, scrapy, sentence_transformers) are
+  acceptable — those are optional dependencies.
+- A red test that predates your change still needs a verdict: fix it, mark it, or record it.
+  "It was already failing" is a finding, not a dismissal.
+
+### Test entry points and the gate inventory
+
+`pytest tests/` runs the **deterministic** set: tests marked `slow` (builds a wheel or a venv),
+`network` (talks to a live service) or `integration` (spawns real servers/CLIs) are deselected by
+`addopts` — currently 45 of them — so a bare environment cannot hang the run. Opt in with
+`-m slow`, `-m network`, `-m integration`, or `-m ""` for everything. An unreliable default teaches
+people to ignore the suite; keep new environment-heavy tests behind a marker.
+
+| Gate | What it refuses |
+|------|-----------------|
+| F02 `TestVersionGate` | pyproject version drift |
+| F03 `TestChangelogGate` | a tagged version with no changelog entry (live *or* archive) |
+| F04 `TestChangelogWindowGate` | an over-budget changelog window; rotation losing an entry |
+| F05 `TestInstallPathGate` | state resolved inside an installed package |
+| F06 `NoAdHocStatePathGate` | new `Path(__file__).parent.parent` state paths |
+| F07 `TestSanitizationSurface` | sensitive values / internal layout in tracked files |
+| F08 `StateHermeticityGate` | a test resolving state through the machine's own overrides (the suite writing the real library) |
+| `scripts/doc_audit.py` | advisory only (C1-C7): paths, commands, version claims, links, coverage, en/zh drift, tracked artifacts |
+
+Detailed gate policy: `docs/DEVELOPMENT.md`. Rationale for the split (enforced vs advisory):
+a judgement call dressed as a gate gets routed around; a class a check cannot see is worse than
+no check.
+
 ## Developer Conventions
 
 ### PEP8 Internationalization Standards
@@ -293,50 +378,56 @@ Exceptions (Chinese allowed):
 ### PyPI Package Release Checklist
 
 ```bash
-# 0. Check for direct-url / git+ deps (PyPI rejects them)
+# 0. Version rule — PyPI accepts only 0.x.0 with an ODD x (0.19.0, 0.21.0, ...); everything
+#    else stays on forgejo. A public release uses these same numbers (rule 10).
+# 1. Direct-url / git+ deps are rejected by PyPI — strip them in a dirty tree, build, upload,
+#    then restore with `git checkout pyproject.toml` (see the pypi-publish skill, §3 scenario A).
 grep -n '@ https\?' pyproject.toml
-grep -n 'git+' pyproject.toml
-# If found: comment out → build → upload → restore (see pypi-publish skill)
 
-# 1. Format & lint
-ruff format .
-ruff check --fix .
+# 2. Gates + tests — the default pytest run IS the deterministic gate (slower classes are opt-in)
+python -m pytest tests/                                                        # incl. tests/test_invariants.py
+.venv/bin/hfpclawer store invariants --strict                                  # data gate (ratchet)
+#   The store is an artifact: 25 foreign DOIs, 14 impossible years and 18 duplicate records once
+#   shipped through green code gates (docs/AUDIT_CRITIQUE.md). This gate runs offline over the live
+#   store; the baseline lives beside the DB and may only shrink. Re-record deliberately:
+#   `store invariants --update-baseline` (and say why in the commit message).
+python -m pytest tests/
+python3 scripts/doc_audit.py                       # advisory (C1-C7)
 
-# 2. Type check
-pyright .
+# 2b. Dependencies — audit the RESOLVED set, not a hand-written list
+uvx pip-audit -r requirements/core.lock.txt
+uvx pip-audit -r requirements/dev.lock.txt         # only en-core-web-sm is skipped (direct URL)
 
-# 3. Test
-python -m pytest tests/ -v
+# 3. Bump + tag on the development line (the changelog gates run inside release.sh)
+bash scripts/release.sh 0.21.0
+python3 scripts/changelog_rotate.py && python3 scripts/changelog_guard.py 0.21.0
 
-# 4. Build + verify
-python -m build
-twine check dist/*
+# 4. Build + upload. Python's socket hangs on AAAA here, so force IPv4.
+rm -rf dist build *.egg-info && python -m build
+python /tmp/twine_v4.py upload --repository testpypi dist/*     # verify first
+python /tmp/twine_v4.py upload dist/*
 
-# 5. Release (bump pyproject → commit → tag; the changelog gates run first)
-bash scripts/release.sh 0.18.17
+# 5. Verify on the index, not by the progress bar
+curl -s -o /dev/null -w "%{http_code}\n" https://pypi.org/pypi/hfpclawer/0.21.0/json   # 200
 
-# 6. Publish — always TestPyPI first, then PyPI
-twine upload --repository testpypi dist/*   # Verify
-twine upload dist/*                          # Production
+# 6. Mirror the same version to the public repository (rule 10)
+python3 scripts/recut-public.py --version 0.21.0 --push
 ```
 
-> ⚠️ **publish.sh 绕行须知**: `scripts/publish.sh` 有 git status 检查，pyproject.toml 临时改动（如移除直链 dep）时会被拒绝。此时手动 `python -m build` + `twine upload --repository testpypi dist/*` 绕过。详见 `~/.hermes/skills/devops/pypi-publish/SKILL.md`。
+> **Dependency advisories: read them against the right target.** Both generated locks audit
+> clean; what a scanner reports against this repository comes from *stale hand-copied* requirement
+> files (deleted 2026-09-17 — one was a freeze of the v0.1.3 environment) and from an *old local
+> virtualenv* whose installed versions lag the declared ranges (`pyjwt`, `scrapy`, `setuptools`,
+> `soupsieve`, `twisted` in one such env). Re-install the dev group before believing a local audit,
+> and never re-introduce hand-maintained copies of the dependency list — regenerate the locks with
+> `uv pip compile pyproject.toml [-–extra dev] -o requirements/<name>.lock.txt`.
 
-> ⚠️ **发布纪律**: `scripts/release.sh` 是唯一发布入口（版本号单源 = `pyproject.toml`）。
-> **不要用 `--push`**——它推的是 `origin`（单位内网 GitLab）；收工后手动推 NAS：
-> `git push forgejo vX.Y.Z && git push forgejo main`（**先 tag 再分支**）。
-> `scripts/pre-push`（v0.18.12 起恢复，与旧版职责不同）是两道门：① 版本一致性——仅对
-> `refs/heads/main`，因为公开线自成版本序列，统一比较会假红；② 脱敏——对所有推送生效。
-> 安装/校验：`cp scripts/pre-push .git/hooks/pre-push && diff -q scripts/pre-push .git/hooks/pre-push`。
-> 三条 changelog 门禁（条目存在 / 窗口预算 / 无条目丢失）在 `release.sh` 里，见 `docs/DEVELOPMENT.md`。
-```
+> **A domestic mirror (uv/pip config) lags a fresh upload by hours.** `uv pip install pkg==X` then
+> reports "no version … unsatisfiable" while PyPI already serves it — verify against
+> `--index-url https://pypi.org/simple/` before believing a failure. Equally: `github.com` HTTPS is
+> unreachable from this host, so check refs with `git ls-remote` (SSH) and the index with its JSON
+> API, never with curl against the website.
 
-### Testing Before Release
-
-- `ruff check .` must pass with **zero errors** (including tests/)
-- `pytest` must pass all tests (currently 252 tests)
-- `pyright` warnings for missing imports (torch, scrapy, sentence_transformers) are acceptable — these are optional dependencies
-- Pre-existing warnings (unused `l` variable, None-guard noise) are non-blocking
 
 ## Pitfalls
 
@@ -366,6 +457,25 @@ Do NOT move this line to the module top level.
 ### Temp Directory Isolation
 
 Test fixture `test_env` already chdir's to a temp directory. Do NOT hardcode `~/.hermes/` or other system paths.
+
+### Test state is hermetic — machine overrides must not reach a test (2026-09-17)
+
+`test_env` (`tests/conftest.py`) chdir's to a temp directory **and** points `HFPAPERS_DATA_DIR` at
+`<tmp>/data`, clearing the `HFPCLAWER_*` roots first. Before that, a machine exporting
+`HFPAPERS_DATA_DIR` (or carrying a real `config.local.yaml`) silently inverted the suite: the
+fixtures resolved at the *real* store, so a bare `pytest` wrote a test row into a 3976-paper
+library, and two path-invariant tests (`test_paths`, `test_pool`) went red for reasons unrelated to
+the code under test. Rules that follow:
+
+- A test must not depend on machine state. When a test needs an override, set or clear it inside
+  the test with `monkeypatch` — that lands *after* the fixture and wins. F08
+  (`tests/test_isolation.py`) enforces both directions mechanically.
+- Do **not** set `HFPCLAWER_STATE_DIR` inside a checkout: `test_checkout_mode_uses_the_repository`
+  asserts `state_root() == checkout_root()` (a checkout keeps state in the repository), so pointing
+  state elsewhere reddens the gate. Real per-machine values belong in the gitignored
+  `config.local.yaml` (rule 4) or in the DB-only `HFPAPERS_DATA_DIR`.
+- `pytest tests/` must be equally green with and without the machine's env exported — that
+  equivalence is the property F08 protects.
 
 ### Scrapy vs CLI Conflict
 

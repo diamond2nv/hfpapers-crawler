@@ -18,7 +18,9 @@ Usage:
 """
 
 import logging
+import re
 import ssl
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -53,6 +55,7 @@ class ImportResult:
         "md_path",
         "error",
         "steps",
+        "metadata_source",
     )
 
     def __init__(self, arxiv_id: str = ""):
@@ -66,6 +69,10 @@ class ImportResult:
         self.md_path: Optional[str] = None
         self.error: Optional[str] = None
         self.steps: list[str] = []
+        # Where title/abstract/year came from: "arxiv" | "datacite" | "" (none = placeholder risk).
+        # Callers (CLI / batch runners) use this to detect records that would be written with
+        # the raw identifier as title. FIX v0.19.4.
+        self.metadata_source: str = ""
 
     @property
     def ok(self) -> bool:
@@ -319,46 +326,112 @@ def import_arxiv_id(
     return result
 
 
-def _fetch_arxiv_meta(result: ImportResult) -> None:
-    """Try to fetch title + abstract + year from the arXiv API.
-
-    Best-effort – failure is silently ignored. On success, populates
-    ``result.title``, ``result.abstract`` and ``result.year`` so the
-    PaperStore write uses real metadata instead of falling back to the
-    raw arXiv ID as title (FIX v0.15.2: previously parsed metadata was
-    only logged to steps and never assigned back).
-    """
+def _parse_arxiv_atom(raw: bytes, result: ImportResult) -> bool:
+    """Parse an arXiv Atom response into ``result``. Returns True on success."""
     from xml.etree import ElementTree as ET
 
-    url = f"http://export.arxiv.org/api/query?id_list={result.arxiv_id}&max_results=1"
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return False
+    ns = {"a": "http://www.w3.org/2005/Atom"}
+    entry = root.find("a:entry", ns)
+    if entry is None:
+        return False
+    title_el = entry.find("a:title", ns)
+    if title_el is not None and title_el.text:
+        result.title = " ".join(title_el.text.split())
+    summary_el = entry.find("a:summary", ns)
+    if summary_el is not None and summary_el.text:
+        result.abstract = " ".join(summary_el.text.split())
+    published_el = entry.find("a:published", ns)
+    if published_el is not None and published_el.text:
+        try:
+            result.year = int(published_el.text[:4])
+        except (TypeError, ValueError):
+            pass
+    return bool(result.title)
+
+
+def _fetch_arxiv_meta_datacite(result: ImportResult, timeout: int = 15) -> bool:
+    """Fallback metadata source: DataCite (arXiv DOIs are DataCite-registered).
+
+    Crossref returns 404 for ``10.48550/arXiv.<id>`` — the registration agency for
+    arXiv DOIs is DataCite, so this is the correct second source. Measured 2026-09-19:
+    fills title + year + abstract for every arXiv id tried, and unlike the arXiv API
+    it does not rate-limit a batch run into silent placeholders.
+    """
+    import json
+
+    url = f"https://api.datacite.org/dois/10.48550/arXiv.{result.arxiv_id}"
     ctx = ssl._create_unverified_context()
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "hfpclawer/0.6"})
-        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
-            raw = resp.read()
-        root = ET.fromstring(raw)
-        ns = {"a": "http://www.w3.org/2005/Atom"}
-        entry = root.find("a:entry", ns)
-        if entry is not None:
-            title_el = entry.find("a:title", ns)
-            if title_el is not None and title_el.text:
-                # ArXiv API often wraps titles in newlines
-                title_text = " ".join(title_el.text.split())
-                result.title = title_text
-                result.steps.append(f"arxiv_meta: title={title_text[:60]}...")
-            summary_el = entry.find("a:summary", ns)
-            if summary_el is not None and summary_el.text:
-                result.abstract = " ".join(summary_el.text.split())
-            published_el = entry.find("a:published", ns)
-            if published_el is not None and published_el.text:
-                try:
-                    result.year = int(published_el.text[:4])
-                except (TypeError, ValueError):
-                    pass
-        result.steps.append("arxiv_meta: ok")
+        req = urllib.request.Request(url, headers={"User-Agent": "hfpclawer/0.19 (mailto:dev@example.com)"})
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            payload = json.loads(resp.read().decode("utf-8", "ignore"))
+        attrs = payload["data"]["attributes"]
+        titles = attrs.get("titles") or []
+        if titles:
+            result.title = " ".join(str(titles[0].get("title") or "").split())
+        if attrs.get("publicationYear"):
+            try:
+                result.year = int(attrs["publicationYear"])
+            except (TypeError, ValueError):
+                pass
+        for desc in attrs.get("descriptions") or []:
+            if desc.get("descriptionType") == "Abstract" and desc.get("description"):
+                # DataCite abstracts may carry JATS/HTML markup
+                result.abstract = " ".join(
+                    re.sub(r"<[^>]+>", " ", str(desc["description"])).split()
+                )
+                break
+        return bool(result.title)
     except Exception as exc:
-        logger.debug("arXiv meta fetch failed: %s", exc)
-        result.steps.append("arxiv_meta: failed")
+        logger.debug("DataCite meta fetch failed: %s", exc)
+        return False
+
+
+def _fetch_arxiv_meta(result: ImportResult, attempts: int = 3) -> None:
+    """Fetch title + abstract + year for ``result.arxiv_id``.
+
+    Order (FIX v0.19.4):
+      1. arXiv API over **https** with retries + backoff — the previous version used
+         plain ``http://``, no retry and no fallback, so a batch run that tripped arXiv's
+         rate limiter degraded *every* record to ``title=<arXiv ID>, year=0`` while the
+         CLI still printed success (measured 2026-09-19: 117/117 placeholder records).
+      2. **DataCite** fallback when the arXiv API keeps failing.
+    On success ``result.metadata_source`` is set ("arxiv" / "datacite"); on total failure
+    it stays empty and the store step warns (see ``store: WARN``).
+    """
+    ctx = ssl._create_unverified_context()
+    url = f"https://export.arxiv.org/api/query?id_list={result.arxiv_id}&max_results=1"
+    last_exc: Exception | None = None
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "hfpclawer/0.19"})
+            with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+                raw = resp.read()
+            if _parse_arxiv_atom(raw, result):
+                result.metadata_source = "arxiv"
+                result.steps.append(f"arxiv_meta: title={result.title[:60]}...")
+                result.steps.append("arxiv_meta: ok")
+                return
+            last_exc = ValueError("empty atom entry")
+        except Exception as exc:  # noqa: BLE001 — network layer, any failure is retryable
+            last_exc = exc
+            logger.debug("arXiv meta attempt %d/%d failed: %s", attempt, attempts, exc)
+        if attempt < attempts:
+            time.sleep(1.5 * attempt)  # 1.5s, 3.0s — absorbs rate-limit windows
+
+    # ── Fallback: DataCite ──
+    if _fetch_arxiv_meta_datacite(result):
+        result.metadata_source = "datacite"
+        result.steps.append(f"arxiv_meta: title={result.title[:60]}...")
+        result.steps.append("arxiv_meta: ok (datacite fallback)")
+        return
+
+    logger.warning("Metadata fetch failed for %s (arxiv + datacite): %s", result.arxiv_id, last_exc)
+    result.steps.append("arxiv_meta: failed")
 
 
 # ─── High-level CLI convenience ──────────────

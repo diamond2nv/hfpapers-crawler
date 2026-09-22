@@ -25,8 +25,13 @@
 #   bash scripts/publish-public.sh 0.17.3              # 打 tag（本地）
 #   bash scripts/publish-public.sh 0.17.3 --push       # 打 tag + 推送 public:master + tag
 #
-# 修版规矩: 公开线版本按「最新公开 tag」递增（0.17.1 → 0.17.2 → …），
-#           与开发线 0.18.x 无关 —— 两条血统各有自己的 tag 序列。
+# 修版规矩（2026-09-17 起，用户明确）: 公开线**与 PyPI 版本号对齐** —— 本项目的 PyPI 只收
+#   `0.x.0` 且 x 为奇数（0.19.0、0.21.0…），公开线就用这套号；旧 0.17.x 序列已废弃。
+#
+# Tag 命名空间（对齐带来的必然结果）: 同一个版本号在两条血统里各有一个提交，而一个仓库的
+#   tag 命名空间是共享的。所以**公开线的 tag 在本地叫 `public-vX.Y.Z`**，推送时用显式 refspec
+#   落到远端的真名 `refs/tags/vX.Y.Z`。开发线自己的 `vX.Y.Z` 因此永远不被移动。
+#   ⚠️ 推论：在本仓 `git fetch --tags github` 会与开发线同名 tag 冲突 —— 校验用 `git ls-remote`。
 # =============================================================================
 set -e
 
@@ -105,7 +110,11 @@ if [ "$MODE" = "status" ]; then
     fi
     echo ""
     echo "公开线 pyproject 版本: $(git show "$PUBLIC_BRANCH:pyproject.toml" | grep '^version' | sed 's/.*"\(.*\)".*/\1/')"
-    echo "最新公开 tag        : $(git tag --sort=-v:refname --merged "$PUBLIC_BRANCH" 2>/dev/null | grep -E '^v0\.1[0-9]\.' | head -1)"
+    # 公开线的 tag 在本地叫 public-vX.Y.Z（命名空间对齐，见文件头说明），旧的公开线 tag
+    # 叫 vX.Y.Z —— 两种名字都要认，否则这里会退回报一个早已退役的老版本（实测报 v0.17.3）。
+    echo "最新公开 tag        : $(git tag --merged "$PUBLIC_BRANCH" 2>/dev/null \
+        | sed -n 's/^public-//p' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+    echo "   （本地 tag 名 public-vX.Y.Z，远端真名 vX.Y.Z；校验远端用 git ls-remote）"
     exit 0
 fi
 
@@ -132,7 +141,20 @@ PUB_VERSION=$(git show "$PUBLIC_BRANCH:pyproject.toml" | grep '^version' | sed '
 [ "$PUB_VERSION" = "$VERSION" ] \
     || die "$PUBLIC_BRANCH 的 pyproject 是 $PUB_VERSION，与要发布的 $VERSION 不符 —— 先 bump pyproject"
 
-git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null && die "tag v$VERSION 已存在（不要移动已发布的 tag；换个版本号）"
+# 公开线专属 tag 名 —— 开发线的同名 tag（v$VERSION）存在于本仓是正常现象，不再拒绝
+PUBLIC_TAG="public-v$VERSION"
+if git rev-parse -q --verify "refs/tags/$PUBLIC_TAG" >/dev/null; then
+    _at=$(git rev-parse "$PUBLIC_TAG^{commit}")
+    _want=$(git rev-parse "$PUBLIC_BRANCH^{commit}")
+    [ "$_at" = "$_want" ] || die "$PUBLIC_TAG 已存在且指向 $_at，与 $PUBLIC_BRANCH 的 $_want 不同（不要移动已发布的 tag；换个版本号）"
+    echo "ℹ️  $PUBLIC_TAG 已存在且指向同一提交，沿用"
+fi
+# 远端同名 tag 若已存在且提交不同，才是真的「移动已发布 tag」
+_remote_at=$(git ls-remote "$PUBLIC_REMOTE" "refs/tags/v$VERSION^{}" 2>/dev/null | cut -f1 || true)
+_public_sha=$(git rev-parse "$PUBLIC_BRANCH^{commit}")
+if [ -n "$_remote_at" ] && [ "$_remote_at" != "$_public_sha" ]; then
+    die "远端已有 v$VERSION 指向另一提交（${_remote_at%"${_remote_at#????????}"}…）—— 不移动已发布的 tag，换个版本号或先确认远端"
+fi
 
 echo ""
 echo "── 将发布到 $PUBLIC_REMOTE/$PUBLIC_REMOTE_BRANCH ──"
@@ -151,14 +173,14 @@ esac
 sanitize_gate "$PUBLIC_BRANCH" || die "脱敏门禁未通过，已中止"
 
 echo ""
-echo "── 打 annotated tag ──"
-git tag -a "v$VERSION" -m "v$VERSION"
-echo "✅ 已打 tag v$VERSION -> $(git rev-parse --short "v$VERSION^{commit}")"
+echo "── 打 annotated tag（本地名 $PUBLIC_TAG，远端名 v$VERSION）──"
+git tag -a "$PUBLIC_TAG" -m "v$VERSION — public snapshot, version-aligned with PyPI" --force
+echo "✅ 已打 tag $PUBLIC_TAG -> $(git rev-parse --short "$PUBLIC_TAG^{commit}")"
 
 if [ "$PUSH" = "true" ]; then
     echo ""
     echo "── 推送（先 tag 后分支；远程分支名不变，用显式 refspec public:master）──"
-    git push "$PUBLIC_REMOTE" "v$VERSION"
+    git push "$PUBLIC_REMOTE" "refs/tags/$PUBLIC_TAG:refs/tags/v$VERSION"
     git push "$PUBLIC_REMOTE" "$PUBLIC_BRANCH:$PUBLIC_REMOTE_BRANCH"
     echo ""
     echo "── 读回验证（不采信推送回执）──"
@@ -169,5 +191,5 @@ if [ "$PUSH" = "true" ]; then
 else
     echo ""
     echo "（未加 --push，仅本地打 tag；推送请重跑并加 --push，或用:）
-  git push $PUBLIC_REMOTE v$VERSION && git push $PUBLIC_REMOTE $PUBLIC_BRANCH:$PUBLIC_REMOTE_BRANCH"
+  git push $PUBLIC_REMOTE refs/tags/$PUBLIC_TAG:refs/tags/v$VERSION && git push $PUBLIC_REMOTE $PUBLIC_BRANCH:$PUBLIC_REMOTE_BRANCH"
 fi
