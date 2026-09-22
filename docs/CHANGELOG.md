@@ -73,20 +73,28 @@ public cuts are listed here; their functional content is covered by the developm
   doc-surface audit, the deterministic-by-default test suite, and the dependency tiering
   (`nlp`/`zotero` extras + generated locks).
 
-### [2026-09-21] release | v0.21.0 — drop the v0.1.3-era requirement freezes; Exo-suite cross-links
+### [2026-09-21] maintenance | public line — drop the stale requirement lists (no version stamp)
 
-- **M** `requirements/` — the public snapshot no longer carries `requirements_all_0.1.3.txt`,
-  `requirements_core.txt` and `requirements_dev.txt`: 188/…-line freezes of the **v0.1.3** environment
-  that the development line dropped long ago. They pinned ancient transitive versions
-  (aiohttp / cryptography / mcp / scrapy / starlette / transformers …) and were the **sole** source of
-  the repository's open Dependabot advisories. The audited locks (`core.lock.txt`, `dev.lock.txt`) are
-  unchanged: re-running `uv pip compile` against this tree changed **no pin**, i.e. they were current.
-- **A** Exo-suite cross-links — `README.md` + `docs/cn/README.zh-CN.md` (suite block, uv-first install,
-  the "light start, add heavy extras later" paths, the `uvx`-reuses-an-old-tool-env trap), and the 10
-  published ClawHub skills (entry skill `exo-suite-linkage`; `uvx` launch versions pinned for rug-pull
-  hygiene; top-level `tags:` added where missing).
-- **note** — no public history is rewritten; this is a new sanitized recut on the public sequence
-(the first cut of the 0.21 line; public cuts use odd `0.x.0` to match what PyPI accepts).
+- **M** public line `requirements/` — `requirements_all_0.1.3.txt`, `requirements_core.txt` and
+  `requirements_dev.txt` deleted from the public tree. The sanitized recut copies the *content* of
+  differing paths and never mirrors deletions, so the development line's 2026-09-17 removal never
+  reached the public line: the 188-line **v0.1.3** freeze was the sole source of **all 55 open
+  Dependabot advisories** (aiohttp / cryptography / mcp / scrapy / starlette / transformers / …).
+  Open advisories: **55 → 0**. `env.template` (renamed to `.env.template` on the development line)
+  went the same way. `recut-public.py` now **refuses a cut** when the public tree carries files the
+  development line dropped (gate 3b + `tests/test_recut_public.py`).
+- **A** Exo-suite cross-links — `README.md` / `docs/cn/README.zh-CN.md` (suite block, uv-first
+  install, "light start, add heavy extras later", the `uvx`-reuses-an-old-tool-env trap) and the 10
+  published ClawHub skills (entry skill `exo-suite-linkage`; `uvx` versions pinned for rug-pull
+  hygiene; top-level `tags:` added where missing). No version stamp: a public cut carries the
+  version of its own release.
+- **note — a version stamp was retracted here (2026-09-21).** This entry was first written as a
+  `v0.21.0` public cut. That cut was taken from the development *tip* (`0.19.7`) instead of from the
+  development line's own `v0.21.0` tag, so it stamped unreleased 0.19-line content with a version the
+  development line has not reached. The GitHub tag `v0.21.0` was deleted and the public tree was
+  pinned back to `0.19.0`; the numbering stays with PyPI and with the development line's release
+  tags (`0.x.0`, odd `x`). The rule is now enforced by the tool: `--version X` requires the
+  development tag `vX`, and the cut defaults to that tag as its source ref.
 
 ### [2026-09-11] fix | v0.17.2 — remove real ORCIDs and third-party names from tracked files
 
