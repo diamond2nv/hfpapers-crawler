@@ -11,9 +11,16 @@ metadata:
   hermes:
     tags: [formula, verification, CAS, LaTeX, cross-validation, wolfram, sympy]
     related_skills: [hfpclawer-citation-audit, hfpclawer-paper-search]
+tags: [formula, verification, CAS, LaTeX, cross-validation, wolfram, sympy]
 ---
 
 # hfpclawer Formula Cross-Validation
+
+> **Part of the Exo suite** — literature (`hfpclawer`) → experiments (`expflow-pde`) → proofs
+> (`omega-architect`). Three independent CLIs that meet through **files and CLI calls**, never imports.
+> Entry skill: `exo-suite-linkage` (wiring, cost tiers **low → medium → high**, degradation ladder).
+> Install: `uv tool install hfpclawer` · `uv tool install expflow-pde` ·
+> `uv tool install "omega-architect @ git+https://github.com/diamond2nv/omega-architect@v0.2.3"`
 
 > 🔒 **Sanitization**: This skill ships in the public repo. Never embed private
 > LAN IPs, real person names, or machine codenames in examples — use

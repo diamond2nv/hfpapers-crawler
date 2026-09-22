@@ -15,9 +15,16 @@ metadata:
     requires:
       - hermes_tool: web_extract
       - mcp_server: arxiv-search (for citation_graph)
+tags: [academic-integrity, citation, verification, hallucination, research, audit]
 ---
 
 # hfpclawer Academic Integrity Audit
+
+> **Part of the Exo suite** — literature (`hfpclawer`) → experiments (`expflow-pde`) → proofs
+> (`omega-architect`). Three independent CLIs that meet through **files and CLI calls**, never imports.
+> Entry skill: `exo-suite-linkage` (wiring, cost tiers **low → medium → high**, degradation ladder).
+> Install: `uv tool install hfpclawer` · `uv tool install expflow-pde` ·
+> `uv tool install "omega-architect @ git+https://github.com/diamond2nv/omega-architect@v0.2.3"`
 
 > 🔒 **Sanitization**: This skill ships in the public repo. Never embed private
 > LAN IPs, real person names, or machine codenames in examples — use
