@@ -75,7 +75,15 @@ fi
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=true ;;
-        --push) ;;
+        --push)
+            # AGENTS.md: 推送开发线用 `git push forgejo vX.Y.Z && git push forgejo main`。
+            # 这里过去的 --push 走 origin（实验室内部 GitLab）并带 --tags，是一条会绕过
+            # 开发线/公开线区分的旁路 —— 2026-10-26 起公开线只接受 sanitized 快照，故禁用。
+            echo "❌ --push 已禁用：本脚本只做本地 commit + tag。" >&2
+            echo "   开发线： git push forgejo v$VERSION && git push forgejo main" >&2
+            echo "   公开线： python3 scripts/recut-public.py --mode sync --version $VERSION --push" >&2
+            exit 2
+            ;;
         *) echo "⚠️  Unknown flag: $arg (ignored)" ;;
     esac
 done
@@ -101,31 +109,20 @@ if [ "$DRY_RUN" = false ]; then
     git tag "v$VERSION"
     echo "✅ Tagged v$VERSION"
 
-    # ---- 4. Optional push ----
-    PUSHED=false
-    for arg in "$@"; do
-        case "$arg" in
-            --push)
-                git push origin "$BRANCH" --tags
-                PUSHED=true
-                ;;
-        esac
-    done
+    # ---- 4. Push is deliberately not done here ----
+    # AGENTS.md: `git push forgejo v$VERSION && git push forgejo main`; the public line goes
+    # through recut-public.py. Keeping a push path inside this script is what produced the
+    # `--tags` bypass that could leak development tags.
+    echo "ℹ️  本地 commit + tag 完毕；推送见 AGENTS.md（forgejo / recut-public.py）"
 else
     echo "[DRY-RUN] Would sync pyproject.toml → v$VERSION"
     echo "[DRY-RUN] Would commit + tag v$VERSION"
-    for arg in "$@"; do
-        case "$arg" in
-            --push) echo "[DRY-RUN] Would git push origin $BRANCH --tags" ;;
-        esac
-    done
 fi
 
 echo ""
 echo "╔══════════════════════════════════════╗"
 echo "║  🎉 Release v$VERSION done!          ║"
 if [ "$DRY_RUN" = false ]; then
-    [ "$PUSHED" = true ] && echo "║  📤 Pushed to origin/$BRANCH"
     echo "║  🔖 Tag: v$VERSION"
     echo "║  📍 Commit: $(git rev-parse --short HEAD)"
 else

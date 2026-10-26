@@ -36,8 +36,10 @@ def _load_module():
     return module
 
 
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True
+    )
 
 
 @pytest.fixture()
@@ -299,3 +301,33 @@ def test_cli_help_advertises_the_sync_mode() -> None:
     )
     assert "--mode" in out.stdout
     assert "sync" in out.stdout
+
+
+def test_dispose_worktree_removes_the_registration(tmp_path: Path) -> None:
+    """A deleted directory is not a removed worktree (measured 2026-10-26).
+
+    ``shutil.rmtree`` left ``.git/worktrees/<name>`` behind, so the branch stayed marked as
+    checked out and the next ``git worktree add … <branch>`` failed with "already checked out".
+    """
+    module = _load_module()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test")
+    repo.joinpath("a.txt").write_text("x\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "base")
+    _git(repo, "branch", "-M", "main")
+    _git(repo, "branch", "public")  # must NOT be checked out here, or worktree add refuses
+
+    scratch = tmp_path / "scratch"
+    _git(repo, "worktree", "add", "-q", str(scratch), "public")
+    module.dispose_worktree(scratch, keep=False, repo=repo)
+
+    assert not scratch.exists()
+    assert str(scratch) not in _git(repo, "worktree", "list", "--porcelain").stdout
+    # the branch must be free again — this is exactly what the ghost used to block
+    again = tmp_path / "again"
+    _git(repo, "worktree", "add", "-q", str(again), "public")
+    assert again.joinpath("a.txt").is_file()

@@ -8,6 +8,18 @@
 > Nothing is lost by rotation — every past state of `docs/CHANGELOG.md` is also preserved in git
 > (`git log -- docs/CHANGELOG.md`).
 
+## [2026-09-25] fix | v0.19.11 — the supplied-DOI bar, measured rather than guessed
+
+> 0.19.10 shipped 0.4 because that is what the automatic path effectively applies. The store says a
+> higher bar costs nothing: of the 310 DOI↔title pairs the full audit called correct, **none** scores
+> below 0.45, and two below 0.5.
+
+- **M** `PaperStore.SUPPLIED_DOI_MIN_SIMILARITY` 0.4 → **0.5**. The same-field near-neighbour the gate
+  exists for (`10.2172/839535`, a *different* OSTI report: 0.44) is now refused; the two format
+  variants under 0.5 (all-caps 1990s AIP titles against Crossref's modern form) go to review rather
+  than being written at 1.0, and a deliberate `accepted-unverified` still admits them.
+- **Tests** — both directions pinned in `tests/test_doi_write_gate.py`.
+
 ## [2026-09-25] fix | v0.19.10 — a supplied DOI is looked up before it is written
 
 > 0.19.7 closed the DOI the store *finds itself*; this closes the DOI it is *given*. `add_identifier`

@@ -363,6 +363,23 @@ def public_only_paths(
     return stale
 
 
+def dispose_worktree(worktree: Path, keep: bool, repo: Path = REPO) -> None:
+    """Remove the scratch worktree **and its registration**.
+
+    ``shutil.rmtree`` alone deletes the directory but leaves ``.git/worktrees/<name>``
+    registered, which keeps the branch marked as checked out (measured 2026-10-26: after a
+    successful ``--push`` sync the next ``git worktree add <path> public`` failed with
+    "'public' is already checked out at /tmp/recut-public-…", and the ghost showed up as
+    ``prunable``). Remove through git first, then delete the directory, then prune.
+    """
+    if keep:
+        print(f"worktree kept: {worktree}")
+        return
+    git("worktree", "remove", "--force", str(worktree), cwd=repo, check=False)
+    shutil.rmtree(worktree, ignore_errors=True)
+    git("worktree", "prune", cwd=repo, check=False)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Recut the public line from the development line.")
     parser.add_argument("--version", required=True, help="public version to cut (semver, e.g. 0.17.4)")
@@ -443,7 +460,7 @@ def main(argv: list[str] | None = None) -> int:
         if keep:
             print(f"worktree kept: {worktree}")
             return
-        git("worktree", "remove", "--force", str(worktree), check=False)
+        dispose_worktree(worktree, keep=False)
         git("branch", "-f", args.branch, public_sha, check=False)  # roll back the dry run
         print(f"rollback: {args.branch} back to {public_sha[:8]} (dry run)")
 
@@ -607,8 +624,12 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if not args.push:
             cleanup()
-        elif not args.keep_worktree:
-            shutil.rmtree(worktree, ignore_errors=True)
+        else:
+            # Whatever happens, the registration must go: `shutil.rmtree` alone left one behind
+            # and blocked the next `git worktree add public` (2026-10-26). An *unexpected*
+            # exception keeps the tree for inspection; --keep-worktree keeps it deliberately.
+            crashed = sys.exc_info()[0] is not None
+            dispose_worktree(worktree, keep=args.keep_worktree or crashed)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,31 @@
 # CHANGELOG
 
-<!-- changelog-window rule="bytes<=24576" kept=8 of=10 bytes=23609 rotated=2026-10-26 -->
+<!-- changelog-window rule="bytes<=24576" kept=8 of=9 bytes=24467 rotated=2026-10-26 -->
+
+## [2026-10-26] fix | v0.20.1 — the scratch worktree was deleted but never unregistered
+
+The publish path runs in a temporary worktree. When it finished it removed the *directory*
+(`shutil.rmtree`) and nothing else, so the registration under `.git/worktrees/recut-public-…`
+stayed behind — still holding the branch. Measured minutes after v0.20.0 went out:
+`git worktree list` showed the deleted tree as `prunable`, and the next
+`git worktree add <path> public` refused with *"'public' is already checked out at
+/tmp/recut-public-6bboakpv"*. One ghost per publish, and a branch that looks busy to every
+later cut.
+
+* `dispose_worktree()` removes through git first (`worktree remove --force`), deletes the
+  directory, then prunes. Both the dry-run rollback and the publish path call it, so the two
+  cannot drift apart again; an unexpected exception still keeps the tree for inspection and
+  `--keep-worktree` keeps it deliberately.
+* `scripts/release.sh` no longer carries a `--push` path. It pushed to `origin` (the lab's
+  internal GitLab) **with `--tags`** — the wrong remote per AGENTS.md (`forgejo`), and a
+  tag-leak path now that the public line refuses non-release tags. The flag is refused and the
+  two documented commands are printed instead.
+
+Verified: `tests/test_recut_public.py` gains
+`test_dispose_worktree_removes_the_registration` — build a worktree, dispose it, assert the
+registration is gone **and** the branch can be checked out again (the exact failure the ghost
+caused); suite rc 0, ruff clean, pyright 0 errors, `sh -n scripts/release.sh` ok, and the
+v0.20.1 sync left `git worktree list` with no ghost entry.
 
 ## [2026-10-26] feat | v0.20.0 — the public line learns to follow the development line (release | sync)
 
@@ -334,15 +359,3 @@ only sampled the tail for NUL bytes, so `fetch <id> -k source` reported success 
   whose title is already filed (`identity_reused` event). That is how both live pairs came to exist: an
   ORCID batch carrying DOIs, then a second pass over the same works without them.
 - **Tests** — `tests/test_duplicate_verdicts.py` (15, network stubbed).
-
-## [2026-09-25] fix | v0.19.11 — the supplied-DOI bar, measured rather than guessed
-
-> 0.19.10 shipped 0.4 because that is what the automatic path effectively applies. The store says a
-> higher bar costs nothing: of the 310 DOI↔title pairs the full audit called correct, **none** scores
-> below 0.45, and two below 0.5.
-
-- **M** `PaperStore.SUPPLIED_DOI_MIN_SIMILARITY` 0.4 → **0.5**. The same-field near-neighbour the gate
-  exists for (`10.2172/839535`, a *different* OSTI report: 0.44) is now refused; the two format
-  variants under 0.5 (all-caps 1990s AIP titles against Crossref's modern form) go to review rather
-  than being written at 1.0, and a deliberate `accepted-unverified` still admits them.
-- **Tests** — both directions pinned in `tests/test_doi_write_gate.py`.
