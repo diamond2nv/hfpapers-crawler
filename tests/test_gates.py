@@ -533,6 +533,17 @@ class TestChangelogWindowGate:
     def _headings(self, path: Path) -> list[str]:
         return re.findall(r"^## \[.*$", path.read_text(encoding="utf-8"), re.MULTILINE)
 
+    @property
+    def floor(self) -> int:
+        """The kept-entry floor, read from the tool instead of re-encoding a magic number."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("changelog_rotate_under_test", self.TOOL)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.MIN_KEEP
+
     def test_tool_exists(self):
         assert self.TOOL.is_file(), "the rotation rule lives in one place"
 
@@ -602,8 +613,29 @@ class TestChangelogWindowGate:
         live, archived = self._headings(src), self._headings(arch)
         assert len(live) + len(archived) == len(entries), "an entry went missing"
         assert len(set(live) | set(archived)) == len(entries), "an entry was duplicated"
-        assert len(live) >= 8, "the floor of 8 kept entries was violated"
+        assert len(live) >= self.floor, (
+            f"the kept-entry floor ({self.floor}) was violated — kept {len(live)}"
+        )
         assert archived == self._headings(arch)[: len(archived)], "archive must stay newest-first"
+
+    def test_refresh_rewrites_a_stale_header_without_moving_entries(self, tmp_path):
+        """The declared size must survive its own digits; `--refresh` fixes it in place."""
+        src = tmp_path / "CHANGELOG.md"
+        entries = [f"## [2026-01-0{i}] feat | v1.0.{i} — e{i}\n- body {i}" for i in range(1, 4)]
+        src.write_text(
+            "# CHANGELOG\n\n<!-- changelog-window rule=\"bytes<=24576\" kept=3 of=3 "
+            "bytes=9999 rotated=2026-01-01 -->\n\n" + "\n\n".join(entries) + "\n",
+            encoding="utf-8",
+        )
+        before_entries = src.read_text(encoding="utf-8").count("## [")
+        result = self._run("--changelog", str(src), "--archive", str(tmp_path / "a.md"), "--refresh")
+        assert result.returncode == 0, result.stderr
+        text = src.read_text(encoding="utf-8")
+        declared = int(re.search(r"bytes=(\d+) rotated=", text).group(1))
+        assert declared == len(text.encode()), (
+            f"refresh left the header declaring {declared} B for a {len(text.encode())} B file"
+        )
+        assert text.count("## [") == before_entries, "refresh must not move entries"
 
     def test_rotation_refuses_below_the_floor(self, tmp_path):
         """Few entries + a tiny budget: exceed the budget rather than lose history."""

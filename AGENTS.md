@@ -12,14 +12,12 @@ working on this project. It describes the project structure, key patterns, pitfa
 ├── hfpclawer/            # Download pipeline (OAI-PMH, Kaggle, monitor)
 ├── hfpapers/paths.py     # state-location resolver (checkout → else XDG user dirs)
 ├── tests/                # pytest tests: test_paths + test_sanitization are gates (F05-F07)
-├── scripts/              # Gates, tooling and publishing:
+├── scripts/              # gates, publishing, cron — **read scripts/AGENTS.md before changing it**
+│   ├── AGENTS.md              # registry (type/entry/caller/criterion/status) + exit-code contracts
+│   │                          # + dependency graph + lifecycle rules (new / modify / retire)
 │   ├── sanitize-patterns.sh   # the sanitization patterns — single source (hook + publish + F07)
-│   ├── changelog_guard.py     # "is this version documented?" (release.sh + F03)
-│   ├── changelog_rotate.py    # bounded changelog window, archive, --verify-history (F04)
-│   ├── doc_audit.py           # advisory doc-surface audit (C1-C7)
-│   ├── recut-public.py        # cut a public release: gates + tag + push, dry run by default
-│   ├── cron_round.py          # reusable round runner: axis query -> store diff -> ingest -> regression
-│   └── pre-push               # the installed git hook (version + sanitization gates)
+│   ├── recut-public.py        # cut the public line: --mode release|sync, gates + push, dry run default
+│   └── pre-push               # the installed git hook (version + sanitization + public-ref gates)
 ├── requirements/*.lock.txt # generated locks (`uv pip compile`) — the audit target, never edited
 ├── docs/                 # English documentation
 │   └── cn/               # 中文文档 (Chinese docs, line-aligned)

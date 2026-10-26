@@ -216,6 +216,14 @@ def test_high_water_blocks_a_backwards_push() -> None:
     assert module.judge_request("release", "0.21.0", "0.20.3", "v0.21.0") == ""
 
 
+def test_resync_at_the_same_version_is_refused_with_a_way_out() -> None:
+    """A second sync at the same number would put two trees behind one version (measured 2026-10-26)."""
+    module = _load_module()
+    refusal = module.judge_request("sync", "0.20.1", "0.20.1", "v0.20.1")
+    assert refusal, "a re-sync at the high-water version must be refused"
+    assert "release.sh" in refusal, "the message must name the way forward, not just the rule"
+
+
 def test_sync_refuses_a_stale_source_unless_overridden() -> None:
     """The mirror-image trap: older dev content behind a *higher* public number."""
     module = _load_module()

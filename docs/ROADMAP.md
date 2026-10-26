@@ -32,7 +32,7 @@
 | 依赖锁刷新 + `pymupdf4llm<2` 封顶 | ✅ v0.20.0——certifi/brotli/aiohttp/multidict/setuptools 已修，2 条按条件接受 |
 | PDF 路径迁移 `pymupdf>=2`（4llm 代码已并入上游，`pymupdf4llm 2.0` 是 904 B 空壳） | ⬜ 未做——需真实 PDF 抽取对齐测试，现封顶在 1.x |
 | PyPI / GitHub Release 对齐切版 `0.21.0` | ⬜ 计划中——dev tag `v0.21.0` 之后 `recut-public.py --version 0.21.0` |
-| `filelock` / `Twisted` 告警清零 | ⬜ 阻塞条件已测：filelock 修版 `4.2.1` 需 py≥3.11 且 litellm 放开 `<4.0`；Twisted 修版仅 `26.10.0rc1` |
+| `filelock` / `Twisted` 告警（唯一残留项） | ⚠️ **22 → 9，已修 13 条**（GitHub 重扫后实测）。残留 9 条 = `filelock` 3 + `Twisted` 6，**全部只在 `dev.lock.txt`**（`core.lock.txt` 两个包 0 命中 ⇒ `pip install hfpclawer` 的用户不装）；twisted 经 `scrapy`、filelock 经 `huggingface-hub`/`litellm`/`tldextract`。阻断条件已测：filelock 修版 `4.2.1` 需 py≥3.11（本包声明 ≥3.10）且 `litellm 1.106.4` 钉 `<4.0`；Twisted 5 条修版仅 `26.10.0rc1`，**另有 1 条 `fix=none`（任何版本都未修）** |
 
 ---
 

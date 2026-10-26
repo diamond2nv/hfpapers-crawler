@@ -55,6 +55,13 @@ else
     echo "⚠️  scripts/changelog_guard.py missing — changelog coverage NOT checked."
 fi
 
+# ---- 0a. Header truth ----
+# The window comment declares its own byte count; a stale number is worse than no number. Refresh
+# it before anything else looks at the window (also the consumer that keeps --refresh alive).
+if [ -f scripts/changelog_rotate.py ]; then
+    python3 scripts/changelog_rotate.py --refresh || true
+fi
+
 # ---- 0b. Changelog window ----
 # The changelog is read, not diffed: it must stay a bounded window, with the older
 # entries rotated into docs/CHANGELOG-archive.md (rule: scripts/changelog_rotate.py).
@@ -69,6 +76,20 @@ if [ -f scripts/changelog_rotate.py ]; then
     }
 else
     echo "⚠️  scripts/changelog_rotate.py missing — changelog window NOT checked."
+fi
+
+# ---- 0c. Version consistency (pre-bump) ----
+# The tree must already agree with the latest tag before it is bumped: otherwise a drifted
+# pyproject silently turns into "the new version" and the drift is never seen. This is also the
+# consumer that keeps scripts/version-check.sh alive (2026-10-26: it had none).
+if [ -f scripts/version-check.sh ]; then
+    sh scripts/version-check.sh || {
+        echo "❌ Refusing to release v$VERSION: pyproject.toml 与最新 tag 不一致。"
+        echo "   先对齐：bash scripts/version-check.sh --fix"
+        exit 1
+    }
+else
+    echo "⚠️  scripts/version-check.sh missing — pre-bump version consistency NOT checked."
 fi
 
 # 解析 flags

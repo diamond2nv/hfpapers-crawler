@@ -8,6 +8,49 @@
 > Nothing is lost by rotation — every past state of `docs/CHANGELOG.md` is also preserved in git
 > (`git log -- docs/CHANGELOG.md`).
 
+## [2026-10-05] fix | v0.19.13 — a Crossref title search may not return a stranger
+
+> Crossref's `/works?query=<title>` is a fuzzy search: it matches on shared words, so its top hit for
+> an arXiv paper can be an unrelated work. `cross_verify` accepted any hit scoring ≥ 0.3 and handed it
+> back with confidence `sim + 0.2`. Importing arXiv 2607.27201 ("Mental World Modeling") attached
+> `10.1007/978-1-4939-6616-5_3` ("Science of Mental Modeling", a 2017 Springer chapter) and stamped
+> `year=2017 · venue='Mental Modeling Approach'` onto a 2026 preprint — a stranger at similarity 0.387
+> whose boosted confidence (0.587) sat just under the 0.6 gate, so the class recurred whenever the
+> bonus cleared it (a live record still held "SSCAP…" as the DOI of a "ConsensusTAS…" paper, 0.404 →
+> 0.604).
+
+- **M** `CrossrefClient.MIN_TITLE_SIMILARITY = 0.5` + a floor in `cross_verify` — a title-search hit is
+  returned only when its trigram-Jaccard similarity clears the bar, and a below-bar near-miss is logged
+  with both titles and its score instead of being handed to a caller. The bar is the same one the
+  supplied-DOI path already uses (`PaperStore.SUPPLIED_DOI_MIN_SIMILARITY`), measured the same way: of
+  57 live Crossref attachments, the floor newly rejects exactly the one known-wrong match and keeps the
+  other 56; every genuine match scores ≥ 0.5.
+- **Tests** — `tests/test_crossref_title_gate.py` (5): the polluted instance (real captured hit list)
+  yields no candidate and `ensure_paper` writes neither the DOI nor its venue/year; a genuine match is
+  still attached with its venue; the floor boundary is asserted against the real similarity function.
+
+## [2026-09-25] fix | v0.19.12 — a duplicate pair is judged by its DOIs, not by its identifier count
+
+> `store dedup` and the audit both classified duplicates by identifier *kinds*: one copy with the DOI
+> and one with the arXiv id → merge; overlapping kinds → "two artefacts of one work, leave it". The live
+> store had a pair where both copies held a DOI and one of them described a *different paper* — the
+> heuristic then protected the wrong copy from removal.
+
+- **A** `invariants.classify_duplicate_pair` / `plan_duplicate_group` — evidence-first ranking (a record
+  whose DOI describes its own title outranks one with none, which outranks one whose DOI describes
+  another paper) and four verdicts: `mergeable`, `version_pair` (both DOIs describe the title — journal
+  paper plus report, both kept), `drop_wrong_doi` (culprit named; its DOI is discarded, never moved),
+  `human`.
+- **M** `store dedup [--network]` — verdicts from that shared classifier, and the table names what the
+  drop candidate's DOI actually points at; `--apply` acts on `mergeable` and `drop_wrong_doi` only.
+  Offline it behaves exactly as before.
+- **M** `store invariants --network` — duplicate findings are re-judged: a version pair becomes
+  `record.version_pair` at `info` severity, so a legitimate pair stops being reported as a defect.
+- **A** write-path guard — `ensure_paper` returns the existing record for an identifier-less arrival
+  whose title is already filed (`identity_reused` event). That is how both live pairs came to exist: an
+  ORCID batch carrying DOIs, then a second pass over the same works without them.
+- **Tests** — `tests/test_duplicate_verdicts.py` (15, network stubbed).
+
 ## [2026-09-25] fix | v0.19.11 — the supplied-DOI bar, measured rather than guessed
 
 > 0.19.10 shipped 0.4 because that is what the automatic path effectively applies. The store says a

@@ -78,6 +78,7 @@ SNAPSHOT_TESTS = (
     "tests/test_paths.py",
     "tests/test_sanitization.py",
     "tests/test_recut_public.py",  # the public-only-paths gate's own regression test
+    "tests/test_scripts_registry.py",  # the scripts/ registry cannot drift from the directory
 )
 
 
@@ -182,6 +183,14 @@ def judge_request(
             "and push from that tag. (Retracted 2026-09-21: a 0.21.0 cut taken from the 0.19.7 tip.)"
         )
     if high_water and version_tuple(version) <= version_tuple(high_water):
+        if version_tuple(version) == version_tuple(high_water):
+            return (
+                f"v{version} is already on the public line (high-water mark {high_water}): a second "
+                "sync at the same number would put two different trees behind one version, which is "
+                "the invariant this push exists to protect. Either bump the development version "
+                "(bash scripts/release.sh X.Y.Z) and sync that tag, or leave these commits on the "
+                "development line until the next release carries them."
+            )
         return (
             f"version {version} is not above the public line's high-water mark {high_water}: "
             "the default branch must describe one tree with one number, so a public push may "

@@ -40,7 +40,13 @@ DEFAULT_CHANGELOG = REPO_ROOT / "docs" / "CHANGELOG.md"
 DEFAULT_ARCHIVE = REPO_ROOT / "docs" / "CHANGELOG-archive.md"
 
 DEFAULT_BUDGET = 24576  # bytes, matches the wiki log.md window
-MIN_KEEP = 8            # never rotate below this many entries
+# Never rotate below this many entries — better to exceed the budget than to lose the only copy.
+# Was 8 until 2026-10-26: with the current entry size (~3 KB) eight entries sit at the budget
+# ceiling, so the floor and the budget deadlock — the next release writes an entry, rotation
+# refuses to move anything, `--check` fails and `release.sh` cannot run. Six keeps a real window
+# (~18 KB) and still guarantees recent history; the archive is append-only and `--verify-history`
+# proves nothing is lost.
+MIN_KEEP = 6
 MAX_KEEP = 40           # a window wider than this is not a window
 
 # Rotation units are top-level '## ' blocks — release entries *and* named sections.
@@ -81,6 +87,32 @@ def entry_id(block: str) -> str:
     return block.split("\n", 1)[0].strip()
 
 
+def render(header: str, kept: list[str], total: int, budget: int, stamp: str, declared: int) -> str:
+    """Assemble the file; the window comment reports its own size.
+
+    The reported number changes the file's length, which changes the number — so the declaration
+    is iterated to a fixed point instead of being computed once (the 2026-10-26 rotation shipped
+    ``bytes=23610`` for a 23,609 B file).
+    """
+    head = WINDOW_RE.sub("", header)
+    doc = ""
+    for _ in range(6):
+        window = (
+            f'<!-- changelog-window rule="bytes<={budget}" kept={len(kept)} of={total} '
+            f'bytes={declared} rotated={stamp} -->\n'
+        )
+        lines = head.split("\n")
+        if lines and lines[0].startswith("# "):
+            h = "\n".join([lines[0], "", window.rstrip("\n"), *lines[1:]])
+        else:
+            h = window + head
+        doc = h.rstrip("\n") + "\n\n" + "\n\n".join(kept) + "\n"
+        if len(doc.encode()) == declared:
+            break
+        declared = len(doc.encode())
+    return doc
+
+
 def rotate(changelog: Path, archive: Path, budget: int, dry_run: bool) -> int:
     text = changelog.read_text(encoding="utf-8")
     header, entries = split(text)
@@ -116,38 +148,13 @@ def rotate(changelog: Path, archive: Path, budget: int, dry_run: bool) -> int:
 
     stamp = dt.date.today().isoformat()
 
-    def build(kept_blocks: list[str], declared: int) -> str:
-        """Assemble the file; the window comment reports its own size.
-
-        The reported number changes the file's length, which changes the number — so the
-        declaration is iterated to a fixed point instead of being computed once (the
-        2026-10-26 rotation shipped ``bytes=23610`` for a 23,609 B file).
-        """
-        head = WINDOW_RE.sub("", header)
-        doc = ""
-        for _ in range(6):
-            window = (
-                f'<!-- changelog-window rule="bytes<={budget}" kept={len(kept_blocks)} of={total} '
-                f'bytes={declared} rotated={stamp} -->\n'
-            )
-            lines = head.split("\n")
-            if lines and lines[0].startswith("# "):
-                h = "\n".join([lines[0], "", window.rstrip("\n"), *lines[1:]])
-            else:
-                h = window + head
-            doc = h.rstrip("\n") + "\n\n" + "\n\n".join(kept_blocks) + "\n"
-            if len(doc.encode()) == declared:
-                break
-            declared = len(doc.encode())
-        return doc
-
-    new_changelog = build(kept, used)
+    new_changelog = render(header, kept, total, budget, stamp, used)
     while len(new_changelog.encode()) > budget and len(kept) > MIN_KEEP:
         kept = kept[:-1]
         rotated = entries[len(kept):]
         ids_kept = {entry_id(b) for b in kept}
         ids_rotated = [entry_id(b) for b in rotated]
-        new_changelog = build(kept, used)
+        new_changelog = render(header, kept, total, budget, stamp, used)
     used = len(new_changelog.encode())
 
     if archive.exists():
@@ -248,12 +255,31 @@ def main(argv: list[str] | None = None) -> int:
                    help="exit 1 (no writes) when rotation is needed — used by the gate and release")
     p.add_argument("--verify-history", action="store_true",
                    help="exit 1 if an entry that exists at HEAD is missing from live+archive")
+    p.add_argument("--refresh", action="store_true",
+                   help="rewrite the window header so its declared byte count is the file's real "
+                        "size (no entry moves) — the header must survive its own digits")
     args = p.parse_args(argv)
 
     changelog = Path(args.changelog)
     if not changelog.is_file():
         print(f"changelog not readable: {changelog}", file=sys.stderr)
         return 2
+
+    if args.refresh:
+        text = changelog.read_text(encoding="utf-8")
+        header, entries = split(text)
+        doc = render(header, entries, len(entries), args.budget, dt.date.today().isoformat(),
+                     len(text.encode()))
+        if doc == text:
+            print(f"[ok] {changelog.name}: header already declares {len(text.encode())} B")
+            return 0
+        if args.dry_run:
+            print(f"[dry-run] header would be rewritten to declare {len(doc.encode())} B")
+            return 0
+        changelog.write_text(doc, encoding="utf-8")
+        print(f"[ok] {changelog.name}: header refreshed {len(text.encode())} B -> "
+              f"{len(doc.encode())} B (no entry moved)")
+        return 0
 
     if args.verify_history:
         return verify_history(changelog, Path(args.archive))
