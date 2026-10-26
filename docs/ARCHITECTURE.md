@@ -163,7 +163,7 @@ verified → audit_level >= 1
 stale    → verified but audit_level_at older than stale_days (default 180)
 ```
 
-- Conflict detection (`detect_identifier_conflicts`): DOI (via crossref_cache) resolving to a different arXiv ID than recorded → flagged, symbolically, 0-LLM.
+- Conflict detection (`detect_identifier_conflicts`): DOI (via crossref_cache) resolving to a different arXiv ID than recorded → flagged, symbolically, with no LLM involved.
 - Migration v3 added `suspect`/`suspect_at`; migrations are idempotent try-ALTER.
 
 **Recommendation signal layering** — first-party local first, external optional:
@@ -201,7 +201,7 @@ hfpapers/rank.train()     lightgbm on that trail: adopted = positive,
 Contract models (`hfpapers/contracts.py`, pydantic) exist ONLY at API/JSON
 boundaries — ZoteroItem encodes the scholarly filter (DOI/arXiv identifier
 judgment) for sync-back; the mechanical layer stays plain-dict with defensive
-reads (repo discipline: no pydantic inside 0-token pipelines).
+reads (repo discipline: no pydantic inside model-free pipelines).
 
 ## Anti-Crawl Strategy
 

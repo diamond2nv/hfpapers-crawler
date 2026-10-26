@@ -13,9 +13,18 @@ by the hook. Each of those is a check this script now runs for the operator.
 
 What it does
 ------------
-  1. preflight — clean tree, public branch in sync with its remote, valid new version
+  1. preflight — clean tree, public branch in sync with its remote, valid new version, and the
+      development line's own release tag `vX.Y.Z` for that version (a public cut snapshots a
+      release; it is not a snapshot of the development tip)
   2. worktree — checks `public` out into a scratch directory (the dev line is untouched)
-  3. sync — `git checkout <dev> -- .` to lay the development line's content on top
+  3. sync — `git checkout vX.Y.Z -- .` to lay that *release tag's* content on top; `--source <branch>`
+      and `--source-ref <ref>` are explicit overrides that forfeit the release-snapshot invariant
+      (the script says so on stderr and prints both commits)
+  3b. public-only paths — refuse the cut if the public tree carries tracked files the
+      development line does not have: the sync copies the *content* of shared paths and
+      never deletes, so dead files accumulate there (2026-09-21: three stale requirement
+      lists kept 55 Dependabot advisories open across several recuts). Allowlist a
+      legitimately public-only file with `--allow-public-only <glob>`.
   4. version — set the public version *after* the sync (the sync overwrites it)
   5. commit — one commit, signed with the public identity
   6. gates — sanitization (sensitive values + internal layout), changelog coverage,
@@ -43,12 +52,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePath
 
 REPO = Path(__file__).resolve().parents[1]
 PUBLISH_SCRIPT = REPO / "scripts" / "publish-public.sh"
 GUARD = REPO / "scripts" / "changelog_guard.py"
-SNAPSHOT_TESTS = ("tests/test_gates.py", "tests/test_paths.py", "tests/test_sanitization.py")
+SNAPSHOT_TESTS = (
+    "tests/test_gates.py",
+    "tests/test_paths.py",
+    "tests/test_sanitization.py",
+    "tests/test_recut_public.py",  # the public-only-paths gate's own regression test
+)
 
 
 def run(cmd: list[str], cwd: Path = REPO, check: bool = True) -> subprocess.CompletedProcess:
@@ -78,7 +92,9 @@ def preflight(args) -> tuple[str, str]:
         print("working tree is not clean — commit or stash first", file=sys.stderr)
         raise SystemExit(2)
 
-    for ref in (args.branch, args.source):
+    # `--source` is an explicit override and therefore optional; the default cut takes its tree
+    # from the development release tag (resolve_source_ref), so an empty value is not a branch.
+    for ref in [args.branch] + ([args.source] if args.source else []):
         exists = git("rev-parse", "--verify", f"refs/heads/{ref}", check=False)
         if exists.returncode != 0:
             print(f"no such local branch: {ref}", file=sys.stderr)
@@ -122,6 +138,21 @@ def preflight(args) -> tuple[str, str]:
         )
         raise SystemExit(2)
 
+    if not dev_release_tag(args.version):
+        print(
+            f"the development line has no release tag v{args.version}: a public cut snapshots a\n"
+            f"release, so tag the development line first (bash scripts/release.sh {args.version}),\n"
+            "then cut from that tag. (Retracted 2026-09-21: a 0.21.0 cut taken from the 0.19.7 tip.)",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+    # Fail fast on a typo'd override: without this the raw git error surfaces only inside the
+    # scratch worktree, after the worktree has already been created.
+    if args.source_ref and not ref_resolves(args.source_ref):
+        print(f"--source-ref {args.source_ref!r} does not resolve to a commit here", file=sys.stderr)
+        raise SystemExit(2)
+
     latest = git("tag", "--sort=-v:refname", "--merged", args.branch, check=False).stdout.split()
     latest_public = next((t for t in latest if re.fullmatch(r"v\d+\.\d+\.\d+", t)), "")
     if latest_public:
@@ -140,14 +171,100 @@ def preflight(args) -> tuple[str, str]:
     return public_sha, author
 
 
+
+def dev_release_tag(version: str, repo: Path = REPO) -> str:
+    """The development line's own release tag for ``version`` ("" when it does not exist).
+
+    The public cut is a *sanitized snapshot of a release*, not of whatever the development tip
+    happens to be: the v0.19.0 cut was taken from the dev tag `v0.19.0` itself. Cutting from the
+    tip of a version the development line has not reached stamps unreleased work with a number
+    nobody can trace -- measured 2026-09-21, when a `0.21.0` cut was taken from the `0.19.7` tip
+    and had to be retracted.
+    """
+    name = f"v{version}"
+    ok = git("rev-parse", "--verify", "--quiet", f"refs/tags/{name}", cwd=repo, check=False).returncode == 0
+    return name if ok else ""
+
+
+def ref_resolves(ref: str, repo: Path = REPO) -> bool:
+    """Whether ``ref`` names a commit in this checkout (any branch, tag or sha)."""
+    return git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", cwd=repo, check=False).returncode == 0
+
+
+def commit_of(ref: str, repo: Path = REPO) -> str:
+    """The commit ``ref`` points at ("" when it does not resolve)."""
+    result = git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", cwd=repo, check=False)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def resolve_source_ref(version: str, source: str = "", source_ref: str = "") -> tuple[str, str]:
+    """Which tree the cut lays on the public branch, and why — ``(ref, mode)``.
+
+    ``mode`` is ``"tag"`` for the invariant (the development line's own release tag ``vVERSION``),
+    ``"explicit-ref"`` for a caller-supplied ``--source-ref``, and ``"branch"`` for a caller-supplied
+    ``--source`` branch tip. Only the first is traceable to a release; the other two exist as
+    escape hatches, and the caller warns about them.
+
+    Regression guard (2026-09-23): ``--source`` used to default to ``"main"``, which made the
+    *default* cut take the branch tip while the gate added 2026-09-21 (a dev tag must exist) only
+    checked that the tag was there — the tree still came from the tip. That is the same shape of
+    error that forced the 0.21.0 retraction, so the default is now the tag itself.
+    """
+    if source_ref:
+        return source_ref, "explicit-ref"
+    if source:
+        return source, "branch"
+    return f"v{version}", "tag"  # preflight has already proven this tag exists
+
+
+def source_is_release(version: str, ref: str, repo: Path = REPO) -> bool:
+    """Whether ``ref`` resolves to the very commit the development release tag ``vVERSION`` does."""
+    tag = dev_release_tag(version, repo=repo)
+    if not tag:
+        return False
+    target = commit_of(ref, repo=repo)
+    return bool(target) and target == commit_of(tag, repo=repo)
+
+
+def public_only_paths(
+    worktree: Path, source_ref: str, allow: list[str], repo: Path = REPO
+) -> list[str]:
+    """Tracked paths in the public worktree that the source tree does not have.
+
+    ``git checkout <source> -- .`` copies the content of paths present in both trees; it never
+    removes a file that only the public line carries.  Without this check those files survive
+    every recut silently -- which is how a 188-line v0.1.3 requirement freeze kept 55 Dependabot
+    advisories open.  The repo's rule is gates rather than discipline, so the cut refuses instead.
+    """
+    public = {p for p in git("ls-files", cwd=worktree).stdout.split("\n") if p}
+    source = {
+        p for p in git("ls-tree", "-r", "--name-only", source_ref, cwd=repo).stdout.split("\n") if p
+    }
+    stale = sorted(public - source)
+    if allow:
+        stale = [p for p in stale if not any(PurePath(p).match(glob) for glob in allow)]
+    return stale
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Recut the public line from the development line.")
     parser.add_argument("--version", required=True, help="public version to cut (semver, e.g. 0.17.4)")
-    parser.add_argument("--source", default="main", help="development branch to cut from (default: main)")
+    parser.add_argument(
+        "--source",
+        default="",
+        help=(
+            "development branch to cut from — an explicit override. By default the tree comes from "
+            "the development release tag vVERSION, because a public cut snapshots a release; "
+            "passing a branch forfeits that invariant (the script warns)"
+        ),
+    )
     parser.add_argument(
         "--source-ref",
         default="",
-        help="exact ref to take the tree from (e.g. 'v0.19.0^{}'); defaults to the source branch tip",
+        help=(
+            "exact ref to take the tree from (e.g. 'v0.19.0^{}'); "
+            "defaults to the development release tag vVERSION"
+        ),
     )
     parser.add_argument("--branch", default="public", help="local public branch (default: public)")
     parser.add_argument("--remote", default="github", help="public remote (default: github)")
@@ -160,13 +277,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--keep-worktree", action="store_true", help="do not remove the scratch worktree")
     parser.add_argument("--worktree", default="", help="scratch worktree path (default: a temp dir)")
     parser.add_argument("--allow-diverged", action="store_true", help="skip the in-sync precondition")
+    parser.add_argument(
+        "--allow-public-only",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help="tracked path that may exist only on the public line (repeatable, e.g. '.github/**')",
+    )
     args = parser.parse_args(argv)
 
     step("preflight")
     public_sha, author = preflight(args)
     print(f"public head : {public_sha[:8]}")
     print(f"author      : {author}")
-    print(f"source      : {args.source}")
+    source_ref, source_mode = resolve_source_ref(args.version, args.source, args.source_ref)
+    print(f"source      : {source_ref}  [{source_mode}]")
     print(f"version     : {args.version}{'  (dry run)' if not args.push else '  (will publish)'}")
 
     worktree = Path(args.worktree) if args.worktree else Path(tempfile.mkdtemp(prefix="recut-public-"))
@@ -191,11 +316,34 @@ def main(argv: list[str] | None = None) -> int:
         git("worktree", "add", "--detach", str(worktree), args.branch)
         print(f"checked out {args.branch} at {worktree}")
 
-        source_ref = args.source_ref or args.source
-        step(f"sync content from {source_ref}")
+        step(f"sync content from {source_ref}  [{source_mode}]")
+        if source_mode == "tag":
+            print(f"the cut snapshots the development release tag {source_ref} (the invariant)")
+        elif not source_is_release(args.version, source_ref):
+            tag = dev_release_tag(args.version) or f"v{args.version}"
+            print(
+                f"⚠️  {source_ref} override: the public line will NOT be a snapshot of {tag}\n"
+                f"    {source_ref} = {commit_of(source_ref)[:8]}  vs  {tag} = {commit_of(tag)[:8]}",
+                file=sys.stderr,
+            )
         git("checkout", source_ref, "--", ".", cwd=worktree)
         changed = git("status", "--porcelain", cwd=worktree).stdout.count("\n")
         print(f"{changed} path(s) differ from the current public tree")
+
+        step("gate — public-only paths")
+        stale = public_only_paths(worktree, source_ref, args.allow_public_only)
+        if stale:
+            print(f"✗ {len(stale)} tracked path(s) exist only on the public line:", file=sys.stderr)
+            for one in stale[:20]:
+                print(f"    {one}", file=sys.stderr)
+            print(
+                "  the sync copies content, it does not mirror deletions -- delete these on the public\n"
+                "  branch (git rm + commit + push) before cutting, or allowlist them with\n"
+                "  --allow-public-only <glob> if they are legitimate.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        print(f"✅ no public-only tracked path ({len(args.allow_public_only)} allowlist rule(s))")
 
         step(f"set version {args.version}")
         pyproject = worktree / "pyproject.toml"
@@ -211,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
         git("add", "-A", cwd=worktree)
         message = args.message or (
             f"v{args.version}: public snapshot\n\n"
-            f"Sanitized cut of the development line ({args.source}) for the public repo. "
+            f"Sanitized cut of the development line ({source_ref}) for the public repo. "
             "One commit per public release; see the changelog's public-line section."
         )
         env_cmd = [

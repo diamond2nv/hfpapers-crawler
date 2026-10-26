@@ -44,7 +44,7 @@ disk, CPU and upstream rate limits still apply.
 Five capabilities, one screen — full detail in [`docs/FEATURES.md`](docs/FEATURES.md).
 
 - **Discovery** — arXiv / OpenReview / Semantic Scholar / Papers-with-Code, plus Europe PMC and bioRxiv/medRxiv, behind one source registry: relevance scoring, citation-graph analysis, and SimClusters-style community-guided 2-hop expansion for "papers like this one". → [detail](docs/FEATURES.md#1-discovery)
-- **Verification** — every paper carries an explicit `pending → verified / stale / suspect` state; metadata conflicts (e.g. a DOI resolving to a different arXiv id) are flagged by symbolic 0-LLM checks and require human adjudication — never a silent overwrite, never an LLM verdict. → [detail](docs/FEATURES.md#2-verification)
+- **Verification** — every paper carries an explicit `pending → verified / stale / suspect` state; metadata conflicts (e.g. a DOI resolving to a different arXiv id) are flagged by symbolic, model-free checks and require human adjudication — never a silent overwrite, never an LLM verdict. → [detail](docs/FEATURES.md#2-verification)
 - **Recommendations from local signals only** — search history × similarity × relevance × verification gating, repo-scoped virtual-user profiles (`REPO_USER.md` declarations as explicit feedback), optional Zotero sync-back, and a zero-config positive-example pool. Fully offline: no external service, nothing to sign up for. → [detail](docs/FEATURES.md#3-recommendations)
 - **Private stays private** — a gitignored `config.local.yaml` deep-merges over the tracked config, so real names, ORCIDs and query lists never reach the public file; sources enable through `search.enabled` (*registration is not enablement*), and one shared retry policy covers every adapter. → [detail](docs/FEATURES.md#4-configuration-and-sources)
 - **Agent-first and cheap by default** — CLI-first with an MCP server, deterministic change detection that issues no LLM call (built for cron), a TCP → QUIC transport ladder with a sha256 per fetch, and mechanical gates (sanitization, changelog coverage and window, doc audit) that refuse bad releases instead of relying on discipline. → [detail](docs/FEATURES.md#5-agent-first)
@@ -76,6 +76,24 @@ uv pip install --python "$(uv tool dir)/hfpclawer/bin/python" spacy   # inject a
 > ⚠️ uv tool environments ship no `pip`, so `…/bin/python -m pip install …` fails inside them.
 > That is not a blocker — use `uv pip install --python "$(uv tool dir)/hfpclawer/bin/python" <pkg>`
 > (uv does not need `pip` inside the environment), or re-run `uv tool install --force "hfpclawer[extra]"`.
+
+### Which version is this?
+
+`uv tool install hfpclawer` / `pip install hfpclawer` resolve the **published release**, and
+`hfpclawer version` reports what you actually have — quote that number when you report behaviour.
+
+The **default branch tracks ahead of the latest release** between aligned cuts: it may carry
+development-line content, and the `version` field in its `pyproject.toml` is **not** a release
+marker. Two practical rules:
+
+- reproducing behaviour described in these docs → install the released version;
+- needing default-branch capabilities → install from git at a **pinned commit**, never "whatever the
+  default branch is right now".
+
+Both lineages share one version sequence (PyPI accepts `0.x.0` with an odd `x`), and a public cut
+snapshots the development line's **own release tag**, so the next aligned release makes the default
+branch a snapshot of that release again. Between cuts the two installation sources can differ;
+`hfpclawer version` is the tie-breaker.
 
 ### Dependencies
 

@@ -156,7 +156,7 @@ verified → audit_level >= 1
 stale    → 已 verified 但 audit_level_at 早于 stale_days（默认 180 天）
 ```
 
-- 冲突检测（`detect_identifier_conflicts`）：DOI（经 crossref_cache）解析出的 arXiv ID 与记录不一致 → 符号化标记，0-LLM。
+- 冲突检测（`detect_identifier_conflicts`）：DOI（经 crossref_cache）解析出的 arXiv ID 与记录不一致 → 符号化标记，不经过 LLM。
 - 迁移 v3 增加 `suspect` / `suspect_at`；迁移是幂等的 try-ALTER。
 
 **推荐信号分层** —— 先本地第一方，外部可选：
@@ -171,7 +171,7 @@ stale    → 已 verified 但 audit_level_at 早于 stale_days（默认 180 天�
 ```
 
 设计血统：状态机取自 SKILL.state（显式可变状态凌驾于 append-only 历史）；判定谓词取自 Mirobody
-光谱观（高错误代价域里符号化优于学习排序）；成本控制取自 0-token 监控分层。
+光谱观（高错误代价域里符号化优于学习排序）；成本控制取自免模型监控分层。
 
 **扩展与学习排序 (v0.16.1–v0.16.2)** —— 图侧的对应物：
 
@@ -191,7 +191,7 @@ hfpapers/rank.train()     在该轨迹上跑 lightgbm：adopted = 正例，
 ```
 
 契约模型（`hfpapers/contracts.py`，pydantic）只存在于 API/JSON 边界 —— ZoteroItem 编码了回写所需的
-学术过滤（DOI/arXiv 标识判据）；机械层保持 plain-dict + 防御式读取（仓库纪律：0-token 管线内不用 pydantic）。
+学术过滤（DOI/arXiv 标识判据）；机械层保持 plain-dict + 防御式读取（仓库纪律：免模型管线内不用 pydantic）。
 
 ## 反爬策略
 

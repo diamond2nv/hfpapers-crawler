@@ -993,6 +993,124 @@ class PaperStore:
         logger.info(f"[CROSSREF] {arxiv_id} → DOI={doi} (conf={conf:.2f})")
         return "attached"
 
+    #: Minimum title similarity (trigram Jaccard, see ``search_queue._title_similarity``) before a
+    #: *supplied* DOI may be written.  0.5, raised from 0.4 on 2026-09-25 after measuring the store:
+    #: of the 310 DOI↔title pairs the full audit called correct, **none** scored below 0.45 and only
+    #: two below 0.5 (both same-paper format variants — an all-caps 1990s AIP title against Crossref's
+    #: modern form — which deserve a look rather than a silent 1.0).  The near-neighbour this bar
+    #: exists to catch (`10.2172/839535`, a different OSTI report in the same field) scores 0.44.
+    #: A refusal is loud, recorded, and reversible: ``accept_unverified=True`` or the record's
+    #: ``accepted-unverified`` tag admits it deliberately.
+    SUPPLIED_DOI_MIN_SIMILARITY = 0.5
+
+    def attach_supplied_doi(
+        self,
+        sf_id: int,
+        doi: str,
+        title: str = "",
+        *,
+        source: str = "",
+        accept_unverified: bool = False,
+    ) -> str:
+        """Attach a DOI the caller handed over — after asking a registry what it points at.
+
+        Returns ``"attached"``, ``"refused"`` or ``"unchecked"``.
+
+        :meth:`crossref_attach` covers the DOI the store *finds itself*; this covers the DOI it is
+        *given* (an import, an ORCID record, a search result).  That path used to write
+        ``confidence=1.0`` without a single lookup, and every wrong DOI in the 2026-09-25 audit
+        arrived through it — one of them registered nowhere at all.
+
+        The three outcomes are deliberate:
+
+        * **refused** — a registry answered, and the DOI is either unregistered or carries a title
+          this record does not match.  Nothing is written; the candidate goes to ``store_events``
+          (``identifier_rejected``) where a human can accept it explicitly.
+        * **unchecked** — the question could not be answered: no registry reachable, no comparable
+          title, or the two titles are in different scripts (a CJK record against Crossref's English
+          title scores ~0 without being wrong).  The identifier is written and an
+          ``identifier_unverified`` event says so.  "Could not check" is never "wrong" — the same
+          rule the offline audit applies to its ``FETCH_FAIL`` bucket.
+        * **attached** — the registry's title matches this record's.  From here on,
+          ``confidence=1.0`` means *verified*, not *assumed*.
+        """
+        from hfpapers.doi_registry import resolve
+        from hfpapers.invariants import is_cross_language, strip_inline_markup
+
+        doi = (doi or "").strip()
+        if not doi:
+            return "unchecked"
+        status, work = resolve(doi)
+        actor = source or "api"
+        registry_title = (work or {}).get("title", "") if status == "ok" else ""
+
+        if status == "not_found":
+            logger.warning(
+                "[DOI] %s is not registered with Crossref or DataCite — refused for sf_id=%s",
+                doi, sf_id,
+            )
+            self.log_event(
+                sf_id,
+                "identifier_rejected",
+                {"id_type": "doi", "id_value": doi, "confidence": 0.0, "source": source,
+                 "method": "doi_registry.resolve", "registries": ["crossref", "datacite"]},
+                actor=actor,
+                reason="DOI not registered with Crossref or DataCite (refused; explicit acceptance required)",
+            )
+            return "refused"
+
+        # Cannot be checked: say so on the record instead of writing an unearned 1.0 in silence.
+        if status == "error" or not registry_title or not title:
+            why = ("registry unreachable" if status == "error"
+                   else "record has no title to compare" if not title
+                   else "registry returned no title")
+        elif is_cross_language(title, registry_title):
+            why = "titles are in different scripts (no comparable form)"
+        else:
+            from hfpapers.search_queue import _title_similarity
+
+            similarity = _title_similarity(strip_inline_markup(title), strip_inline_markup(registry_title))
+            if similarity >= self.SUPPLIED_DOI_MIN_SIMILARITY or accept_unverified or \
+                    self.carries_unverified_tag(sf_id):
+                self.add_identifier(
+                    sf_id, "doi", doi, source=source, confidence=1.0, actor=actor,
+                    method=f"doi_registry.resolve ({work.get('registry', '')}, similarity {similarity:.2f})",
+                )
+                logger.info("[DOI] %s verified against %s for sf_id=%s (similarity %.2f)",
+                            doi, work.get("registry", "registry"), sf_id, similarity)
+                return "attached"
+            logger.warning(
+                "[DOI] %s carries %r from %s (similarity %.2f < %.2f) — refused for sf_id=%s",
+                doi, registry_title, work.get("registry", "registry"), similarity,
+                self.SUPPLIED_DOI_MIN_SIMILARITY, sf_id,
+            )
+            self.log_event(
+                sf_id,
+                "identifier_rejected",
+                {"id_type": "doi", "id_value": doi, "confidence": round(float(similarity), 3),
+                 "source": source, "method": "doi_registry.resolve",
+                 "registry": work.get("registry", ""), "registry_title": registry_title,
+                 "similarity": round(float(similarity), 3)},
+                actor=actor,
+                reason=f"registry title does not match this record (similarity {similarity:.2f})"
+                       " (refused; explicit acceptance required)",
+            )
+            return "refused"
+
+        self.add_identifier(
+            sf_id, "doi", doi, source=source, confidence=1.0, actor=actor,
+            method="doi_registry.resolve (unchecked)",
+        )
+        self.log_event(
+            sf_id,
+            "identifier_unverified",
+            {"id_type": "doi", "id_value": doi, "source": source, "confidence": 1.0,
+             "method": "doi_registry.resolve (unchecked)", "why": why},
+            actor=actor,
+            reason=f"attached without a check — {why}",
+        )
+        return "unchecked"
+
     def remove_identifier(
         self, sf_id: int, *, id_type: str = "", id_value: str = "", actor: str = "", reason: str = ""
     ) -> int:
@@ -1130,6 +1248,21 @@ class PaperStore:
         self.log_event(0, "snapshot", {"path": str(path), "papers": len(papers), "identifiers": len(ids)},
                        actor="store.snapshot", reason=reason)
         return str(path)
+
+    def find_by_identity(self, title: str) -> list[int]:
+        """sf_ids whose identity key matches ``title`` — the write path's duplicate guard.
+
+        Same key as `iter_identity_groups` uses, so an import and `store dedup` cannot disagree about
+        what counts as the same work.
+        """
+        from hfpapers.invariants import identity_key
+
+        key = identity_key(title, 0, [])
+        if not key:
+            return []
+        with self._conn() as conn:
+            rows = conn.execute("SELECT sf_id, title, year FROM papers").fetchall()
+        return [int(sf_id) for sf_id, t, y in rows if identity_key(t or "", int(y or 0), []) == key]
 
     def iter_identity_groups(self) -> dict[str, list[int]]:
         """``{identity_key: [sf_id, …]}`` — the grouping the duplicate invariant and `store dedup` use."""
@@ -1579,6 +1712,18 @@ class CrossrefClient:
 
     BASE = "https://api.crossref.org"
 
+    #: Minimum trigram-Jaccard title similarity (``search_queue._title_similarity``) before a
+    #: Crossref *title search* hit is returned as the record's DOI.  The search itself is fuzzy —
+    #: ``/works?query=<title>`` matches on any shared token — so its top hit can be an unrelated
+    #: work that merely shares words ("Mental World Modeling" → "Science of Mental Modeling",
+    #: sim 0.39).  Returning such a candidate used to be enough to attach the wrong DOI and stamp
+    #: its ``venue``/``year`` onto the record, because the derived confidence (sim + 0.2) is not a
+    #: title match.  The bar is the same 0.5 the supplied-DOI path uses
+    #: (``PaperStore.SUPPLIED_DOI_MIN_SIMILARITY``), measured the same way: of the DOI↔title pairs
+    #: an audit called correct, none scored below 0.45.  A refusal is logged with both titles and
+    #: the score, never silent.
+    MIN_TITLE_SIMILARITY = 0.5
+
     def __init__(self, mailto: str = ""):
         self.mailto = mailto or "agent@example.com"
         self.session = requests.Session()
@@ -1759,7 +1904,7 @@ class CrossrefClient:
                 best_sim = sim
                 best = r
 
-        if best and best_sim >= 0.3:
+        if best and best_sim >= self.MIN_TITLE_SIMILARITY:
             return {
                 "arxiv_id": arxiv_id,
                 "doi": best["doi"],
@@ -1768,6 +1913,18 @@ class CrossrefClient:
                 "year": best["year"],
                 "confidence": min(best_sim + 0.2, 1.0),  # Title match + bonus
             }
+
+        if best:
+            # The search returned hits but none is this paper.  Refuse loudly rather than hand a
+            # caller a candidate whose only qualification is a shared word: the old 0.3 floor let
+            # 0.39-scoring strangers through, and the +0.2 confidence bonus then hid that from the
+            # store's confidence gate.  Logging both titles makes the near-miss auditable.
+            logger.warning(
+                "[CROSSREF] %s: no title match above %.2f — best hit DOI=%s scored %.3f "
+                "(query=%r vs hit=%r); candidate discarded",
+                arxiv_id, self.MIN_TITLE_SIMILARITY, best["doi"], best_sim,
+                title[:80], best["title"][:80],
+            )
 
         return None
 
@@ -1830,6 +1987,7 @@ def ensure_paper(
     skip_crossref: bool = False,
     imported_via: str = "",
     accept_unverified: bool = False,
+    verify_doi: bool = True,
 ) -> tuple[int, bool]:
     """Ensure paper exists, returns (sf_id, is_new).
 
@@ -1878,6 +2036,24 @@ def ensure_paper(
         return existing.sf_id, False
 
     # Create new record
+    # Nothing distinguishes an identifier-less arrival from a copy already filed under the same title,
+    # so it is not filed twice (v0.19.12).  The live store's two duplicate pairs both came from this:
+    # an ORCID batch that carried DOIs, then a second pass over the same works without them, 47 min
+    # later.  A caller with an identifier of its own is unaffected — `store dedup` settles those.
+    if not arxiv_id and not doi and title:
+        same = store.find_by_identity(title)
+        if same:
+            store.log_event(
+                same[0],
+                "identity_reused",
+                {"incoming_title": title[:200], "incoming_source": source or "unknown", "matches": same},
+                actor=source or "api",
+                reason="an identifier-less import arrived for a work already filed under this title; "
+                       "returned the existing record instead of creating a duplicate",
+            )
+            logger.info("[STORE] %r already filed as sf_id=%s — reusing it", title[:60], same[0])
+            return same[0], False
+
     record = PaperRecord(
         title=title[:500],
         abstract=abstract[:2000],
@@ -1894,9 +2070,15 @@ def ensure_paper(
     if arxiv_id:
         store.add_identifier(sf_id, "arxiv", arxiv_id, source=source)
 
-    # Add DOI identifier if provided
+    # Add DOI identifier if provided.  A *supplied* DOI is verified against a registry first
+    # (v0.19.10): every wrong DOI found in the 2026-09-25 full audit arrived through this branch,
+    # written at the default confidence of 1.0 without a lookup.
     if doi:
-        store.add_identifier(sf_id, "doi", doi, source=source)
+        if verify_doi:
+            store.attach_supplied_doi(sf_id, doi, title, source=source,
+                                      accept_unverified=accept_unverified)
+        else:
+            store.add_identifier(sf_id, "doi", doi, source=source)
 
     # If title is provided, try Crossref validation — one decision point, owned by the store, so
     # every caller (import, CLI, batch) meets the same confidence gate.

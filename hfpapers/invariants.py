@@ -22,6 +22,7 @@ Severities:
 
 from __future__ import annotations
 
+import html
 import json
 import re
 from dataclasses import dataclass, field
@@ -31,10 +32,16 @@ __all__ = [
     "LOW_CONFIDENCE_THRESHOLD",
     "IDENTIFIER_TYPES",
     "NONPAPER_DOI_SHAPES",
+    "DUPLICATE_VERDICTS",
+    "DuplicateMember",
     "Finding",
     "InvariantReport",
+    "classify_duplicate_pair",
+    "plan_duplicate_group",
     "identity_key",
     "normalise_title",
+    "strip_inline_markup",
+    "is_cross_language",
     "check_store",
     "baseline_diff",
     "ACCEPTED_UNVERIFIED_TAG",
@@ -128,6 +135,32 @@ def normalise_title(title: str, limit: int = 90) -> str:
     return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", (title or "").lower())[:limit]
 
 
+#: Inline markup and entities occur in *real* titles: Crossref returns MathML inside the title
+#: (`High-<mml:math …>β</mml:math>Equilibria…`), and both the offline audit and the write path
+#: compare titles.  A comparison that keeps the markup measures the markup, not the title —
+#: `10.1103/PhysRevLett.89.125003` scored 0.165 that way and 0.957 once the tags are dropped
+#: (2026-09-25).
+_TAG_RE = re.compile(r"<[^>]{0,400}>")
+_ENTITY_RE = re.compile(r"&[a-zA-Z]{1,10};|&#\d{1,6};")
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+
+
+def strip_inline_markup(text: str) -> str:
+    """Drop inline tags and entities from a title (the single implementation; used by both checks)."""
+    text = _TAG_RE.sub(" ", text or "")
+    text = _ENTITY_RE.sub(" ", text)
+    return html.unescape(text)
+
+
+def is_cross_language(left: str, right: str) -> bool:
+    """True when one title carries CJK and the other does not.
+
+    Such a pair cannot be scored by a character-level ratio — a 《物理学报》 record against the
+    English title Crossref holds scores 0.00 — so callers must not treat "low score" as "wrong".
+    """
+    return bool(_CJK_RE.search(left or "")) != bool(_CJK_RE.search(right or ""))
+
+
 def identity_key(title: str, year: int, identifiers: Iterable[tuple[str, ...]]) -> str:
     """The key that decides whether two records are the same work: **the title**, not the identifier.
 
@@ -154,6 +187,72 @@ def identity_key(title: str, year: int, identifiers: Iterable[tuple[str, ...]]) 
     return ""
 
 
+#: What a record that shares its identity with another one turns out to be.
+DUPLICATE_VERDICTS = ("mergeable", "drop_wrong_doi", "version_pair", "human", "not_same_work")
+
+
+@dataclass(frozen=True)
+class DuplicateMember:
+    """One record of a duplicate-identity group, plus the evidence needed to rank it.
+
+    ``doi_matches_title`` is ``None`` when nobody looked (the offline path) and ``True``/``False`` when
+    a registry answered.  A missing answer must never be read as a bad one.
+    """
+
+    sf_id: int
+    title: str
+    year: int = 0
+    kinds: frozenset[str] = frozenset()
+    doi_matches_title: bool | None = None
+
+
+def classify_duplicate_pair(keep: DuplicateMember, drop: DuplicateMember) -> str:
+    """What ``drop`` is, given ``keep`` — one of :data:`DUPLICATE_VERDICTS`.
+
+    Offline, the rule stays identifier *kinds*: one copy with the DOI and one with the arXiv id is one
+    work filed twice (``mergeable``); overlapping kinds looks like two artefacts of one work — a journal
+    paper and its OSTI report — and is left alone (``human``).
+
+    That rule was not enough on 2026-09-25: a pair where *both* copies held a DOI was judged "two
+    artefacts", but one of those DOIs described a different paper, so the wrong DOI stayed in the store.
+    When a registry has answered, its answer outranks the kinds heuristic:
+
+    * ``drop_wrong_doi`` — ``drop``'s DOI describes another paper while ``keep``'s describes this one.
+      Merging would carry the wrong DOI across, so the caller discards it rather than moving it.
+    * ``version_pair`` — both DOIs describe this title: journal paper plus report, both kept.
+    """
+
+    if normalise_title(keep.title) != normalise_title(drop.title):
+        return "not_same_work"
+    if drop.doi_matches_title is False and keep.doi_matches_title is True:
+        return "drop_wrong_doi"
+    if keep.doi_matches_title and drop.doi_matches_title:
+        return "version_pair"
+    if not (keep.kinds & drop.kinds) and (keep.year == drop.year or not keep.year or not drop.year):
+        return "mergeable"
+    return "human"
+
+
+def plan_duplicate_group(
+    members: list[DuplicateMember],
+) -> tuple[DuplicateMember | None, list[tuple[DuplicateMember, str]]]:
+    """Rank a group and judge every member but the first.
+
+    Ranking is evidence-first, not richness-first: a record whose DOI describes its own title beats an
+    unverified one, which beats one whose DOI describes a different paper.  That order matters — in the
+    live 2026-09-25 pair the copy *holding* a DOI was the wrong copy, so "keep the record with the most
+    identifiers" would have kept the mistake and discarded the correct record.  Identifier count and
+    then a stable id order break ties, so the plan never depends on dict ordering.
+    """
+
+    if not members:
+        return None, []
+    rank = {True: 2, None: 1, False: 0}
+    ordered = sorted(members, key=lambda m: (-rank[m.doi_matches_title], -len(m.kinds), m.sf_id))
+    keep, rest = ordered[0], ordered[1:]
+    return keep, [(m, classify_duplicate_pair(keep, m)) for m in rest]
+
+
 def _identifier_rows(store: Any) -> dict[int, list[tuple[str, str, float, str]]]:
     """``{sf_id: [(id_type, id_value, confidence, source)]}`` — one query for the whole store."""
     with store._lock, store._conn() as conn:  # noqa: SLF001 — invariants are store-internal by design
@@ -167,12 +266,23 @@ def _identifier_rows(store: Any) -> dict[int, list[tuple[str, str, float, str]]]
     return out
 
 
-def check_store(store: Any, *, network: bool = False, sample: int = 0) -> InvariantReport:
+def check_store(
+    store: Any,
+    *,
+    network: bool = False,
+    sample: int = 0,
+    only_sf_ids: Iterable[int] | None = None,
+) -> InvariantReport:
     """Run every offline invariant, plus the optional sampled DOI check.
 
     ``network=True`` verifies up to ``sample`` DOIs against Crossref (0 = all).  Only the sampled
     check can fail for external reasons, which is why it is off by default: the offline set is the
     release gate, the sampled set is a periodic audit.
+
+    ``only_sf_ids`` narrows the *findings* to the records a caller just wrote, so a batch import can
+    check its own output at the end of the run (``pipelines.StorePipeline``) instead of waiting for
+    the next full audit.  Coverage still describes the whole store — the point is to see the defect
+    the moment it is created, not to hide what else is there.
     """
     report = InvariantReport()
     ids_by_record = _identifier_rows(store)
@@ -326,12 +436,22 @@ def check_store(store: Any, *, network: bool = False, sample: int = 0) -> Invari
 
     # 7. optional sampled network check (the only expensive one)
     if network:
-        from hfpapers.invariants_network import check_doi_titles  # local import: keeps core offline
+        from hfpapers.invariants_network import (  # local import: keeps core offline
+            check_doi_titles,
+            refine_duplicate_findings,
+        )
 
-        findings, checked, failed = check_doi_titles(store, ids_by_record, sample=sample)
+        findings, checked, failed, cross_language = check_doi_titles(store, ids_by_record, sample=sample)
         report.findings.extend(findings)
+        # Duplicate groups get a second look here: whether two records sharing a title are a defect
+        # depends on what their own DOIs say, which only a registry can settle (v0.19.12).
+        groups, dois_checked = refine_duplicate_findings(report, store)
+        report.coverage["duplicate_groups_judged"] = groups
+        report.coverage["duplicate_dois_checked"] = dois_checked
         report.coverage["doi_title_checked"] = checked
         report.coverage["doi_title_unreachable"] = failed
+        # Pairs a character-level ratio cannot judge (one side CJK) — excluded, not scored.
+        report.coverage["doi_title_cross_language"] = cross_language
 
     report.coverage.update(
         {
@@ -342,6 +462,10 @@ def check_store(store: Any, *, network: bool = False, sample: int = 0) -> Invari
             "identities": len(seen_keys),
         }
     )
+
+    if only_sf_ids is not None:
+        wanted = {str(int(sf)) for sf in only_sf_ids}
+        report.findings = [f for f in report.findings if f.subject in wanted]
     return report
 
 

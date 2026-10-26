@@ -49,7 +49,10 @@ while read local_ref local_oid remote_ref remote_oid; do
         refs/heads/main)
             PY_VERSION=$(git show "$local_oid:pyproject.toml" 2>/dev/null \
                 | grep '^version' | sed 's/^version = "\([^"]*\)".*/\1/')
-            GIT_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+            # 只在**本次推送可达**的 tag 里取最新: 公开线(tag vX.Y.Z 由 recut-public 推到 github)
+            # 是独立血统, 从 github fetch 后它的 tag 会落进本地命名空间, 拿它比开发线 pyproject
+            # 只会得到假不匹配(2026-09-21 实测: 公开线 v0.21.0 vs 开发线 0.19.7 -> 推 NAS 被拦)。
+            GIT_TAG=$(git tag --merged "$local_oid" --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
             if [ -n "$PY_VERSION" ] && [ -n "$GIT_TAG" ]; then
                 GIT_VERSION="${GIT_TAG#v}"
                 if [ "$PY_VERSION" != "$GIT_VERSION" ]; then

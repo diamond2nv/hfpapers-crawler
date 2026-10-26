@@ -15,7 +15,7 @@ Details: [`docs/USAGE.md`](USAGE.md) · [`docs/ARCHITECTURE.md`](ARCHITECTURE.md
 
 - **Explicit status machine** — every paper carries `pending → verified / stale / suspect`, derived from stored evidence rather than from an LLM's opinion.
 - **Conflicts become visible** — a DOI resolving to a different arXiv id than recorded marks the paper **suspect**; suspect records never count as verified and never enter the training pool.
-- **Symbolic, 0-LLM checks** — the checks are deterministic; no LLM is asked to judge whether a paper is real.
+- **Symbolic, model-free checks** — the checks are deterministic; no LLM is asked to judge whether a paper is real.
 
 Details: [`docs/paper_store.md`](paper_store.md) · [`docs/use/verify-guide.md`](use/verify-guide.md)
 
@@ -23,7 +23,7 @@ Details: [`docs/paper_store.md`](paper_store.md) · [`docs/use/verify-guide.md`]
 
 - **First-party signals** — search history × text similarity × relevance × verification gating, computed from the local store; no external service required, nothing to sign up for.
 - **Repo-scoped profiles** — every repo is its own virtual user: `hfpclawer init` scaffolds `REPO_USER.md`, whose v2 `accepts/rejects` blocks act as explicit feedback (with `scope: topic-exclusion` filtering candidates and `scope: self-constraint` documenting choices without filtering).
-- **Learned layer is opt-in and explainable** — `hfpclawer rank train` (lightgbm → native model) learns from JSONL audit trails with feature importance as the explanation; the heuristic layer stays the 0-token default.
+- **Learned layer is opt-in and explainable** — `hfpclawer rank train` (lightgbm → native model) learns from JSONL audit trails with feature importance as the explanation; the heuristic layer stays the model-free default.
 - **Auditable trails and a clean pool** — every expansion can emit an audit trail, and `hfpclawer pool` accumulates layered weak labels from local, label-free sources; append-only and gitignored, so no telemetry leaves the machine.
 - **Zotero, optional** — `hfpclawer zotero sync-back` pulls Favor-tagged items through the scholarly contract (web pages and reports are dropped first) and marks matching papers `favorited`; Zotero absent changes nothing.
 
@@ -41,7 +41,7 @@ Details: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) · [`DEPLOY.md`](../DEPLOY.md
 ## 5. Agent-first
 
 - **CLI-first, MCP second** — every capability is a documented subcommand with machine-checkable output; the MCP server exposes the read-only core by default and hides heavy operations to save tokens.
-- **0-token monitoring** — `hfpclawer check-new` compared against its own previous output is the cron gate: stable output means "nothing changed, do not wake the LLM".
+- **Model-free monitoring** — `hfpclawer check-new` compared against its own previous output is the cron gate: stable output means "nothing changed, do not wake the LLM".
 - **Transport that survives a hostile network** — TCP → QUIC → browser-hint ladder, resumable transfers, and a sha256 per fetch recorded in `data/download_audit.jsonl`.
 - **Gates, not discipline** — `scripts/pre-push` refuses un-sanitized commits and version/tag mismatches; `scripts/release.sh` refuses a release whose changelog lacks the entry, exceeds its byte window, or lost an entry; `scripts/doc_audit.py` checks that documented paths and commands exist.
 

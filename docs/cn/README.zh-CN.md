@@ -36,7 +36,7 @@
 五项核心能力，一屏看完 —— 详细说明见 [`docs/cn/FEATURES.zh-CN.md`](FEATURES.zh-CN.md)。
 
 - **发现** —— arXiv / OpenReview / Semantic Scholar / Papers-with-Code，加上 Europe PMC 与 bioRxiv/medRxiv，统一在一个源注册表之后：相关性打分、引文图谱分析、SimClusters 式社区引导两跳扩展（"跟这篇像的论文"）。 → [详解](FEATURES.zh-CN.md#1-发现)
-- **验证** —— 每篇论文带显式状态 `pending → verified / stale / suspect`；元数据冲突（如 DOI 解析出的 arXiv id 与记录不一致）由符号化 0-LLM 检查标出，需人工裁决 —— 既不静默覆盖，也不交给 LLM 判定。 → [详解](FEATURES.zh-CN.md#2-验证)
+- **验证** —— 每篇论文带显式状态 `pending → verified / stale / suspect`；元数据冲突（如 DOI 解析出的 arXiv id 与记录不一致）由符号化免模型检查标出，需人工裁决 —— 既不静默覆盖，也不交给 LLM 判定。 → [详解](FEATURES.zh-CN.md#2-验证)
 - **推荐只用本地信号** —— 查询历史 × 相似度 × 相关性 × 验证状态门禁、仓库级虚拟用户画像（`REPO_USER.md` 的 accepts/rejects 即显式反馈）、可选 Zotero 回写、零配置正例池。完全离线：无外部服务，无需注册。 → [详解](FEATURES.zh-CN.md#3-推荐)
 - **私有数据保持私有** —— 被 gitignore 的 `config.local.yaml` 深度合并覆盖被跟踪配置，真实姓名、ORCID、检索式不会进入公开文件；数据源通过 `search.enabled` 启用（*注册不等于启用*），并共享同一套重试策略。 → [详解](FEATURES.zh-CN.md#4-配置与数据源)
 - **Agent 优先且默认低成本** —— CLI 优先 + MCP server；cron 用确定性变化检测（该路径不调 LLM）；TCP → QUIC 传输阶梯且每次抓取记 sha256；机械门禁（脱敏、变更日志覆盖与窗口、文档审计）用拒绝代替纪律。 → [详解](FEATURES.zh-CN.md#5-agent-优先)
@@ -58,6 +58,21 @@ cp .env.template .env
 # 开始搜索
 hfpclawer search
 ```
+
+### 版本与安装面
+
+`uv tool install hfpclawer` / `pip install hfpclawer` 取到的是**已发布版本**；
+`hfpclawer version` 告诉你手里到底是哪一版 —— 报行为差异时请带上这个号。
+
+**默认分支领先于最新发布版**：对齐切版之间的默认分支可能携带开发线内容，其
+`pyproject.toml` 里的 `version` **不是发布标记**。两条实操规则：
+
+- 复现文档描述的行为 → 装已发布版本；
+- 需要默认分支的能力 → 用 git 安装并**固定 commit**，不要用"当前默认分支"。
+
+两条血统共用一个版本序列（PyPI 只收 `0.x.0` 且 `x` 为奇数），公开切版是开发线**自身 release tag**
+的快照，因此下一次对齐发布后，默认分支会重新成为该版本的快照。两次切版之间两个安装源可能存在差异，
+以 `hfpclawer version` 为准。
 
 ### 可选依赖
 

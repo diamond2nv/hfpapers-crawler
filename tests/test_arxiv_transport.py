@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from hfpapers.arxiv_transport import (  # noqa: E402
     FetchResult,
+    _h3_path,
     _payload_ok,
     _sha256,
     acquisition_log_path,
@@ -34,7 +35,6 @@ from hfpapers.arxiv_transport import (  # noqa: E402
     scan_acquisitions,
     tcp_fetch,
 )
-from hfpapers.arxiv_transport import _h3_path
 
 PDF_SAMPLE = b"%PDF-1.6\n" + b"x" * 6000
 GZIP_SAMPLE = b"\x1f\x8b\x08\x00" + b"y" * 300  # gzip magic (payload not real gzip)
@@ -354,6 +354,54 @@ class TestResumable:
         # Old behaviour rejected the mid-file tail:
         assert not at._payload_ok(tail, "source")
         assert sink.read_bytes() == head_bytes  # file untouched by decision
+
+    def test_sink_source_rejects_pdf_fallback(self, tmp_path, monkeypatch):
+        """REGRESSION (2026-09-23): a PDF delivered for `-k source` must be rejected on the sink path.
+
+        Measured live: `hfpclawer fetch 2602.14117 -k source -t quic` reported ✅ source for a
+        5.2MB payload whose file head is `%PDF` — arXiv's /src/ falls back to the rendered PDF for
+        submissions without a tex bundle. `_payload_ok()` rejects that (explicit `%PDF` check), but
+        the sink branch only sampled the tail for NUL bytes, so a PDF whose last 64KB is NUL-free
+        sailed through. This test pins the file-head check.
+        """
+        import hfpapers.arxiv_transport as at
+
+        sink = tmp_path / "x.tar.gz.part"
+        # NUL-free throughout: the old NUL-sampling branch would accept it.
+        big = b"%PDF-1.6\n" + b"A" * (512 * 1024 + 4096)
+        head_bytes, tail = big[:512 * 1024], big[512 * 1024:]
+        assert b"\x00" not in tail
+
+        class FakeProto:
+            def __init__(self):
+                self.body = bytearray(tail)
+                self.status = 200
+                self.finished = asyncio.Event()
+                self.closed = asyncio.Event()
+                sink.write_bytes(head_bytes)
+
+            def start_request(self):
+                self.finished.set()
+
+        class FakeConn:
+            def __init__(self):
+                self.proto = FakeProto()
+
+            async def __aenter__(self):
+                return self.proto
+
+            async def __aexit__(self, *a):
+                return False
+
+        import aioquic.asyncio.client as aqc
+
+        monkeypatch.setattr(aqc, "connect", lambda *a, **k: FakeConn())
+        r = asyncio.run(at.async_quic_fetch(
+            "https://arxiv.org/src/2602.14117", "source",
+            timeout=5.0, range_from=0, sink=sink, flush_every=512 * 1024,
+        ))
+        assert not r.ok, "a PDF payload must never be accepted as `source`"
+        assert "%PDF" in (r.error or "") or "magic" in (r.error or "").lower()
 
     def test_sink_pdf_head_check(self, tmp_path, monkeypatch):
         """PDF sink path: %PDF head flushed to disk → file-head check passes."""

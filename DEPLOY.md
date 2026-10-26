@@ -21,6 +21,12 @@ hfpclawer version
 > Deeply customised setups: keep machine- or person-specific values in the gitignored
 > `config.local.yaml`, which deep-merges over `config.yaml`. Real names, ORCIDs and query lists
 > belong there, never in the tracked file.
+>
+> **Which version are you deploying?** `pip`/`uv` resolve the **published release** — record it with
+> `hfpclawer version` and quote that number when reporting behaviour. The repository's **default
+> branch tracks ahead of the latest release** between aligned cuts, and its `pyproject.toml` version
+> is **not** a release marker; for a reproducible deployment install the released version, or pin a
+> commit if you need default-branch capabilities. See README §"Which version is this?".
 
 ## 3. Smoke test (do this before trusting a deployment)
 
@@ -28,7 +34,7 @@ hfpclawer version
 hfpclawer source-list                        # adapters exist at all
 hfpclawer fetch 2310.10688 --kind pdf        # transport ladder + sha256 audit line
 hfpclawer store status                       # store is readable, migrations applied
-hfpclawer check-new                          # 0-token change detection (cron entry point)
+hfpclawer check-new                          # deterministic change detection (cron entry point; no model calls)
 ```
 
 `hfpclawer fetch` prints a sha256 and appends an audit row to `data/download_audit.jsonl`; fetching
@@ -62,7 +68,7 @@ rsync/WebDAV/git). Nothing else needs to be shared, and no coordination service 
 
 ## 6. Agent integration
 
-- **0-token monitoring**: `hfpclawer check-new` compared against its own last output is the cron
+- **Model-free monitoring**: `hfpclawer check-new` compared against its own last output is the cron
   gate — stable output means "nothing changed, do not wake the LLM".
 - **MCP**: `hfpclawer mcp` serves the store to an agent host over stdio.
 - **Contract**: agents should treat the CLI as the interface; if a capability is only reachable from

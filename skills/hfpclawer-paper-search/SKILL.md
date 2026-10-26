@@ -394,6 +394,50 @@ keep the LLM steps explicit — do not advertise the stack as zero-token.
 The repo-side profile (the `hfpclawer:` block in a project `AGENTS.md`) is deliberately
 **public-safe**: neutral academic keywords only.
 
+## Round Ingestion (`scripts/cron_round.py`, v0.19.14)
+
+Collection used to mean a fresh one-shot script per round. `scripts/cron_round.py` replaces them:
+the round-specific parts (axes, picks, regression id) are arguments, and everything else delegates
+to `arxiv_lookup` (HTTP, pacing, feed parsing) and `paper_store` (identity and ingest, through its
+**public methods only**).
+
+```bash
+python3 scripts/cron_round.py \
+    --source cron-YYYY-MM-DD-roundN \
+    --axis 'all:"AI for science" AND all:agent' \
+    --pick 2610.06986 \
+    --dedup-regression 2610.06986v1 \
+    --audit-forms --json-out /tmp/round.json
+```
+
+| Flag | Meaning |
+|:--|:--|
+| `--axis` | an arXiv `search_query` (repeatable); operators stay literal |
+| `--pick` | an explicit id, taken as given (repeatable) |
+| `--dedup-regression` | an already-filed id to re-post; **must** come back `is_new=False` |
+| `--audit-forms` | also scan the store for ids held under several forms (slow, opt-in) |
+| `--dry-run` | report only; nothing is written |
+
+Exit codes: `0` ok / `1` an assertion was violated / `2` usage or environment error.
+
+### Identity is normalised, not compared
+
+`2610.06986` and `2610.06986v1` are the same paper but compare unequal as strings, so a dedup probe
+written in one form silently misses the other — the store ended up holding both, with a row titled
+`x` beside the real `OpenDiscoveryTrace` record for `2609.09203`. `normalize_arxiv_id()` parses the
+id; a `split("v")` shortcut does not (it splits on any `v`).
+
+### Four things worth remembering
+
+1. **Never write a second arXiv client.** One round used `CERT_NONE`, disabling TLS for no benefit;
+   `arxiv_lookup._http_get` already handles the `406` edge fingerprint with TLS on.
+2. **Do not `urlencode` a whole `search_query`.** The `+` in `A+AND+B` becomes `%2B` and the API
+   reads a different query; `build_axis_url()` encodes only what has to be encoded.
+3. **`ensure_paper` takes no `year`.** It has to be written separately, and a store with most years
+   at 0 cannot answer year-based questions at all.
+4. **Commit the round script.** A one-shot left untracked breaks the evidence chain: the write-up
+   cites it, and no other machine can retrieve the code that selected those papers.
+
 ## Common Pitfalls
 
 1. **`pip install` needs to be in the right venv.** If `hfpclawer` command is not
@@ -408,6 +452,12 @@ The repo-side profile (the `hfpclawer:` block in a project `AGENTS.md`) is delib
    skip `--to-wiki` and read from `mds/` directly.
 6. **First run creates a `config.yaml`.** Edit it before running `hfpclawer full`,
    otherwise the default queries may not match your research area.
+7. **Six red tests are a missing dev extra, not a regression.** `test_verify_wolfram` and
+   `test_verify_pipeline` need `antlr4-python3-runtime==4.11.0`; `test_sources_timeout` needs
+   `pytest-asyncio`. Install the dev extras before reading those as broken code.
+8. **A whole-tree `ruff check` is red by design** (roughly 238 pre-existing findings). The gate is
+   *clean for the files you touched* — do not "fix" the backlog, and do not read a whole-tree red as
+   your change breaking lint.
 
 ## Verification Checklist
 
@@ -418,3 +468,7 @@ The repo-side profile (the `hfpclawer:` block in a project `AGENTS.md`) is delib
 - [ ] `hfpclawer convert` produces readable Markdown
 - [ ] `hfpclawer store stats` shows non-zero counts
 - [ ] `hfpclawer store verify --arxiv-id 2010.08895` cross-checks via Crossref
+- [ ] `python3 scripts/cron_round.py --source smoke --pick <filed-id> --dedup-regression <filed-id>
+  --dry-run` reports `is_new=False` for the probe and writes nothing
+- [ ] `python3 scripts/cron_round.py --source smoke --audit-forms --dry-run` shows no new
+  duplicated id pair

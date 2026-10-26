@@ -15,7 +15,7 @@
 | 计划项 | 实际状态 |
 |:--|:--|
 | `hfpclawer run --ledger` + `data/ledger.jsonl` | ✅ 以 `hfpclawer ledger` 发布；**`run` 子命令从未实现** |
-| `check-new` 0-token 变动检测（cron monitor gate 第一层） | ✅ 已发布 |
+| `check-new` 确定性变动检测（cron monitor gate 第一层；不调模型） | ✅ 已发布 |
 | 正例池 `pool`（append-only + 分层弱标签） | ✅ 已发布（v0.16.8） |
 | 学习层精排 `rank train`（lightgbm → 原生模型） | ✅ 已发布（L1，opt-in） |
 | `recommend` 三层融合（repo 画像=虚拟用户） | ✅ 已发布（v0.16.5–v0.16.9） |
@@ -376,7 +376,7 @@ pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出�
 
 ### 2. v0.16.x — 技术融合版（2026-09 新方法论融入，替换原 Pantheon 泛化段）
 
-> 2026-09-03 优化：把最近沉淀的技术（SKILL.state / HL ledger / 0-token monitor / 一致性路由）
+> 2026-09-03 优化：把最近沉淀的技术（SKILL.state / HL ledger / 免模型 monitor / 一致性路由）
 > 映射到 hfpapers-crawler 的具体落点——v0.16 从"Pantheon 适配"升级为
 > **"state-ledger 融合版"**（适配只是部署侧的一部分）。
 
@@ -386,7 +386,7 @@ pm-skills 需求 → hfpclawer store/图谱 → 数据支撑 → Hermes 输出�
 |:--|:--|:--|
 | **SKILL.state**（显式可变状态替代 append-only 历史，2608.26263）| 论文状态语义化：`pending → verified / suspect / stale` 三态显式（非 append-only 事件流）；抓取 checkpoint 显式化（graph expand-hub 已有 checkpoint——推广到 import/crawl）| `paper_store` 状态机 + `crawl` checkpoint |
 | **HL ledger**（hl_benchmark/ledger.py：git_commit+diff_identifier+llm_cost+next_hypothesis）| ⚠️ **`run` 子命令未实现**——实际发布为 `hfpclawer ledger`（见 §实际状态）。原计划 `hfpclawer run --ledger`：每次 run 写 ledger 行（时间戳/sf_id 增量/来源/**llm_cost**/next_hypothesis）——可审计+可复现+成本追踪 | `run` 命令 + `data/ledger.jsonl` |
-| **0-token monitor 分层**（Pantheon/deep-research 融合点）| `check-new [source]`：0-LLM 变动检测（时间戳/ID 比较）——cron monitor 第一层；有变化才唤醒 LLM | `check-new` 命令（复用 evolved.py 探测）|
+| **免模型 monitor 分层**（Pantheon/deep-research 融合点）| `check-new [source]`：确定性变动检测（时间戳/ID 比较）——cron monitor 第一层；有变化才唤醒 LLM | `check-new` 命令（复用 evolved.py 探测）|
 | **一致性路由**（TTPO/无教师对齐：判断"一致性"优于判断"正确性"）| 多源元数据（arXiv/OpenAlex/Crossref）**冲突 = suspect 标记**（不进 verified 计数）——citation-audit 三源审计已做交叉，升级为状态字段而非一次性审计 | `citation-audit` → 状态回写 |
 | **无教师自监督评估**（Self-OPD 思想）| golden set 自举：经人工 review 确认的论文自动沉淀为**正例池** → recall 基线随使用自动扩大（非一次性 50 对）| `tests/` golden → `data/golden_positive.jsonl` 增量 |
 
@@ -469,7 +469,7 @@ L3 余额对账（兜底校验）: cc-switch 式余额查询——llm-api-balanc
 
 ```
 体系分层（每层保留审计轨迹）:
-┌─ L0 符号层（0-token 默认，完全可审计）──────────────────────────────┐
+┌─ L0 符号层（免模型默认，完全可审计）────────────────────────────────┐
 │  HubGuidedExpander：PageRank+degree hub 评分 → 分层扩展              │
 │  审计输出：每 hub 附理由（score/degree/seed→hub 路径/采纳与否）      │
 │  = 引用网络的"确定性探索"——同输入必同输出，理由可复现                 │
@@ -506,7 +506,7 @@ L3 余额对账（兜底校验）: cc-switch 式余额查询——llm-api-balanc
 **Hermes 侧（零代码，部署配置）**——保留原 Pantheon 段：
 
 ```
-① cron + monitor + no_agent 0-token 分层: check-new 无变化 → 0-token；有变化 → LLM 摘要/相关性 → 推送
+① cron + monitor + no_agent 免模型分层: check-new 无变化 → 不调模型；有变化 → LLM 摘要/相关性 → 推送
 ② 增量去重 = papers.db sf_id 幂等（import-cmd 已 dedup）
 ③ Bot Mode / Hermes Peer = 多 Agent 协作界面（配置级）
 ④ 兴趣进化 = 用户点赞/忽略写 Hermes MEMORY → refine search.queries weight（职责分离：记忆 Hermes 侧）

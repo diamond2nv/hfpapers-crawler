@@ -18,6 +18,7 @@ working on this project. It describes the project structure, key patterns, pitfa
 │   ├── changelog_rotate.py    # bounded changelog window, archive, --verify-history (F04)
 │   ├── doc_audit.py           # advisory doc-surface audit (C1-C7)
 │   ├── recut-public.py        # cut a public release: gates + tag + push, dry run by default
+│   ├── cron_round.py          # reusable round runner: axis query -> store diff -> ingest -> regression
 │   └── pre-push               # the installed git hook (version + sanitization gates)
 ├── requirements/*.lock.txt # generated locks (`uv pip compile`) — the audit target, never edited
 ├── docs/                 # English documentation
@@ -430,6 +431,106 @@ python3 scripts/recut-public.py --version 0.21.0 --push
 
 
 ## Pitfalls
+
+### Round ingestion: identity is the bare arXiv id, not the string (2026-10-10)
+
+Per-round ingest used to be a one-shot script per round (`cron_round_<date>.py`). Three defects came
+out of that, and `scripts/cron_round.py` (v0.19.14) exists to make them unrepeatable:
+
+* **The id-form split.** `2610.06986` and `2610.06986v1` are the same paper but compare unequal under
+  exact string matching, so a dedup probe written in one form silently missed the other. The store
+  ended up holding both: a row titled `x` sitting beside the real `OpenDiscoveryTrace` record for
+  `2609.09203`. **Normalise to the bare `YYMM.NNNNN` form before comparing anything**, and use
+  `cron_round.normalize_arxiv_id()` rather than `str.split("v")`, which splits on any `v`.
+* **No shared diff.** "Which candidates are new" was recomputed by hand every round. `cron_round.py`
+  asks the store through its public methods and normalises both sides, so a stored `vN` variant
+  counts as already filed instead of as a second paper.
+* **A private HTTP client.** One round re-implemented the arXiv call with `CERT_NONE`, disabling TLS
+  verification for no benefit: `arxiv_lookup._http_get` already solves the real problem there (the
+  `406` edge fingerprint) while keeping TLS on. **Never write a second arXiv client.**
+
+Two more that cost time the same day:
+
+* **`urlencode`-ing a whole `search_query` silently empties it.** It rewrites the `+` of `A+AND+B`
+  into `%2B`, which the API reads as a different query. `cron_round.build_axis_url()` encodes only
+  the characters outside its safe set; `tests/test_cron_round.py` asserts it.
+* **`ensure_paper` has no `year` argument.** Year has to be written by a separate update, and leaving
+  it at 0 is why most of this store cannot be used for year-based analysis at all.
+
+### `add_identifier` returns True while doing nothing — never build on it (2026-10-10)
+
+`identifiers` is `UNIQUE(id_type, id_value)`. When the (type, value) pair is already held by
+**another record**, `add_identifier` takes the `INSERT OR IGNORE` path: no row is created, no
+exception is raised, and the method still returns `True`. **The return value does not distinguish
+"created" from "skipped"**, so a caller reading `True` as "the mapping now exists" is wrong.
+
+Paid for twice. On 2026-09-19 a merge built on insert silently dropped three arXiv ids. On
+2026-10-10 the shape recurred while re-typing DOI-shaped values that had been filed under
+`id_type='arxiv'`: for the ones whose DOI was **not** claimed elsewhere, "add `doi`, then remove
+`arxiv`" worked; for the three whose DOI **was** already held by a different record, the add
+silently no-oped and the remove still fired — leaving three records with **no identifier at all**.
+It was caught in the same run (the post-state printed `[]`), the snapshot taken beforehand allowed a
+surgical restore, and `record.no_identifier` came back to its original 5.
+
+Two rules follow:
+
+* **To re-point an identifier that already exists, use `transfer_identifier` (an `UPDATE`) — not
+  `add_identifier`.** The docstring says exactly this; the trap is that `add` looks like it worked.
+* **Verify the post-state, never the return value.** Read `get_identifiers(sf_id)` back and assert
+  the expected pair is present *before* detaching anything. `store dedup` already does this after its
+  moves ("every identifier must now resolve to the keeper") — copy that discipline.
+
+A guard test would be worth more than this paragraph: `add_identifier` should either report
+created-vs-skipped or raise on the ignore path.
+
+### The id-form class is invisible to the dedup tool too (2026-10-10)
+
+`hfpapers store dedup` found **one** duplicate group on this store, and it was not the
+`2609.09203` / `2609.09203v1` pair — that pair is not detected at all, because identity is the raw
+string and the two forms differ. Nor did `store invariants` flag the row whose title is a literal
+`x`: it is not empty, not an identifier shape, not a citation, and the record does have an
+identifier, so all six checks pass it by.
+
+⇒ **A record can be duplicated, mis-titled and invisible to every gate at once.** Detecting this
+class needs a check that normalises the identifier form before comparing — which is what
+`scripts/cron_round.py --audit-forms` does. Run it as a periodic audit, not only inside a round.
+
+Do **not** read `version_pair` as a defect: `store dedup` classifies `X` / `Xv1` as *two artefacts of
+one work*, keeps both, and that verdict is deliberate.
+
+### A whole-tree `ruff check` is red on purpose — scope the claim (2026-10-10)
+
+`ruff check .` reports roughly 238 pre-existing errors across roughly 36 files, about 145 of them in
+the core package. That is **not** a regression from your change and **not** a version artefact: the
+count is identical under the `dev.lock.txt` pin (`ruff==0.16.8`) and under a newer system ruff. The
+documented gate below is therefore *"clean for the files you touched"*. Two consequences:
+
+* Do **not** "helpfully" fix the backlog. Those files are legacy, and a drive-by refactor is a much
+  larger change than the one you were asked for.
+* Do **not** read a whole-tree red as "the change broke lint" — run ruff on the changed paths.
+
+### The `pre-push` hook is inert unless `core.hooksPath` is set (2026-10-10)
+
+`scripts/pre-push` (version alignment + sanitization) only runs when git is told where to find it:
+
+```bash
+git config core.hooksPath .githooks    # or copy scripts/pre-push into .git/hooks/
+```
+
+Measured 2026-10-10: **unset in this checkout**, so the hook had never run here. Same class of gap as
+a gate that exists but is not installed — check it before claiming a gate passed.
+
+### Six tests look like regressions when the dev extras are missing (2026-10-10)
+
+`tests/test_verify_wolfram.py` and `tests/test_verify_pipeline.py` fail with `ImportError: LaTeX
+parsing requires the antlr4 Python package ... 4.11`, and `tests/test_sources_timeout.py` fails with
+`async def functions are not natively supported`. Both are a venv without the dev extras, not a
+regression. Install them first, then re-read the failures:
+
+```bash
+uv pip install sympy "antlr4-python3-runtime==4.11.0" pytest-asyncio pytest-mock pytest-timeout \
+  --python .venv/bin/python
+```
 
 ### Config Cache Is Global (from expflow practice)
 

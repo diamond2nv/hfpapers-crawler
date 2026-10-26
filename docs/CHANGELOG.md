@@ -1,6 +1,98 @@
 # CHANGELOG
 
-<!-- changelog-window rule="bytes<=24576" kept=8 of=9 bytes=22160 rotated=2026-09-22 -->
+<!-- changelog-window rule="bytes<=24576" kept=9 of=10 bytes=21455 rotated=2026-10-17 -->
+
+## [2026-10-17] fix | v0.19.16 — `--pick` carried no metadata, so a picked paper was filed as an empty shell
+
+`--pick` exists for the case the axes cannot express: one named paper the round wants in the store.
+It handed `ensure_paper` nothing but the id. Measured on 2026-10-17, three picks (`2610.14683`,
+`2610.18449`, `2610.18938`) wrote rows with `title=''`, an empty abstract and `year=0` — the store went
+1319 → 1322 and every one of the three was invisible to any later query on title or year. That is the
+same failure class as the `x`-titled row from round 10 and the nine-day `year=0` record from round 15:
+a write path that fills required fields with placeholders is how the empty-title population grew in
+the first place.
+
+* `build_idlist_url(ids)` / `fetch_by_ids(ids, pacing)` — the API's `id_list=` form, because
+  `search_query=` cannot say "exactly these ids". One request covers every pick in the round.
+* `_run` now resolves missing pick metadata **before** the diff. A pick the feed does not return is a
+  `UsageError`, not an empty row: an absent paper is recoverable, a placeholder row is not.
+* the three measured shells were removed (`remove_paper`, row-level snapshot events) and re-filed by
+  the fixed runner with real titles, abstracts and `year=2026`; empty-title rows in the store: 0.
+
+`tests/test_cron_round.py` gains four gates: the id_list URL shape, rejection of an empty/all-blank id
+list, an end-to-end `_run` case asserting the picked id reaches `ensure_paper` **with** title,
+abstract and year, and a case asserting the run refuses a pick the feed omits.
+
+Verified after the fix: `pytest tests/test_gates.py tests/test_cron_round.py` → **95 passed**,
+`ruff check` clean on both touched files, `pyright scripts/cron_round.py` → 0 errors, and the re-run
+`--pick 2610.14683 --pick 2610.18449 --pick 2610.18938 --dedup-regression 2610.21233v1` exits 0 with
+`dedup_regression [{2610.21233, is_new: false}]` and `duplicated_forms: {}`.
+
+## [2026-10-16] fix | v0.19.15 — the id-form split survived in the write path; the dedup probe forked a duplicate
+
+v0.19.14 normalised identity for the **diff** (`select_new` → `find_stored_form` probes `bare` and
+`v1..v9`) and left it unnormalised in the **write**: `ingest_one` passed the bare id straight to
+`ensure_paper`. Measured on 2026-10-16, in a round whose purpose was to *detect* a broken dedup path:
+
+```
+python3 scripts/cron_round.py --source cron-2026-10-16-round15b --dedup-regression 2610.08691v1
+→ VIOLATION: dedup regression failed: 2610.08691 returned is_new=True (expected False)
+```
+
+`2610.08691` was filed on 2026-10-07 as `2610.08691v1`; the re-post entered as `2610.08691` and wrote a
+second paper row (`title=''`, `year=0`) plus a second identifier — the store went 1316 → 1317, and the
+extra row is invisible to `store invariants` for the same reason the `x`-titled row is. The stray row
+and the duplicate identifier were removed the same round, with the removal recorded as a row-level
+snapshot event.
+
+* `resolve_ingest_id(store, bare)` — ingest now targets the **stored** form when one exists. The probe
+  helper was already correct; nothing called it on the write path.
+* the year is backfilled whenever the stored record has none, not only on a fresh insert. A first
+  insert that arrived without `published` used to stay `year=0` for ever — which is how `2610.08691`
+  spent nine days with no year (repaired on 2026-10-16).
+
+`tests/test_cron_round.py` gains five gates: the stored-form resolution, its fallback, the
+zero-means-unfilled predicate, and two `ingest_one` cases asserting the id handed to `ensure_paper` is
+the stored form and that a `year=0` record is repaired exactly once.
+
+Verified after the fix: the same command exits **0**, `dedup_regression`
+`[{arxiv_id: 2610.08691, is_new: false}]`, `duplicated_forms: {}`, `1316 → 1316` papers.
+
+## [2026-10-10] feat | v0.19.14 — every round's ingest from a one-shot script to a reusable runner
+
+Three defects came out of the per-round one-shot scripts (`cron_round_<date>.py`), all measured on
+2026-10-10 while reviewing the round-10 loop:
+
+* **the id-form split.** `2610.06986` and `2610.06986v1` are the same paper, but compare unequal
+  under exact string matching: a dedup probe written in one form silently missed the other. The
+  store ended up holding both forms — a stray row titled `x` sitting beside the real
+  `OpenDiscoveryTrace` record for `2609.09203` / `2609.09203v1`.
+* **no shared diff.** "Which candidates are new" was recomputed by hand every round, against
+  nothing reproducible.
+* **a private HTTP client.** One round re-implemented the arXiv call with `CERT_NONE`, skipping TLS
+  verification for no benefit; `arxiv_lookup._http_get` already solves the real problem there (the
+  `406` edge fingerprint) without weakening TLS.
+
+`scripts/cron_round.py` keeps the round-specific parts as arguments (the axes, the picks, the
+regression id) and delegates the rest to existing modules — `arxiv_lookup` for HTTP, pacing and
+feed parsing, `paper_store` through its **public methods only** for identity and ingest. Identity
+comparison normalises to the bare `YYMM.NNNNN` form, so a stored `vN` variant counts as already
+filed; a dedup probe that comes back `is_new=True` fails the run instead of being noticed by hand
+three rounds later. `--audit-forms` walks the store for ids held under several forms, which is how
+the drift surfaces before it becomes a duplicate paper.
+
+The abstract is taken from the feed alongside `parse_feed`'s rows (that helper returns only
+`{id,title,published,categories}`), and `year` is backfilled from `published` because
+`ensure_paper` takes no `year` argument — leaving it at 0 is what makes most of this store unusable
+for year-based analysis.
+
+`tests/test_cron_round.py` covers the pure logic offline: version/bare normalisation, the query
+encoder that must not turn `+` into `%2B`, year extraction, feed/abstract alignment, the store diff
+in both form directions, the duplicate-form audit, and the regression predicate.
+
+
+
+
 
 
 
@@ -42,6 +134,14 @@
 > content**, because the `0.x.0` releases with odd `x` come from the development line — that is a
 > property of the two lineages, not a missing release.
 >
+> **Default branch ≠ release marker (2026-09-22).** The public line is a *snapshot of a release
+> tag*: it is cut from the development line's own `vX.Y.Z` (`scripts/recut-public.py`). Between
+> aligned cuts — as after the retracted `0.21.0` stamp — the default branch can carry
+> development-line content while its `pyproject.toml` still reads `0.19.0`, so **one version number
+> can describe two different trees**. This is documented, not force-pushed away: the next aligned
+> cut restores the invariant. Until then, reproduce documented behaviour with the **PyPI version**,
+> and pin a commit if you need default-branch capabilities.
+>
 > **Provenance.** Entries down to **v0.16.14** were written at release time. Entries for
 > **v0.17.0 – v0.18.14** were written **after the fact on 2026-09-17**, reconstructed from commit
 > subjects, `git diff --stat <previous>..<tag>` and spot-checks against the code, because those
@@ -55,6 +155,20 @@ release, and it is versioned on its own sequence (`0.17.x`) independently of the
 (`0.18.x`). Tags `v0.17.0`, `v0.17.1` and `v0.17.2` point at **public-line** commits, which is why
 the development line's own `v0.17.0` / `v0.17.1` release commits are untagged. Only the three
 public cuts are listed here; their functional content is covered by the development-line entries.
+
+### [2026-09-23] feat | v0.19.8 — title → arXiv ID reverse lookup; `-k source` kind fix
+
+`hfpapers/arxiv_lookup.py` + `hfpclawer lookup-id|lookup-ids`: a paced, reason-carrying path from a
+title to an arXiv ID. Encapsulates four measured quirks — HTTPS-only (plain HTTP = 0-byte body),
+burst throttling (≥40 calls → 0-byte; `Pacing` keeps ≥3s + escalating backoff), `quote()` mangling
+`+`→`%2B`, and a **client fingerprint** (same URL: 406 for `urllib`, 200 for `requests`) so
+`_http_get` tries `requests` first. Acceptance = equality → containment (≥3 words) → ratio ≥ 0.60,
+because the closest title can be a *different* paper. Reasons: `exact|prefix|ratio|below-threshold|
+no-candidate|blocked` (see `docs/ARXIV_LOOKUP.md`).
+
+Also fixes the streamed/sink payload check: `/src/` may return the rendered PDF, and the sink branch
+only sampled the tail for NUL bytes, so `fetch <id> -k source` reported success on a 5.2MB PDF
+(measured). The head is now checked and every rejection states its reason in `error`.
 
 ### [2026-09-17] release | v0.19.0 — public snapshot, version-aligned with PyPI
 
@@ -118,217 +232,90 @@ public cuts are listed here; their functional content is covered by the developm
 - Public cut of the development line's `v0.17.0` (transport documentation for the QUIC fallback
   ladder, bounded-memory streaming, `.part` lifecycle, sha256 audit anchor, `fetch` CLI).
 
-## [2026-09-17] fix | v0.18.23 — the test suite becomes a gate you can trust
+## [2026-10-05] fix | v0.19.13 — a Crossref title search may not return a stranger
 
-> A suite that hangs, reddens for reasons unrelated to the code, or silently skips the
-> plugin its own config declares cannot back any other claim in this repository. It was
-> all three: it never finished (network tests without timeouts), it carried 12 failures
-> nobody had triaged, and `asyncio_mode` plus a "deselected by default" marker were
-> declared but never enforced.
+> Crossref's `/works?query=<title>` is a fuzzy search: it matches on shared words, so its top hit for
+> an arXiv paper can be an unrelated work. `cross_verify` accepted any hit scoring ≥ 0.3 and handed it
+> back with confidence `sim + 0.2`. Importing arXiv 2607.27201 ("Mental World Modeling") attached
+> `10.1007/978-1-4939-6616-5_3` ("Science of Mental Modeling", a 2017 Springer chapter) and stamped
+> `year=2017 · venue='Mental Modeling Approach'` onto a 2026 preprint — a stranger at similarity 0.387
+> whose boosted confidence (0.587) sat just under the 0.6 gate, so the class recurred whenever the
+> bonus cleared it (a live record still held "SSCAP…" as the DOI of a "ConsensusTAS…" paper, 0.404 →
+> 0.604).
 
-### Two real bugs the "stale" tests were actually pointing at
+- **M** `CrossrefClient.MIN_TITLE_SIMILARITY = 0.5` + a floor in `cross_verify` — a title-search hit is
+  returned only when its trigram-Jaccard similarity clears the bar, and a below-bar near-miss is logged
+  with both titles and its score instead of being handed to a caller. The bar is the same one the
+  supplied-DOI path already uses (`PaperStore.SUPPLIED_DOI_MIN_SIMILARITY`), measured the same way: of
+  57 live Crossref attachments, the floor newly rejects exactly the one known-wrong match and keeps the
+  other 56; every genuine match scores ≥ 0.5.
+- **Tests** — `tests/test_crossref_title_gate.py` (5): the polluted instance (real captured hit list)
+  yields no candidate and `ensure_paper` writes neither the DOI nor its venue/year; a genuine match is
+  still attached with its venue; the floor boundary is asserted against the real similarity function.
 
-- **M** `hfpapers/graph/citation_expander.py` — `HubGuidedExpander.run()` treated
-  `stats["papers_found"]` as iterable whenever it was not a dict; on the count path (an
-  `int`) that raised `TypeError: 'int' object is not iterable`, so the audit trail could
-  never be written. The two failures in `tests/test_hub_guided_expansion.py` were a
-  correct fake hitting a real defect — the code was fixed, the tests kept.
-- **M** `hfpapers/cli.py` — `hfpclawer init --quick` crashed with `KeyError: 'file'`:
-  the REPO_USER template contains literal YAML braces (`evidence: {file: ...}`) that
-  `str.format()` consumed. Now `string.Template` with `${project}`; verified on a real
-  run (`init` writes `config.yaml` *and* `REPO_USER.md`, braces intact).
+## [2026-09-25] fix | v0.19.12 — a duplicate pair is judged by its DOIs, not by its identifier count
 
-### The suite is deterministic now
+> `store dedup` and the audit both classified duplicates by identifier *kinds*: one copy with the DOI
+> and one with the arXiv id → merge; overlapping kinds → "two artefacts of one work, leave it". The live
+> store had a pair where both copies held a DOI and one of them described a *different paper* — the
+> heuristic then protected the wrong copy from removal.
 
-- **M** `pyproject.toml` — the default run is fixed by `addopts`:
-  `-m 'not slow and not network and not integration'` (45 tests deselected). Passing `-m`
-  on the command line overrides it. Markers re-documented: `slow` (builds a wheel/venv),
-  `network` (live external service), `integration` (spawns real servers/CLIs).
-- **M** `tests/test_integration.py` — module-level `pytestmark = integration`: the MCP
-  stdio and HTTP dispatch tests spawn servers that never terminate in a bare environment
-  (this is what hung the suite at 39%).
-- **M** `tests/test_gates.py` / `tests/test_cli.py` — ambient-state leaks removed. The
-  dedup gate depended on the developer's real database not containing the id it used
-  (fixed with an isolated store + a dedicated id); the export tests read the real store
-  and scraped an export path out of wrapped console output (now isolated and read from
-  disk).
-- **M** stale assertions retargeted to the current CLI: metadata download is
-  `download-meta` (not `download`, which now downloads candidate PDFs), `monitor --help`
-  documents `ACTION`/`--interval` rather than the action *values*, and the Zotero tests
-  patch `_api_request` (renamed from `_api_get`). `init --quick` gained assertions for the
-  crash above.
-- **M** dev dependencies completed in both dev definitions (pip extras and PEP 735
-  group): `pytest-asyncio`, `pytest-timeout`, `antlr4-python3-runtime==4.11.0` (sympy 1.14
-  demands exactly 4.11; 4.13 fails with an ImportError that reads like a missing package).
+- **A** `invariants.classify_duplicate_pair` / `plan_duplicate_group` — evidence-first ranking (a record
+  whose DOI describes its own title outranks one with none, which outranks one whose DOI describes
+  another paper) and four verdicts: `mergeable`, `version_pair` (both DOIs describe the title — journal
+  paper plus report, both kept), `drop_wrong_doi` (culprit named; its DOI is discarded, never moved),
+  `human`.
+- **M** `store dedup [--network]` — verdicts from that shared classifier, and the table names what the
+  drop candidate's DOI actually points at; `--apply` acts on `mergeable` and `drop_wrong_doi` only.
+  Offline it behaves exactly as before.
+- **M** `store invariants --network` — duplicate findings are re-judged: a version pair becomes
+  `record.version_pair` at `info` severity, so a legitimate pair stops being reported as a defect.
+- **A** write-path guard — `ensure_paper` returns the existing record for an identifier-less arrival
+  whose title is already filed (`identity_reused` event). That is how both live pairs came to exist: an
+  ORCID batch carrying DOIs, then a second pass over the same works without them.
+- **Tests** — `tests/test_duplicate_verdicts.py` (15, network stubbed).
 
-### ⑤ dependency bookkeeping in the same pass
+## [2026-09-25] fix | v0.19.11 — the supplied-DOI bar, measured rather than guessed
 
-- **M** `pyproject.toml` — the duplicate `spacy` pin (core *and* `nlp`) collapsed to the
-  core one, with the extra now adding only the model wheel; `pdf` marked as a
-  compatibility alias (`pymupdf4llm` is core); `[dependency-groups].dev` aligned with
-  `[project.optional-dependencies].dev` and commented on why both exist.
+> 0.19.10 shipped 0.4 because that is what the automatic path effectively applies. The store says a
+> higher bar costs nothing: of the 310 DOI↔title pairs the full audit called correct, **none** scores
+> below 0.45, and two below 0.5.
 
-### Result
+- **M** `PaperStore.SUPPLIED_DOI_MIN_SIMILARITY` 0.4 → **0.5**. The same-field near-neighbour the gate
+  exists for (`10.2172/839535`, a *different* OSTI report: 0.44) is now refused; the two format
+  variants under 0.5 (all-caps 1990s AIP titles against Crossref's modern form) go to review rather
+  than being written at 1.0, and a deliberate `accepted-unverified` still admits them.
+- **Tests** — both directions pinned in `tests/test_doi_write_gate.py`.
 
-`pytest tests/` — **487 passed, 21 skipped, 45 deselected, 0 failed in ~64 s**; before:
-never finished, 12+ failures. Suite runtime makes it usable as a release check.
+## [2026-09-25] fix | v0.19.10 — a supplied DOI is looked up before it is written
 
-## [2026-09-17] chore | v0.18.24 — the public-release tooling, and the doc-surface checks
+> 0.19.7 closed the DOI the store *finds itself*; this closes the DOI it is *given*. `add_identifier`
+> wrote such a DOI at the default `confidence=1.0` with no lookup — and every wrong DOI in the
+> 2026-09-25 full audit (3 of 341) arrived that way, one registered nowhere.
 
-> The v0.18.23 commit also carried the public-release tooling and the new doc-surface
-> checks; recorded here so the changelog matches the commit (the entry above was written
-> before those pieces were finished).
+- **A** `hfpapers/doi_registry.py` — `resolve(doi)` → `ok | not_found | error`, Crossref first and
+  **DataCite second**: a Crossref 404 is not a bogus DOI (arXiv/Zenodo/CNKI DOIs live there) —
+  "could not check" is not "wrong".
+- **A** `PaperStore.attach_supplied_doi()` — unregistered or title-mismatched → **refused** +
+  `identifier_rejected`; otherwise written with an `identifier_unverified` event if it could not be
+  checked (unreachable registry, no title, cross-language). A verified DOI keeps `confidence=1.0`,
+  which now means *verified*, not *assumed*. Known-bad rows: the unregistered and 0.06-similarity DOIs
+  are refused; the 0.44 near-neighbour still passes, its similarity recorded on the attach event.
+- **M** `ensure_paper(..., verify_doi=True)` routes supplied DOIs through the gate; `verify_doi=False`
+  keeps an offline batch working.
+- **A** tail check — `check_store(only_sf_ids=…)` in `StorePipeline.close_spider` and `hfpclawer
+  import`, so a batch reports its own defects in the run that created them.
 
-- **A** `scripts/recut-public.py` — the six-step public recut, mechanised: preflight
-  (clean tree, `public` in sync with its remote, version above the latest public tag),
-  scratch worktree, `git checkout main -- .`, **version re-set after the sync** (which
-  silently reverts it), one commit signed with the public identity, then the three gates —
-  changelog coverage, sanitization, and the snapshot's own test suite. `--dry-run` is the
-  default and rolls the branch back; only `--push` publishes, through
-  `scripts/publish-public.sh`, so there is a single push path.
-- **M** `scripts/changelog_guard.py` — lineage-aware: a `###` entry inside the
-  **public-line section** counts as documented, so a public release no longer has to be
-  smuggled into the development list to pass. A `###` heading anywhere else is still a
-  subsection, not a release — the previous protection is intact, just no longer applied
-  to the one section that needs nesting.
-- **M** `scripts/changelog_rotate.py` — rotation units are now top-level `##` blocks,
-  sections included, so a section header travels with its nested entries into the archive
-  instead of being glued to whatever entry preceded it.
-- **M** `tests/test_gates.py` — three tests for the above: public-line entries count,
-  stray subsections do not, and rotating the public-line section keeps its entries
-  findable (the guard is asked again after rotation).
-- **A** doc audit checks (C6/C7 in `scripts/doc_audit.py`): translation drift between
-  `docs/*.md` and `docs/cn/*.zh-CN.md` beyond a tolerance, and tracked build/runtime
-  artifacts. C6 immediately found `docs/ARCHITECTURE.md` 60 lines ahead of its mirror
-  (the whole v0.16 state-semantics section had never been translated) — now translated,
-  and `env.template` (an unreferenced duplicate of `.env.template`) is gone.
+## [2026-09-25] fix | v0.19.9 — the DOI title check stops calling correct DOIs wrong
 
-## [2026-09-21] fix | v0.19.7 — a low-confidence identifier can no longer land silently
+> Two audits of the live store agreed on a wrong conclusion: `_norm` spent its 80-character budget on
+> Crossref's inline MathML, and CJK-against-English pairs scored 0.00.
 
-> Three live occurrences in three days, all from Crossref auto-attach: a 2001 *Neuroreport* chapter
-> DOI on an ICLR 2026 paper, a 2013 *Nature* news DOI on a long-context paper, and a 1990 psychology
-> chapter DOI on a 2026 preprint — confidences 0.51–0.58. v0.19.6 *reported* that band; this release
-> refuses it, at every call site.
-
-- **M** `add_identifier(..., accept_unverified=False)` (`hfpapers/paper_store.py`) refuses any
-  identifier below `invariants.LOW_CONFIDENCE_THRESHOLD` unless the caller passes
-  `accept_unverified=True` or the record carries the `accepted-unverified` tag. Refusal is loud (a
-  WARNING naming the escape hatch) plus an `identifier_rejected` event with the candidate, its
-  confidence and the threshold; a deliberate acceptance is recorded too
-  (`identifier_accepted_unverified`), so a wrong-but-intentional attach stays distinguishable from a
-  wrong-and-unnoticed one. The return value now states what a caller must act on: `False` = nothing
-  written (refused or error), `True` = the row is present afterwards.
-- **A** `PaperStore.crossref_attach()` — the single place the store decides a Crossref candidate,
-  returning `"attached"` / `"refused"` / `"none"`. `"refused"` writes nothing **and rewrites
-  nothing**: the sub-threshold hit also used to stamp its own `venue`/`year` — the half of the live bug
-  that made a 2026 preprint look like a 1990 psychology chapter. `ensure_paper`, `store ensure` and
-  batch verification all route through it, so a new call site cannot side-step the gate.
-- **M** `hfpclawer/audit/cron_verify.py` + `scripts/hfpclawer-audit-verify.py` both ignored the
-  verdict, still counting a refused candidate as found and still stamping `venue`/`year`. They now
-  report it as `doi_rejected` and leave the record alone — the scheduled path was the one most likely
-  to run unattended.
-- **F** `store ensure --accept-unverified` — the route as first written did nothing: it tagged the
-  record and re-ran, but `ensure_paper` returns early for an existing record, so no candidate was ever
-  attempted. It now tags the record and runs the attach explicitly, printing the verdict.
-- **A** `tests/test_confidence_gate.py` (13 cases) — refusal, boundary, both acceptance routes (via
-  `add_identifier` and via `crossref_attach`), the three verdicts, and the batch-verify path.
-  `tests/test_invariants.py` seeds its risky DOI with SQL now: the invariant's job is the rows the
-  write path never saw (a restore, a snapshot import, an older writer) — what the gate cannot police.
-- **Scope** — development line only: PyPI takes `0.x.0` with an odd `x`, so this reaches PyPI with
-  the next `0.21.0`.
-
-## [2026-09-19] feat | v0.19.6 — review-driven: invariants as a gate, events for every row change
-
-> `docs/AUDIT_CRITIQUE.md` measured the store rather than reading it and found 25 DOIs belonging to
-> other papers, 14 impossible years, 18 duplicate records and 21 identifier-less records — while every
-> existing gate was green. This release turns the critique into machinery: a deterministic gate over
-> the artifact, a row-level event log, and one command for the merge that had been done by hand.
-
-- **A** `hfpapers/invariants.py` — offline checks (year domain, missing identifiers, title hygiene,
-  identifier vocabulary, low-confidence DOIs, non-paper DOI shapes, duplicate identity) with a
-  coverage report; **A** `hfpapers/invariants_network.py` — the opt-in sampled DOI ↔ Crossref title
-  check, so the core stays instant and offline.
-- **A** `hfpclawer store invariants [--strict|--json|--network|--update-baseline]` — per-check counts
-  plus a **ratchet baseline** (kept beside the store): a check that grew fails the gate, a check that
-  shrank is reported. A gate that is red on day one gets ignored; a gate that can hide findings is
-  worse.
-- **A** row-level event log (`store_events`, migration v6) with `store events`: identifier
-  add/remove/**transfer**, record removal (full row snapshot inside the event), `item_type` decisions
-  and pre-destructive snapshots. `store snapshot` writes the full store on demand.
-- **A** `store dedup [--apply]` — groups by `identity_key`, keeps the identifier-richest record,
-  refuses mismatched titles and same-work/different-artefact pairs (a journal paper and its OSTI
-  report are two records, not a duplicate), snapshots first, **verifies every identifier moved before
-  deleting anything**.
-- **M** one canonical `paths.pdf_dir()`: two directories held 62 PDFs between them and `fetch` wrote
-  to the one the audit never reads; the stray files are moved and the divergent defaults collapse.
-- **M** `derive_item_type` inputs unchanged, but the two defects the invariant found in practice —
-  a classifier fed by a venue inherited from a wrong DOI, and a `--limit` that silently capped a
-  backfill at 20 of 1182 — are now recorded rather than silent.
-- **Tests** `tests/test_invariants.py` (29 cases) — every check has a failing example from the live
-  store, a clean store stays quiet, the ratchet detects regressions, and `dedup` proves the
-  identifier-move verification that the manual merge lacked.
-- **Scope** — development line only: PyPI takes `0.x.0` with an odd `x`, so this reaches PyPI with
-  the next `0.21.0`.
-
-## [2026-09-19] feat | v0.19.5 — what a record *is*: `item_type`, learned from Zotero
-
-> `venue` was doing three jobs at once (container title, repository name, arXiv category) and 48%
-> of rows had none; material class lived in hand-applied free-text tags. A store that cannot
-> answer "is this peer reviewed?" cannot back a citation claim, so every record now carries a
-> **carrier form** from a closed vocabulary borrowed from Zotero's `itemType` names.
-
-- **A** `hfpapers/item_types.py` — the vocabulary (`journalArticle`, `conferencePaper`,
-  `preprint`, `report`, `thesis`, `book`, `bookSection`, `dataset`, `software`, `webpage`, plus
-  our `unknown`), peer-review status *derived* from the type rather than stored beside it, and a
-  pure `derive_item_type(...) -> (item_type, reason)` that needs no network. Three ordered rules
-  exist because the store was wrong without them: explicit markers beat naming heuristics;
-  "under review" beats a conference acronym (`arXiv:2508.04349 (ICLR 2026 under review)` is a
-  preprint, not an ICLR paper); and marker matching is **word-bounded**, so `synthesis` no
-  longer fires the `thesis` marker and `Oracle` does not fire `acl`.
-- **M** `hfpapers/paper_store.py` — migration v5 adds `item_type`, `item_type_src`
-  (`derived` / `manual`) and `item_type_at`, plus `set_item_type`, `get_item_type`,
-  `item_type_stats`, `item_type_coverage` and `iter_item_type_inputs` (one query per pass, tags
-  read through the identifier table).
-- **A** `hfpclawer store types | classify | set-type` — inventory, a dry-run-first backfill
-  (`--apply`, `--all`, `--max`) and single-record correction. `--limit` prints rows while
-  `--max` bounds the work: they were one option once, and a backfill silently wrote 20 of 1182.
-- **A** `docs/ITEM_TYPE.md` — what was copied from Zotero and what was deliberately left out
-  (per-type field tables, typed creators, child items), the three-axis model
-  (item_type × venue × source), how to extend the rules, and the known limits.
-- **Backfill** — 1182 records classified: preprint 821, journalArticle 260, conferencePaper 89,
-  report 7, webpage 1, unknown 4. `unknown` is a first-class answer, reported separately from
-  "never classified", and a manual decision is never overwritten by a rule.
-- **Scope** — development line only: PyPI takes `0.x.0` with an odd `x`, so this reaches PyPI
-  with the next `0.21.0`.
-
-## [2026-09-19] fix | v0.19.4 — the importer stops writing placeholder metadata when arXiv is unreachable
-
-> A 245-reference batch ingest left records titled with their own arXiv ids (`title = "2604.10098"`,
-> `year = 0`) while the CLI printed a success line for each of them. Three causes, one symptom: the
-> metadata call used `http://`, had no retry, and had no fallback source — and the failure was
-> swallowed inside the importer, so nothing upstream could notice.
-
-- **M** `hfpclawer/import_paper/importer.py` — `_fetch_arxiv_meta` split into `_parse_arxiv_atom`
-  (pure parsing, testable without a network) plus a fetch path that uses **https**, retries with
-  backoff, and falls back to **DataCite**; `ImportResult` gains `metadata_source`, so an unresolved
-  record is now an explicit `""` instead of an empty title.
-- **A** placeholder guard — when no source resolves, the importer warns rather than writing the raw
-  identifier as a title; batch runners key their backfill on `metadata_source == ""`.
-- **Evidence** — reproduced on a real batch (245 references, Attention-Sink survey): 102 records
-  carried unusable metadata until a DataCite/Crossref backfill repaired them. The import path is now
-  covered by `tests/test_import.py`.
-- **Scope** — development line only: PyPI takes `0.x.0` with an odd `x` for this project, so 0.19.4
-  stays on the private line and reaches PyPI with the next `0.21.0`.
-
-## [2026-09-17] docs | v0.19.3 — one release-surface pair, stated the same way everywhere
-
-> The two release links were described four different ways (README, this header, `pyproject.toml`,
-> the GitHub release notes), and this header still claimed the public line runs on its own `0.17.x`
-> sequence — retired by the version-alignment policy of 2026-09-17. Same URLs, one phrasing.
-
-- **M** `docs/CHANGELOG.md` (header) — **GitHub releases** keeps its URL and is now described as the
-  public line *on the same version numbers as PyPI* (the retired `0.17.x` sequence stays visible in
-  history); the second link is labelled **Release history**, matching `README.md` and
-  `[project.urls]` in `pyproject.toml`.
-- **M** GitHub release `v0.19.0` (published surface, edited in place) — carries the same pair, so a
-  visitor arriving from PyPI finds where releases live without leaving the page.
+- **M** `hfpapers/invariants_network.py` — strip `<...>`/entities, NFKC-normalise, *then* fold case.
+  `10.1103/PhysRevLett.89.125003`: **0.165 → 0.957** (β mid-title; `[:80]` never rescued it — the same
+  defect deleted a correct DOI in a peer's audit). `is_cross_language()` now counts
+  CJK-against-English pairs instead of scoring them (two 《物理学报》 records: **0.00**), exposed as
+  `coverage["doi_title_cross_language"]`.
+- **Tests** — `tests/test_invariants_network.py`: normalisation, both cross-language directions, and
+  guards that real mismatches still report while unreachable DOIs still count.
+- **Scope** — dev line only; PyPI gets it with `0.21.0`.

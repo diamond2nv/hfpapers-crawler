@@ -15,7 +15,7 @@
 
 - **显式状态机** —— 每篇论文带 `pending → verified / stale / suspect`，由已存证据派生，而非 LLM 的判断。
 - **冲突显性化** —— DOI 解析出的 arXiv id 与记录不一致时标为 **suspect**；suspect 记录既不计入 verified，也不进训练池。
-- **符号化、0-LLM 检查** —— 检查是确定性的，不会让 LLM 去"判断论文是否真实"。
+- **符号化、免模型检查** —— 检查是确定性的，不会让 LLM 去"判断论文是否真实"。
 
 详见：[`docs/paper_store.md`](../paper_store.md) · [`docs/use/verify-guide.md`](../use/verify-guide.md)
 
@@ -23,7 +23,7 @@
 
 - **第一方信号** —— 查询历史 × 文本相似度 × 相关性 × 验证状态门禁，全部由本地库计算；无需外部服务，也无需注册。
 - **仓库级画像** —— 每个仓库都是自己的虚拟用户：`hfpclawer init` 生成 `REPO_USER.md`，其 v2 的 `accepts/rejects` 块即显式反馈（`scope: topic-exclusion` 过滤候选，`scope: self-constraint` 只记录选择不过滤）。
-- **学习层可选且可解释** —— `hfpclawer rank train`（lightgbm → 原生模型）用 JSONL 审计轨迹训练，以特征重要性作解释；启发式层仍是 0-token 默认。
+- **学习层可选且可解释** —— `hfpclawer rank train`（lightgbm → 原生模型）用 JSONL 审计轨迹训练，以特征重要性作解释；启发式层仍是默认路径（不调用模型）。
 - **可审计轨迹与干净正例池** —— 每次扩展都可输出审计轨迹；`hfpclawer pool` 从本地无标注来源累积分层弱标签；append-only 且 gitignore，无任何遥测离开本机。
 - **Zotero 可选** —— `hfpclawer zotero sync-back` 通过学术契约拉取 Favor 条目（网页/报告先被剔除），把命中论文标为 `favorited`；不装 Zotero 也不影响任何功能。
 
@@ -41,7 +41,7 @@
 ## 5. Agent 优先
 
 - **CLI 优先，MCP 次之** —— 每项能力都是带文档的子命令，输出可机械校验；MCP server 默认只暴露只读核心，重操作隐藏以省 token。
-- **0-token 监控** —— `hfpclawer check-new` 与自身上次输出比较即 cron 门禁：输出稳定 = "无变化，不要唤醒 LLM"。
+- **免模型监控** —— `hfpclawer check-new` 与自身上次输出比较即 cron 门禁：输出稳定 = "无变化，不要唤醒 LLM"。
 - **能在恶劣网络下存活的传输** —— TCP → QUIC → browser-hint 阶梯、可续传、每次抓取记 sha256 到 `data/download_audit.jsonl`。
 - **门禁而非纪律** —— `scripts/pre-push` 拒绝未脱敏提交与版本/tag 不一致；`scripts/release.sh` 拒绝条目缺失、窗口超预算或丢条目的发布；`scripts/doc_audit.py` 校验文档提到的路径与命令真实存在。
 

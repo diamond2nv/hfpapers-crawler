@@ -294,26 +294,38 @@ async def async_quic_fetch(
             # mid-file bytes and CANNOT pass a magic check by construction.
             # Validate the FILE head + the assembled total size instead.
             total = sink.stat().st_size + len(data)
+            reject = ""
             if total < _MIN_BYTES.get(kind, 200):
                 payload_ok = False
+                reject = f"payload too small for kind={kind} ({total}B)"
             elif kind == "pdf":
                 with open(sink, "rb") as fh:
                     payload_ok = fh.read(4) == b"%PDF"
+                reject = "" if payload_ok else "magic check: no %PDF head on disk"
             elif kind == "source":
                 with open(sink, "rb") as fh:
-                    head = fh.read(2)
-                if head == b"\x1f\x8b":
+                    head = fh.read(4)
+                if head[:2] == b"\x1f\x8b":
                     payload_ok = True  # gzip tar — magic at file head on disk
+                elif head == b"%PDF":
+                    # REGRESSION FIX (2026-09-23): arXiv /src/ falls back to the rendered PDF for
+                    # submissions that never uploaded a tex bundle. `_payload_ok` rejects that, but
+                    # the sink branch used to only sample the tail for NUL bytes — so a 5MB PDF
+                    # whose last 64KB was NUL-free was reported as a successful `source` grab.
+                    payload_ok = False
+                    reject = "magic check: /src/ returned the rendered PDF (no tex bundle)"
                 else:
                     # Raw-tex bundles are plain text: sample the last 64KB of
                     # the file for NUL bytes (the flushed region, not the tail).
                     with open(sink, "rb") as fh:
                         fh.seek(max(0, sink.stat().st_size - 65536))
                         payload_ok = b"\x00" not in fh.read()
+                    reject = "" if payload_ok else "magic check: source bundle has NUL bytes"
             else:
                 payload_ok = True  # unknown kind — size check above suffices
         else:
             payload_ok = _payload_ok(data, kind) if range_from == 0 else len(data) > 0
+            reject = "" if payload_ok else "payload rejected by magic check"
         ok = complete and status_ok and payload_ok
         return FetchResult(
             ok=ok,
@@ -330,6 +342,7 @@ async def async_quic_fetch(
                 if ok
                 else f"HTTP {protocol.status or 'no-response'}"
                 + ("" if complete else " (incomplete — timed out mid-transfer)")
+                + (f" — {reject}" if reject else "")
             ),
             sha256=_sha256(data) if ok and range_from == 0 and sink is None else "",
         )

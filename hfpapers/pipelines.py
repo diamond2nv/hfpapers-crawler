@@ -39,6 +39,8 @@ class StorePipeline:
     def __init__(self):
         self.skipped = 0
         self.passed = 0
+        #: sf_ids written by this run — the batch audits its own output at the end (v0.19.10).
+        self.new_sf_ids: set[int] = set()
 
     def process_item(self, item: PaperItem, spider):
         arxiv_id = item.get("arxiv_id", "")
@@ -71,6 +73,7 @@ class StorePipeline:
         item["sf_id"] = sf_id
         item["verified"] = True  # paper_store already verified
         self.passed += 1
+        self.new_sf_ids.add(sf_id)
         return item
 
     def open_spider(self, spider):
@@ -82,6 +85,29 @@ class StorePipeline:
 
     def close_spider(self, spider):
         logger.info(f"[STORE] This run: {self.passed} new, {self.skipped} skipped")
+        self._report_new_records()
+
+    def _report_new_records(self) -> None:
+        """Check this run's own output now, instead of leaving it to the next audit (v0.19.10).
+
+        The 2026-09-25 full audit found wrong DOIs that batch runs had written weeks earlier; nothing
+        looked at a batch's output when the batch ran.  A tail check makes the defect a line in the
+        run log — the moment it is created — rather than a surprise in a later report.
+        """
+        if not self.new_sf_ids:
+            return
+        from hfpapers.invariants import check_store
+
+        report = check_store(get_store(), only_sf_ids=self.new_sf_ids)
+        if not report.findings:
+            logger.info(f"[STORE] health check: {len(self.new_sf_ids)} new record(s), 0 finding(s)")
+            return
+        logger.warning(
+            f"[STORE] health check: {len(report.findings)} finding(s) among this run's "
+            f"{len(self.new_sf_ids)} new record(s) — {report.by_check()}"
+        )
+        for finding in report.findings[:10]:
+            logger.warning(f"[STORE]   {finding.check} · sf_id={finding.subject} · {finding.detail}")
 
 
 class ClassifyPipeline:

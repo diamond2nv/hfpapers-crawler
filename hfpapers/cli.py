@@ -1316,6 +1316,43 @@ def fetch(
         console.print(f"   💡 {result.hint}")
 
 
+def _dedup_doi_evidence(store_obj, groups: dict[str, list[int]]) -> dict[int, tuple[bool | None, str]]:
+    """``{sf_id: (does its own DOI describe its own title, that DOI's title)}`` — only with --network.
+
+    One registry lookup per copy, sharing the audit's predicate so the tool and the audit cannot drift.
+    """
+
+    from hfpapers.invariants_network import doi_title_pair
+
+    evidence: dict[int, tuple[bool | None, str]] = {}
+    for members in groups.values():
+        for sf_id in members:
+            ids = store_obj.get_identifiers(sf_id) or []
+            doi = next((i.id_value for i in ids if i.id_type == "doi"), "")
+            if not doi:
+                evidence[sf_id] = (None, "")
+                continue
+            paper = store_obj.get_paper_by_id(sf_id)
+            evidence[sf_id] = doi_title_pair(doi, paper.title if paper else "")
+    return evidence
+
+
+def _dedup_member(store_obj, sf_id: int, evidence: dict[int, tuple[bool | None, str]]):
+    """One ``DuplicateMember`` for the dedup plan, carrying whatever evidence this run gathered."""
+    from hfpapers.invariants import DuplicateMember
+
+    paper = store_obj.get_paper_by_id(sf_id)
+    ids = store_obj.get_identifiers(sf_id) or []
+    matches = evidence.get(sf_id, (None, ""))[0]
+    return DuplicateMember(
+        int(sf_id),
+        (paper.title if paper else "") or "",
+        int(paper.year or 0) if paper else 0,
+        frozenset(i.id_type for i in ids),
+        matches,
+    )
+
+
 @app.command()
 def store(
     action: str = typer.Argument(
@@ -1532,72 +1569,83 @@ def store(
         console.print(f"✅ snapshot → {path}")
 
     elif action == "dedup":
-        from hfpapers.invariants import normalise_title as _norm_title
+        from hfpapers.invariants import plan_duplicate_group
 
         groups = {k: v for k, v in store_obj.iter_identity_groups().items() if len(v) > 1}
+        # With --network each copy's own DOI is asked what it points at: the kinds heuristic alone
+        # called a pair "two artefacts" on 2026-09-25 when one copy held another paper's DOI, so the
+        # wrong DOI was left in place and the correct copy was the one a human would have dropped.
+        evidence = _dedup_doi_evidence(store_obj, groups) if network else {}
         planned = []
         for key, members in groups.items():
-            rows = [(sf, store_obj.get_identifiers(sf) or []) for sf in members]
-            ranked = sorted(rows, key=lambda kv: (-len(kv[1]), kv[0]))
-            keep_sf, keep_ids = ranked[0]
-            keep_t = store_obj.get_paper_by_id(keep_sf)
-            keep_kinds = {i.id_type for i in keep_ids}
-            for drop_sf, drop_ids in ranked[1:]:
-                drop_t = store_obj.get_paper_by_id(drop_sf)
-                same_title = _norm_title(keep_t.title if keep_t else "") == _norm_title(drop_t.title if drop_t else "")
-                # Different identifier *kinds* (one copy has the DOI, the other the arXiv id) is the
-                # signature of one work filed twice, and is safe to merge. Overlapping kinds means two
-                # artefacts of the same work — a journal paper and its OSTI technical report, both with
-                # a DOI — which are legitimately separate items: never merged automatically.
-                disjoint = not (keep_kinds & {i.id_type for i in drop_ids})
-                ky, dy = (keep_t.year if keep_t else 0), (drop_t.year if drop_t else 0)
-                same_year = (ky == dy) or not ky or not dy
-                planned.append((key, keep_sf, drop_sf, len(keep_ids), len(drop_ids), same_title,
-                                disjoint and same_year, [i.id_value for i in drop_ids]))
+            payload = [_dedup_member(store_obj, sf, evidence) for sf in members]
+            keep, drops = plan_duplicate_group(payload)
+            if keep is None:
+                continue
+            for drop, verdict in drops:
+                planned.append((key, keep.sf_id, drop.sf_id, len(keep.kinds), len(drop.kinds),
+                                verdict, evidence.get(drop.sf_id), verdict == "mergeable"))
         if not planned:
             console.print("[green]✅ No duplicate identities[/green]")
             return
-        table = Table(title=f"🔁 dedup — {len(groups)} group(s), {len(planned)} record(s) to merge")
-        for c in ("identity", "keep", "drop", "ids(k/d)", "titles match", "mergeable", "identifiers moved"):
-            table.add_column(c, style="white" if c == "identifiers moved" else "dim")
-        for key, keep_sf, drop_sf, kn, dn, same, disjoint, vals in planned:
-            verdict = "✅" if (same and disjoint) else ("[yellow]manual[/yellow]" if same else "[red]✗[/red]")
-            table.add_row(key[:26], str(keep_sf), str(drop_sf), f"{kn}/{dn}",
-                          "✅" if same else "[red]✗[/red]", verdict, ", ".join(vals)[:30])
+        table = Table(title=f"🔁 dedup — {len(groups)} group(s), {len(planned)} pair(s) judged")
+        for c in ("identity", "keep", "drop", "ids(k/d)", "verdict", "drop's DOI points at", "action"):
+            table.add_column(c, style="white" if c == "action" else "dim")
+        style = {"mergeable": "[green]mergeable[/green]", "drop_wrong_doi": "[red]drop_wrong_doi[/red]",
+                 "version_pair": "[cyan]version_pair[/cyan]", "human": "[yellow]manual[/yellow]",
+                 "not_same_work": "[red]✗ titles differ[/red]"}
+        for key, keep_sf, drop_sf, kn, dn, verdict, ev, mergeable in planned:
+            table.add_row(key[:24], str(keep_sf), str(drop_sf), f"{kn}/{dn}", style[verdict],
+                          (ev[1][:26] if ev and ev[1] else "—"),
+                          "merge" if mergeable else "keep both" if verdict == "version_pair" else "human")
         console.print(table)
+        if not network:
+            console.print("[dim]offline: verdicts come from identifier kinds only — add --network so each "
+                          "copy's DOI is asked what it points at[/dim]")
         if not apply_changes:
-            console.print("[yellow]dry run[/yellow] — re-run with --apply to merge. A snapshot is written "
-                          "first; mismatched titles and same-work/different-artefact pairs are always skipped.")
+            console.print("[yellow]dry run[/yellow] — re-run with --apply to act. A snapshot is written "
+                          "first; version pairs, title mismatches and unknown cases are always skipped.")
             return
         snap = store_obj.snapshot(reason=reason or "pre-dedup")
         merged = skipped = 0
-        for key, keep_sf, drop_sf, _kn, _dn, same, disjoint, _vals in planned:
-            if not (same and disjoint):
-                skipped += 1
-                if same and not disjoint:
-                    console.print(
-                        f"[yellow]manual[/yellow] {keep_sf} / {drop_sf}: same title but overlapping "
-                        "identifier kinds — two artefacts of one work, left for a human"
+        for key, keep_sf, drop_sf, _kn, _dn, verdict, ev, mergeable in planned:
+            if verdict == "mergeable":
+                drop_ids = store_obj.get_identifiers(drop_sf) or []
+                for ident in drop_ids:
+                    # Transfer, do not re-add: the unique constraint means an insert while the row still
+                    # belongs to the source record is silently ignored.
+                    store_obj.transfer_identifier(
+                        drop_sf, keep_sf, ident.id_type, ident.id_value,
+                        actor="dedup", reason=f"duplicate of {keep_sf} ({key})",
                     )
+                # Verification that the old ad-hoc script lacked: every identifier must now resolve to
+                # the keeper. A silent zero-move (which dropped three arXiv ids on 2026-09-19) fails here.
+                keeper_values = {i.id_value for i in (store_obj.get_identifiers(keep_sf) or [])}
+                missing = [i.id_value for i in drop_ids if i.id_value not in keeper_values]
+                if missing:
+                    console.print(f"[red]❌ refusing to drop {drop_sf}: identifiers not moved: {missing}[/red]")
+                    skipped += 1
+                    continue
+                store_obj.remove_paper(drop_sf, actor="dedup", reason=f"duplicate of {keep_sf} ({key})")
+                merged += 1
                 continue
-            drop_ids = store_obj.get_identifiers(drop_sf) or []
-            for ident in drop_ids:
-                # Transfer, do not re-add: the unique constraint means an insert while the row still
-                # belongs to the source record is silently ignored.
-                store_obj.transfer_identifier(
-                    drop_sf, keep_sf, ident.id_type, ident.id_value,
-                    actor="dedup", reason=f"duplicate of {keep_sf} ({key})",
+            if verdict == "drop_wrong_doi" and ev and ev[1]:
+                # The dropped copy's DOI describes another paper, so it is discarded rather than moved —
+                # moving it would file the wrong DOI under the surviving record (2026-09-25 pair). The
+                # removal is logged, so the identifier can be re-filed deliberately if it has a home.
+                console.print(f"[red]discarding[/red] {drop_sf}'s DOI — it describes {ev[1][:70]!r}")
+                store_obj.remove_identifier(
+                    drop_sf, id_type="doi", actor="dedup",
+                    reason=f"duplicate of {keep_sf} ({key}); DOI describes a different paper: {ev[1][:80]}",
                 )
-            # Verification that the old ad-hoc script lacked: every identifier must now resolve to
-            # the keeper. A silent zero-move (which dropped three arXiv ids on 2026-09-19) fails here.
-            keeper_values = {i.id_value for i in (store_obj.get_identifiers(keep_sf) or [])}
-            missing = [i.id_value for i in drop_ids if i.id_value not in keeper_values]
-            if missing:
-                console.print(f"[red]❌ refusing to drop {drop_sf}: identifiers not moved: {missing}[/red]")
-                skipped += 1
+                store_obj.remove_paper(drop_sf, actor="dedup", reason=f"duplicate of {keep_sf} ({key})")
+                merged += 1
                 continue
-            store_obj.remove_paper(drop_sf, actor="dedup", reason=f"duplicate of {keep_sf} ({key})")
-            merged += 1
+            skipped += 1
+            note = {"version_pair": "two artefacts of one work — both kept",
+                    "human": "same title, same identifier kinds, no registry answer — left for a human",
+                    "not_same_work": "titles differ"}.get(verdict, "left for a human")
+            console.print(f"[yellow]{verdict}[/yellow] {keep_sf} / {drop_sf}: {note}")
         console.print(f"✅ merged {merged} record(s), skipped {skipped} | snapshot {snap}")
 
     elif action == "ensure":
@@ -2683,6 +2731,20 @@ def import_cmd(
                        source="cli", sf_id_delta=1)
         except Exception:
             pass  # ledger is best-effort; import success must not depend on it
+        # Tail health check on the record this run just wrote (v0.19.10) — the defect shows up
+        # now, in the run that created it, instead of in a later full audit.
+        if result.sf_id:
+            try:
+                from hfpapers.invariants import check_store
+                from hfpapers.paper_store import get_store
+
+                report = check_store(get_store(), only_sf_ids={int(result.sf_id)})
+                for finding in report.findings[:5]:
+                    console.print(f"  [yellow]⚠ {finding.check}[/yellow] {finding.detail}")
+                if report.findings:
+                    console.print("  [dim]full list: `hfpclawer store invariants`[/dim]")
+            except Exception:
+                pass  # diagnostics are best-effort; never fail an import over them
     elif result.status == "duplicate":
         console.print("[yellow]⏭️  Already in store[/yellow]")
         console.print(f"  sf_id: [cyan]{result.sf_id}[/cyan]")
@@ -2725,6 +2787,74 @@ def semantic_service(
     if preload:
         sys.argv.append("--preload")
     main()
+
+
+# ════════════════════════════════════════════════════════
+# Reverse Lookup — title → arXiv ID (paced, gated)
+# ════════════════════════════════════════════════════════
+
+
+@app.command()
+def lookup_id(
+    title: str = typer.Argument(..., help="Paper title to resolve"),
+    threshold: float = typer.Option(0.6, "--threshold", help="Title similarity floor (0-1)"),
+    as_json: bool = typer.Option(False, "--json", help="Emit one JSON object"),
+):
+    """Resolve a paper title to an arXiv ID.
+
+    Reasons: exact | prefix | ratio (accepted) · below-threshold | no-candidate | blocked (refused).
+    Exit codes: 0 resolved · 1 not resolved · 2 bad input — rules in docs/ARXIV_LOOKUP.md.
+    """
+    import json as _json
+
+    from hfpapers.arxiv_lookup import lookup_title
+
+    result = lookup_title(title, threshold=threshold)
+    if as_json:
+        print(_json.dumps({
+            "query": title, "arxiv_id": result.arxiv_id, "title": result.title,
+            "published": result.published, "categories": result.categories,
+            "ratio": result.ratio, "reason": result.reason, "candidates": result.candidates,
+        }, ensure_ascii=False))
+    elif result.found:
+        console.print(f"✅ {result.arxiv_id}  {result.title[:88]}  [{result.reason}, ratio={result.ratio}]")
+    else:
+        console.print(f"✗ {result.reason} (candidates={result.candidates})")
+    raise typer.Exit(0 if result.found else 1)
+
+
+@app.command()
+def lookup_ids(
+    file: str = typer.Option(..., "--file", help="File with one title per line ('-' = stdin)"),
+    threshold: float = typer.Option(0.6, "--threshold", help="Title similarity floor (0-1)"),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON lines"),
+):
+    """Resolve many titles, paced (one API call per line, >=3s apart — arXiv asks for that)."""
+    import json as _json
+    import sys as _sys
+
+    from hfpapers.arxiv_lookup import lookup_titles
+
+    if file == "-":
+        titles = [line.strip() for line in _sys.stdin if line.strip()]
+    else:
+        titles = [line.strip() for line in Path(file).read_text(encoding="utf-8").splitlines() if line.strip()]
+    if not titles:
+        console.print("no titles given")
+        raise typer.Exit(2)
+    results = lookup_titles(titles, threshold=threshold)
+    missing = 0
+    for r in results:
+        if as_json:
+            print(_json.dumps({"query": r.query, "arxiv_id": r.arxiv_id, "reason": r.reason,
+                               "ratio": r.ratio, "candidates": r.candidates}, ensure_ascii=False))
+        elif r.found:
+            console.print(f"✅ {r.arxiv_id}  {r.query[:76]}")
+        else:
+            missing += 1
+            console.print(f"✗ {r.reason}  {r.query[:76]}")
+    console.print(f"— {len(results) - missing}/{len(results)} resolved")
+    raise typer.Exit(0 if missing == 0 else 1)
 
 
 # ════════════════════════════════════════════════════════
