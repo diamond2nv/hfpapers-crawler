@@ -8,6 +8,39 @@
 > Nothing is lost by rotation — every past state of `docs/CHANGELOG.md` is also preserved in git
 > (`git log -- docs/CHANGELOG.md`).
 
+## [2026-09-25] fix | v0.19.10 — a supplied DOI is looked up before it is written
+
+> 0.19.7 closed the DOI the store *finds itself*; this closes the DOI it is *given*. `add_identifier`
+> wrote such a DOI at the default `confidence=1.0` with no lookup — and every wrong DOI in the
+> 2026-09-25 full audit (3 of 341) arrived that way, one registered nowhere.
+
+- **A** `hfpapers/doi_registry.py` — `resolve(doi)` → `ok | not_found | error`, Crossref first and
+  **DataCite second**: a Crossref 404 is not a bogus DOI (arXiv/Zenodo/CNKI DOIs live there) —
+  "could not check" is not "wrong".
+- **A** `PaperStore.attach_supplied_doi()` — unregistered or title-mismatched → **refused** +
+  `identifier_rejected`; otherwise written with an `identifier_unverified` event if it could not be
+  checked (unreachable registry, no title, cross-language). A verified DOI keeps `confidence=1.0`,
+  which now means *verified*, not *assumed*. Known-bad rows: the unregistered and 0.06-similarity DOIs
+  are refused; the 0.44 near-neighbour still passes, its similarity recorded on the attach event.
+- **M** `ensure_paper(..., verify_doi=True)` routes supplied DOIs through the gate; `verify_doi=False`
+  keeps an offline batch working.
+- **A** tail check — `check_store(only_sf_ids=…)` in `StorePipeline.close_spider` and `hfpclawer
+  import`, so a batch reports its own defects in the run that created them.
+
+## [2026-09-25] fix | v0.19.9 — the DOI title check stops calling correct DOIs wrong
+
+> Two audits of the live store agreed on a wrong conclusion: `_norm` spent its 80-character budget on
+> Crossref's inline MathML, and CJK-against-English pairs scored 0.00.
+
+- **M** `hfpapers/invariants_network.py` — strip `<...>`/entities, NFKC-normalise, *then* fold case.
+  `10.1103/PhysRevLett.89.125003`: **0.165 → 0.957** (β mid-title; `[:80]` never rescued it — the same
+  defect deleted a correct DOI in a peer's audit). `is_cross_language()` now counts
+  CJK-against-English pairs instead of scoring them (two 《物理学报》 records: **0.00**), exposed as
+  `coverage["doi_title_cross_language"]`.
+- **Tests** — `tests/test_invariants_network.py`: normalisation, both cross-language directions, and
+  guards that real mismatches still report while unreachable DOIs still count.
+- **Scope** — dev line only; PyPI gets it with `0.21.0`.
+
 ## [2026-09-17] fix | v0.18.23 — the test suite becomes a gate you can trust
 
 > A suite that hangs, reddens for reasons unrelated to the code, or silently skips the

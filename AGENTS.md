@@ -169,6 +169,23 @@ working on this project. It describes the project structure, key patterns, pitfa
     the public line for appearance: `recut-public.py` refuses a version PyPI could not carry,
     and a public tag without a release invents a numbering story nothing else follows.
 
+    **Two push modes on the public line (2026-10-26).** "Public push" and "public release" are
+    separate things, so the tooling separates them:
+
+    | Mode | Command | Version | Creates | Marks |
+    |------|---------|---------|---------|-------|
+    | `release` (default) | `recut-public.py --version X.Y.Z --push` | `0.X.0`, `X` odd | tag + GitHub Release + PyPI upload | `vX.Y.Z: public snapshot` |
+    | `sync` | `recut-public.py --mode sync --version X.Y.Z --push` | any development version (even `X`, patch levels) | **nothing published** — one commit on `master` | `sync(public): vX.Y.Z — not a release` + `Public-Sync:`/`Dev-Tag:` trailers |
+
+    Both snapshot the development line's own `vX.Y.Z` tag, so the default branch is always
+    traceable to a development release; `judge_request()` holds the whole accept/refuse matrix
+    (release-version rule, dev tag, monotonic high-water) in one testable place, and
+    `public_high_water()` reads the mark from release tags *and* `Public-Sync` trailers. A sync
+    never walks the public version backwards, and `pre-push` refuses (a) any non-release-shaped
+    tag (`v0.20.3`, `v0.19.1`, …) and (b) the development `main` branch, on the public remotes.
+    Consequence to keep honest in the docs: the default branch shows a version that need not
+    exist on PyPI — the *publication* markers are the tag, the GitHub Release and the upload.
+
 11. **Only the maintainer's primary machine is authorized to publish**: of the
     machines on this LAN, only that one holds GitHub credentials. The others push
     to NAS, and the primary machine reviews before anything is published. Failing

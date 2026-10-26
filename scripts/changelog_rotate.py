@@ -114,19 +114,41 @@ def rotate(changelog: Path, archive: Path, budget: int, dry_run: bool) -> int:
     assert not (ids_kept & set(ids_rotated)), "an entry is both kept and rotated"
     assert len(set(ids_rotated)) == len(ids_rotated), "duplicate headings inside the rotated set"
 
-    new_header = WINDOW_RE.sub("", header)
     stamp = dt.date.today().isoformat()
-    window = (
-        f'<!-- changelog-window rule="bytes<={budget}" kept={len(kept)} of={total} '
-        f'bytes={used} rotated={stamp} -->\n'
-    )
-    # window comment goes directly under the H1, above the prose note
-    lines = new_header.split("\n")
-    if lines and lines[0].startswith("# "):
-        new_header = "\n".join([lines[0], "", window.rstrip("\n"), *lines[1:]])
-    else:
-        new_header = window + new_header
-    new_changelog = new_header.rstrip("\n") + "\n\n" + "\n\n".join(kept) + "\n"
+
+    def build(kept_blocks: list[str], declared: int) -> str:
+        """Assemble the file; the window comment reports its own size.
+
+        The reported number changes the file's length, which changes the number — so the
+        declaration is iterated to a fixed point instead of being computed once (the
+        2026-10-26 rotation shipped ``bytes=23610`` for a 23,609 B file).
+        """
+        head = WINDOW_RE.sub("", header)
+        doc = ""
+        for _ in range(6):
+            window = (
+                f'<!-- changelog-window rule="bytes<={budget}" kept={len(kept_blocks)} of={total} '
+                f'bytes={declared} rotated={stamp} -->\n'
+            )
+            lines = head.split("\n")
+            if lines and lines[0].startswith("# "):
+                h = "\n".join([lines[0], "", window.rstrip("\n"), *lines[1:]])
+            else:
+                h = window + head
+            doc = h.rstrip("\n") + "\n\n" + "\n\n".join(kept_blocks) + "\n"
+            if len(doc.encode()) == declared:
+                break
+            declared = len(doc.encode())
+        return doc
+
+    new_changelog = build(kept, used)
+    while len(new_changelog.encode()) > budget and len(kept) > MIN_KEEP:
+        kept = kept[:-1]
+        rotated = entries[len(kept):]
+        ids_kept = {entry_id(b) for b in kept}
+        ids_rotated = [entry_id(b) for b in rotated]
+        new_changelog = build(kept, used)
+    used = len(new_changelog.encode())
 
     if archive.exists():
         a_text = archive.read_text(encoding="utf-8")

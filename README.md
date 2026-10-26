@@ -82,18 +82,20 @@ uv pip install --python "$(uv tool dir)/hfpclawer/bin/python" spacy   # inject a
 `uv tool install hfpclawer` / `pip install hfpclawer` resolve the **published release**, and
 `hfpclawer version` reports what you actually have — quote that number when you report behaviour.
 
-The **default branch tracks ahead of the latest release** between aligned cuts: it may carry
-development-line content, and the `version` field in its `pyproject.toml` is **not** a release
-marker. Two practical rules:
+The **default branch tracks the development line continuously**: each of its commits is a
+sanitized snapshot of a development release tag, and the `version` field in its `pyproject.toml`
+describes *that tree* — it is **not** a publication marker. The publication markers are the
+**release tag**, the GitHub release and the PyPI upload, and those exist only for `0.x.0` with an
+odd `x`. Two practical rules:
 
 - reproducing behaviour described in these docs → install the released version;
 - needing default-branch capabilities → install from git at a **pinned commit**, never "whatever the
   default branch is right now".
 
-Both lineages share one version sequence (PyPI accepts `0.x.0` with an odd `x`), and a public cut
-snapshots the development line's **own release tag**, so the next aligned release makes the default
-branch a snapshot of that release again. Between cuts the two installation sources can differ;
-`hfpclawer version` is the tie-breaker.
+A **sync** commit says so in its own message (`sync(public): vX.Y.Z — not a release`, with
+`Public-Sync:` / `Dev-Tag:` trailers); a **release** commit is `vX.Y.Z: public snapshot`. Both
+snapshot the development line's own release tag, so the default branch is always traceable to a
+development release, and `hfpclawer version` is the tie-breaker.
 
 ### Dependencies
 

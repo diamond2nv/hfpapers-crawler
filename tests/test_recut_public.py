@@ -165,3 +165,137 @@ def test_cli_help_advertises_the_release_tag_default() -> None:
     )
     assert "release tag" in out.stdout
     assert "default: main" not in out.stdout
+
+
+# ── the two modes (2026-10-26) ────────────────────────────────────────────────
+# The gate used to conflate "public push" with "public release": one version rule refused both.
+# Continuous sync needs the two split apart — the release rule stays for releases, traceability
+# and monotonicity stay for both.
+
+
+def test_release_version_rule_is_odd_x_only() -> None:
+    module = _load_module()
+    assert module.is_public_release_version("0.19.0") is True
+    assert module.is_public_release_version("0.21.0") is True
+    assert module.is_public_release_version("0.20.0") is False  # even x
+    assert module.is_public_release_version("0.20.3") is False  # patch
+    assert module.is_public_release_version("0.19.1") is False  # dev-line fix release
+    assert module.is_public_release_version("1.21.0") is False  # not this project's shape
+
+
+def test_sync_mode_accepts_a_patch_version() -> None:
+    """A dev fix release may be synced (continuous commits) even though it can never be released."""
+    module = _load_module()
+    assert module.judge_request("sync", "0.20.3", "0.19.0", "v0.20.3") == ""
+    assert module.judge_request("sync", "0.20.0", "0.19.0", "v0.20.0") == ""
+
+
+def test_release_mode_refuses_a_patch_version_and_points_at_sync() -> None:
+    module = _load_module()
+    refusal = module.judge_request("release", "0.20.3", "0.19.0", "v0.20.3")
+    assert refusal
+    assert "--mode sync" in refusal
+
+
+def test_both_modes_require_a_development_tag() -> None:
+    """Traceability is not a release-only property: a sync snapshots a release too."""
+    module = _load_module()
+    assert module.judge_request("sync", "0.20.3", "", "") != ""
+    assert module.judge_request("release", "0.21.0", "", "") != ""
+    assert module.judge_request("sync", "0.20.3", "0.19.0", "v0.20.3") == ""
+
+
+def test_high_water_blocks_a_backwards_push() -> None:
+    """The public tree must describe one number with one tree — so it only moves forward."""
+    module = _load_module()
+    assert module.judge_request("sync", "0.19.9", "0.20.3", "v0.19.9") != ""
+    assert module.judge_request("release", "0.19.0", "0.19.0", "v0.19.0") != ""
+    assert module.judge_request("sync", "0.20.4", "0.20.3", "v0.20.4") == ""
+    assert module.judge_request("release", "0.21.0", "0.20.3", "v0.21.0") == ""
+
+
+def test_sync_refuses_a_stale_source_unless_overridden() -> None:
+    """The mirror-image trap: older dev content behind a *higher* public number."""
+    module = _load_module()
+    refusal = module.judge_request(
+        "sync", "0.19.9", "0.19.0", "v0.19.9", newest_dev="v0.19.16"
+    )
+    assert refusal and "0.19.16" in refusal
+    assert (
+        module.judge_request(
+            "sync", "0.19.9", "0.19.0", "v0.19.9", newest_dev="v0.19.16", allow_stale=True
+        )
+        == ""
+    )
+    # syncing the newest development release is the normal case
+    assert module.judge_request("sync", "0.19.16", "0.19.0", "v0.19.16", newest_dev="v0.19.16") == ""
+
+
+def test_newest_dev_tag_reads_development_tags(tmp_path: Path) -> None:
+    module = _load_module()
+    work = tmp_path / "dev-line"
+    work.mkdir()
+    _git(work, "init", "-q")
+    _git(work, "config", "user.email", "test@example.com")
+    _git(work, "config", "user.name", "Test")
+    (work / "a.txt").write_text("x\n", encoding="utf-8")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-qm", "base")
+    _git(work, "branch", "-M", "main")
+    _git(work, "tag", "v0.19.2")
+    _git(work, "tag", "v0.19.10")
+    _git(work, "tag", "public-v0.20.9")  # a public-line tag must not be mistaken for a dev release
+    assert module.newest_dev_tag(repo=work) == "v0.19.10"
+
+
+def test_public_high_water_reads_tags_and_sync_trailers(tmp_path: Path) -> None:
+    module = _load_module()
+    work = tmp_path / "public-line"
+    work.mkdir()
+    _git(work, "init", "-q")
+    _git(work, "config", "user.email", "test@example.com")
+    _git(work, "config", "user.name", "Test")
+    (work / "a.txt").write_text("x\n", encoding="utf-8")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-qm", "v0.19.0: public snapshot")
+    _git(work, "tag", "-a", "public-v0.19.0", "-m", "release")
+    _git(work, "branch", "public")
+    assert module.public_high_water("public", repo=work) == ("0.19.0", "tag public-v0.19.0")
+
+    # a sync commit carries the mark in a trailer, which is what makes the advance readable
+    _git(work, "checkout", "-q", "public")
+    (work / "a.txt").write_text("y\n", encoding="utf-8")
+    _git(work, "add", "-A")
+    _git(
+        work,
+        "commit",
+        "-qm",
+        "sync(public): v0.20.3 — not a release",
+        "-m",
+        "Public-Sync: v0.20.3",
+    )
+    assert module.public_high_water("public", repo=work) == ("0.20.3", "trailer Public-Sync")
+
+
+def test_public_high_water_is_empty_without_any_mark(tmp_path: Path) -> None:
+    module = _load_module()
+    work = tmp_path / "bare"
+    work.mkdir()
+    _git(work, "init", "-q")
+    _git(work, "config", "user.email", "test@example.com")
+    _git(work, "config", "user.name", "Test")
+    (work / "a.txt").write_text("x\n", encoding="utf-8")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-qm", "base")
+    assert module.public_high_water("HEAD", repo=work) == ("", "")
+
+
+def test_cli_help_advertises_the_sync_mode() -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "recut-public.py"
+    if not script.is_file():
+        pytest.skip("scripts/recut-public.py is not present in this checkout")
+    out = subprocess.run(
+        [sys.executable, str(script), "--help"], capture_output=True, text=True, check=True
+    )
+    assert "--mode" in out.stdout
+    assert "sync" in out.stdout

@@ -5,7 +5,7 @@
 
 ---
 
-## 实际状态（截至 v0.18.16，2026-09-17）
+## 实际状态（截至 v0.20.0，2026-10-26）
 
 > ⚠️ 本文件是**历史规划**（标题停留在 v0.10.x 时代，正文含 v0.15/v0.16 两轮规划），
 > **不是当前状态**。下面是 §2/§2b–§2f 计划项的落地对照——多数已发布，少数从未实现。
@@ -24,6 +24,15 @@
 | 多源扩展（Europe PMC / bioRxiv / medRxiv） | ✅ 已发布（v0.18.0–v0.18.8）；顺带修掉去重静默丢数据与配置键失效 |
 | 公开线脱敏重切 | ✅ v0.17.0–v0.17.2（公开线**自成版本序列**，不在开发线 changelog 主线） |
 | 变更日志门禁（条目/窗口/历史） | ✅ v0.18.15–v0.18.16（`scripts/changelog_guard.py` + `changelog_rotate.py`） |
+| 记录写入口径加固（空壳行、id 形态、去重探针） | ✅ v0.19.4–v0.19.16（`--pick` 缺元数据不再写占位行） |
+| `item_type` 字段（article/review/preprint 区分） | ✅ v0.19.5 |
+| `lookup-id`：标题 → arXiv ID 精确解析 | ✅ v0.19.8 |
+| 轮次采集 runner（轴驱动 + 归一化去重 + 回归断言） | ✅ v0.19.14（`scripts/cron_round.py`） |
+| 公开线**连续同步**（release / sync 双模式） | ✅ v0.20.0——`--mode sync` + 高水位 + `pre-push` 门 4；默认分支自此自描述 |
+| 依赖锁刷新 + `pymupdf4llm<2` 封顶 | ✅ v0.20.0——certifi/brotli/aiohttp/multidict/setuptools 已修，2 条按条件接受 |
+| PDF 路径迁移 `pymupdf>=2`（4llm 代码已并入上游，`pymupdf4llm 2.0` 是 904 B 空壳） | ⬜ 未做——需真实 PDF 抽取对齐测试，现封顶在 1.x |
+| PyPI / GitHub Release 对齐切版 `0.21.0` | ⬜ 计划中——dev tag `v0.21.0` 之后 `recut-public.py --version 0.21.0` |
+| `filelock` / `Twisted` 告警清零 | ⬜ 阻塞条件已测：filelock 修版 `4.2.1` 需 py≥3.11 且 litellm 放开 `<4.0`；Twisted 修版仅 `26.10.0rc1` |
 
 ---
 

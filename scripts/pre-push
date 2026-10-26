@@ -116,6 +116,43 @@ while read local_ref local_oid remote_ref remote_oid; do
         echo ""
         status=1
     fi
+    # ── 门 4: 公开远端的 ref 形状（2026-10-26，连续 sync 之后的新风险）──
+    # 连续同步引入两种推送：release（0.x.0 且 x 奇，打 tag）与 sync（任意 dev 版本，不打 tag）。
+    # 于是必须挡住两类误操作：
+    #   ① `git push github --tags` 会把开发线偶数版 tag（v0.20.1…）泄到公开远端
+    #   ② 把开发线 main 直接推到公开远端（公开线只能是 sanitized 快照）
+    case "$1 $2" in
+        *github*|*codeup.aliyun.com*|*mirror*) _is_public=1 ;;
+        *) _is_public=0 ;;
+    esac
+    if [ "$_is_public" = "1" ]; then
+        case "$remote_ref" in
+            refs/heads/main)
+                echo ""
+                echo "╔══════════════════════════════════════════════════╗"
+                echo "║  🔒 拒绝对公开远端推送开发线 main"
+                echo "╚══════════════════════════════════════════════════╝"
+                echo "  公开远端只接受 sanitized 快照（public:master）；开发线历史不得发布。"
+                echo "  同步：bash scripts/recut-public.py --mode sync --version X.Y.Z --push"
+                status=1
+                ;;
+            refs/tags/*)
+                _tag=${remote_ref#refs/tags/}
+                if echo "$_tag" | grep -Eq '^v0\.[0-9]*[13579]\.0$'; then
+                    : # 发布形状（0.x.0，x 奇）—— 与 PyPI 同号，放行
+                else
+                    echo ""
+                    echo "╔══════════════════════════════════════════════════╗"
+                    echo "║  🔒 拒绝把非发布形状的 tag 推到公开远端"
+                    echo "╚══════════════════════════════════════════════════╝"
+                    echo "  tag: $_tag"
+                    echo "  公开远端的 tag 必须与 PyPI 同号：0.x.0 且 x 为奇数（0.19.0 / 0.21.0）"
+                    echo "  开发线的 tag（含偶数 x 与所有 patch 版本）只留在 NAS。"
+                    status=1
+                fi
+                ;;
+        esac
+    fi
 done
 
 exit $status

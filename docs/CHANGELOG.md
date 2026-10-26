@@ -1,6 +1,66 @@
 # CHANGELOG
 
-<!-- changelog-window rule="bytes<=24576" kept=9 of=10 bytes=21455 rotated=2026-10-17 -->
+<!-- changelog-window rule="bytes<=24576" kept=8 of=10 bytes=23609 rotated=2026-10-26 -->
+
+## [2026-10-26] feat | v0.20.0 — the public line learns to follow the development line (release | sync)
+
+The public line had one rule for two different questions — *may this version be published?* and
+*may this tree go out at all?* — and gave the same answer to both, so nothing in between could go
+out. Measured before this release: the development line was **53 commits ahead** of the public
+line, and the public tree carried development content (0.19.7-era) under the `0.19.0` stamp it had
+been published with. Two trees, one number.
+
+* `scripts/recut-public.py` gains `--mode {release,sync}`. A **release** is unchanged (odd `0.x.0`;
+  tag + GitHub Release + PyPI upload). A **sync** snapshots any development release tag and
+  publishes **no** tag, **no** Release and **no** upload: one commit on the default branch whose
+  message (`sync(public): vX.Y.Z — not a release`) and `Public-Sync:` / `Dev-Tag:` trailers make
+  the advance machine-readable.
+* the accept/refuse matrix is now one pure function, `judge_request()`, tested directly —
+  release-version rule (release only) · development tag required by **both** modes · version must
+  beat the **high-water mark** (both) · a sync may not publish an *older* development release than
+  the newest one (`--allow-stale-source` overrides; older content behind a higher number is the
+  same trap mirrored). `public_high_water()` reads the mark from release tags **and** `Public-Sync`
+  trailers, because tags stop telling you where the line is once syncs exist.
+* `scripts/pre-push` gate 4 covers the risk the split creates: against the public remotes it
+  refuses any tag that is not `v0.<odd>.0` (a stray `git push --tags` would leak `v0.20.1…`) and
+  refuses the development `main` branch. `publish-public.sh --no-tag` is a sync's only push path,
+  and `--status` prints the synced high-water mark beside the newest released tag.
+* first sync, `dac1c2f` at dev `v0.19.16`: the default branch's `pyproject` now names the tree it
+  contains (`0.19.16`), the inversion is gone, and the publication markers still read `v0.19.0` /
+  PyPI `0.19.0` — deliberately.
+* bookkeeping on the development line: the two releases that had shipped untagged got their tags
+  (`v0.19.15` → `3a89ef7`, `v0.19.16` → `a73a95a`), and the stale `github/main` branch was deleted
+  after checking it was an ancestor of `master` (so nothing was lost) instead of being left as a
+  third public surface.
+
+### Dependencies — and a package that is now an empty shell
+
+`requirements/core.lock.txt` and `dev.lock.txt` refreshed (first refresh since 2026-09-22). Fixes
+taken: `certifi` 2026.7.22 → 2026.10.23 (critical), `brotli` 1.2.0 → 1.2.1 (critical), `aiohttp`
+3.14.3 → 3.14.5 (high/medium), `multidict` 6.8.0 → 7.2.1 (medium), `setuptools` 84.0.0 → 84.2.1 (low).
+
+**`pymupdf4llm` is now capped `<2`.** The old `>=1.28.0` resolves to `pymupdf4llm 2.0`, uploaded
+2026-10-19 as a **904-byte wheel** whose own METADATA reads: *"This is an empty package that is
+required by pymupdf-2.x … The pymupdf-2.x package now contains the 4llm code that used to be in
+pymupdf4llm-1.x."* Installing it leaves `to_markdown` absent while declaring no dependencies at
+all, so the unpinned requirement would have shipped a broken PDF path to anyone installing from
+PyPI. Staying on the 1.x line keeps the working extraction path; migrating to `pymupdf>=2` needs
+extraction-parity testing on real PDFs and is a roadmap item, not a lock refresh.
+
+Two alerts are **accepted with the blocking condition measured**, not waved through:
+
+* `filelock` — the fix is `4.2.1`, which requires Python `>=3.11` while this package declares
+  `>=3.10`; and `litellm 1.106.4` pins `filelock<4.0`, so the resolver lands on `3.32.7` (a
+  downgrade from the previous lock's `4.0.0` — litellm's cap, not drift).
+* `Twisted` — the only published fix is `26.10.0rc1`, a pre-release; the lock stays on `26.4.0`
+  until a final release exists.
+
+Verified: `pytest tests/{test_recut_public,test_gates,test_paths,test_sanitization,test_cron_round}.py`
+rc 0; `ruff` and `pyright` clean on the touched files; the judgement matrix exercised end-to-end
+(four refusals with their exact messages, plus a clean sync dry run that rolls back); `pre-push`
+fed fake refs (`v0.20.3` → reject, `v0.21.0` → pass, `main` → reject, dev remote → pass); and a
+**clean venv installed from `requirements/core.lock.txt`** runs `hfpclawer version` → `v0.19.16`
+with `pymupdf4llm.to_markdown` callable.
 
 ## [2026-10-17] fix | v0.19.16 — `--pick` carried no metadata, so a picked paper was filed as an empty shell
 
@@ -286,36 +346,3 @@ only sampled the tail for NUL bytes, so `fetch <id> -k source` reported success 
   variants under 0.5 (all-caps 1990s AIP titles against Crossref's modern form) go to review rather
   than being written at 1.0, and a deliberate `accepted-unverified` still admits them.
 - **Tests** — both directions pinned in `tests/test_doi_write_gate.py`.
-
-## [2026-09-25] fix | v0.19.10 — a supplied DOI is looked up before it is written
-
-> 0.19.7 closed the DOI the store *finds itself*; this closes the DOI it is *given*. `add_identifier`
-> wrote such a DOI at the default `confidence=1.0` with no lookup — and every wrong DOI in the
-> 2026-09-25 full audit (3 of 341) arrived that way, one registered nowhere.
-
-- **A** `hfpapers/doi_registry.py` — `resolve(doi)` → `ok | not_found | error`, Crossref first and
-  **DataCite second**: a Crossref 404 is not a bogus DOI (arXiv/Zenodo/CNKI DOIs live there) —
-  "could not check" is not "wrong".
-- **A** `PaperStore.attach_supplied_doi()` — unregistered or title-mismatched → **refused** +
-  `identifier_rejected`; otherwise written with an `identifier_unverified` event if it could not be
-  checked (unreachable registry, no title, cross-language). A verified DOI keeps `confidence=1.0`,
-  which now means *verified*, not *assumed*. Known-bad rows: the unregistered and 0.06-similarity DOIs
-  are refused; the 0.44 near-neighbour still passes, its similarity recorded on the attach event.
-- **M** `ensure_paper(..., verify_doi=True)` routes supplied DOIs through the gate; `verify_doi=False`
-  keeps an offline batch working.
-- **A** tail check — `check_store(only_sf_ids=…)` in `StorePipeline.close_spider` and `hfpclawer
-  import`, so a batch reports its own defects in the run that created them.
-
-## [2026-09-25] fix | v0.19.9 — the DOI title check stops calling correct DOIs wrong
-
-> Two audits of the live store agreed on a wrong conclusion: `_norm` spent its 80-character budget on
-> Crossref's inline MathML, and CJK-against-English pairs scored 0.00.
-
-- **M** `hfpapers/invariants_network.py` — strip `<...>`/entities, NFKC-normalise, *then* fold case.
-  `10.1103/PhysRevLett.89.125003`: **0.165 → 0.957** (β mid-title; `[:80]` never rescued it — the same
-  defect deleted a correct DOI in a peer's audit). `is_cross_language()` now counts
-  CJK-against-English pairs instead of scoring them (two 《物理学报》 records: **0.00**), exposed as
-  `coverage["doi_title_cross_language"]`.
-- **Tests** — `tests/test_invariants_network.py`: normalisation, both cross-language directions, and
-  guards that real mismatches still report while unreachable DOIs still count.
-- **Scope** — dev line only; PyPI gets it with `0.21.0`.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hfpclawer"
-version = "0.19.16"
+version = "0.20.0"
 description = "Multi-source academic paper clawler for PDE/neural operator/physics-informed ML — OAI-PMH download + PDF download + SQLite paper_store + Cross-Ref + MCP server"
 authors = [
     {name = "Li Shen"},
@@ -41,7 +41,12 @@ dependencies = [
     "lxml>=4.9",
     "typer>=0.9",
     "psutil>=5.8",
-    "pymupdf4llm>=1.28.0",
+    # The 2.0 release is a 904-byte transition shim ("empty package that is required by
+    # pymupdf-2.x"): the 4llm code moved into pymupdf 2.x itself, so allowing >=1.28.0
+    # unpinned resolves to a wheel with no code and `to_markdown` disappears. Staying on
+    # the 1.x line keeps the working extraction path; migrating to pymupdf>=2 is a roadmap
+    # item, not a lock refresh (it needs extraction-parity testing on real PDFs).
+    "pymupdf4llm>=1.28.0,<2",
     "click>=8.4.2",
     "networkx>=3.0",
     "pydantic>=2.7",

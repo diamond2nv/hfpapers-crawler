@@ -20,10 +20,17 @@
 #   一步失败，这是预期行为，不是脚本坏了。不要为了绕过而在别的机器上找凭据。
 #
 # 用法:
-#   bash scripts/publish-public.sh --status            # 现状：public vs main 分歧、待推内容
+#   bash scripts/publish-public.sh --status            # 现状：public vs main 分歧、待推内容、已同步高水位
 #   bash scripts/publish-public.sh --check             # 只跑脱敏门禁（不改任何东西）
 #   bash scripts/publish-public.sh 0.17.3              # 打 tag（本地）
 #   bash scripts/publish-public.sh 0.17.3 --push       # 打 tag + 推送 public:master + tag
+#   bash scripts/publish-public.sh 0.20.3 --push --no-tag   # 连续同步：只推提交，不打 tag、不发布
+#
+# 两种推送（2026-10-26 起）:
+#   **release**（默认）：公开线 = PyPI 同号发布，必须 0.x.0 且 x 奇；打 tag + GitHub release + 上传。
+#   **sync**（`--no-tag`）：把公开线追平开发线的某个 dev tag，**不打 tag、不建 release、不上传 PyPI**；
+#     提交消息带 `Public-Sync: vX.Y.Z` trailer，作为"已同步高水位"的机器可读标记。
+#   判据：GitHub 的 tag 列表 + PyPI 只出现发布版本；默认分支的子提交则连续跟随开发线。
 #
 # 修版规矩（2026-09-17 起，用户明确）: 公开线**与 PyPI 版本号对齐** —— 本项目的 PyPI 只收
 #   `0.x.0` 且 x 为奇数（0.19.0、0.21.0…），公开线就用这套号；旧 0.17.x 序列已废弃。
@@ -80,12 +87,14 @@ sanitize_gate() {
 MODE=""
 VERSION=""
 PUSH=false
+NOTAG=false
 
 for arg in "$@"; do
     case "$arg" in
         --status) MODE="status" ;;
         --check)  MODE="check" ;;
         --push)   PUSH=true ;;
+        --no-tag) NOTAG=true ;;
         --*)      die "未知参数: $arg" ;;
         *)        VERSION="$arg" ;;
     esac
@@ -115,6 +124,9 @@ if [ "$MODE" = "status" ]; then
     echo "最新公开 tag        : $(git tag --merged "$PUBLIC_BRANCH" 2>/dev/null \
         | sed -n 's/^public-//p' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
     echo "   （本地 tag 名 public-vX.Y.Z，远端真名 vX.Y.Z；校验远端用 git ls-remote）"
+    echo "已同步高水位        : $(git log "$PUBLIC_BRANCH" --format='%(trailers:key=Public-Sync,valueonly)' 2>/dev/null \
+        | tr -d ' ' | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -1)"
+    echo "   （sync 提交的 Public-Sync trailer；它 ≥ 最新公开 tag 时说明公开树已跟上开发线）"
     exit 0
 fi
 
@@ -143,6 +155,10 @@ PUB_VERSION=$(git show "$PUBLIC_BRANCH:pyproject.toml" | grep '^version' | sed '
 
 # 公开线专属 tag 名 —— 开发线的同名 tag（v$VERSION）存在于本仓是正常现象，不再拒绝
 PUBLIC_TAG="public-v$VERSION"
+if [ "$NOTAG" = "true" ]; then
+    echo ""
+    echo "── sync 模式：跳过 tag（不打 tag、不建 GitHub release、不上传 PyPI）──"
+else
 if git rev-parse -q --verify "refs/tags/$PUBLIC_TAG" >/dev/null; then
     _at=$(git rev-parse "$PUBLIC_TAG^{commit}")
     _want=$(git rev-parse "$PUBLIC_BRANCH^{commit}")
@@ -154,6 +170,7 @@ _remote_at=$(git ls-remote "$PUBLIC_REMOTE" "refs/tags/v$VERSION^{}" 2>/dev/null
 _public_sha=$(git rev-parse "$PUBLIC_BRANCH^{commit}")
 if [ -n "$_remote_at" ] && [ "$_remote_at" != "$_public_sha" ]; then
     die "远端已有 v$VERSION 指向另一提交（${_remote_at%"${_remote_at#????????}"}…）—— 不移动已发布的 tag，换个版本号或先确认远端"
+fi
 fi
 
 echo ""
@@ -173,12 +190,27 @@ esac
 sanitize_gate "$PUBLIC_BRANCH" || die "脱敏门禁未通过，已中止"
 
 echo ""
-echo "── 打 annotated tag（本地名 $PUBLIC_TAG，远端名 v$VERSION）──"
-git tag -a "$PUBLIC_TAG" -m "v$VERSION — public snapshot, version-aligned with PyPI" --force
-echo "✅ 已打 tag $PUBLIC_TAG -> $(git rev-parse --short "$PUBLIC_TAG^{commit}")"
+if [ "$NOTAG" = "true" ]; then
+    echo "── sync 提交：不打 tag（$PUBLIC_TAG 保持未创建）──"
+else
+    echo "── 打 annotated tag（本地名 $PUBLIC_TAG，远端名 v$VERSION）──"
+    git tag -a "$PUBLIC_TAG" -m "v$VERSION — public snapshot, version-aligned with PyPI" --force
+    echo "✅ 已打 tag $PUBLIC_TAG -> $(git rev-parse --short "$PUBLIC_TAG^{commit}")"
+fi
 
 if [ "$PUSH" = "true" ]; then
     echo ""
+    if [ "$NOTAG" = "true" ]; then
+        echo "── 推送（sync：只推分支，不推 tag）──"
+        git push "$PUBLIC_REMOTE" "$PUBLIC_BRANCH:$PUBLIC_REMOTE_BRANCH"
+        echo ""
+        echo "── 读回验证（不采信推送回执）──"
+        git fetch -q "$PUBLIC_REMOTE"
+        echo "  远程 $PUBLIC_REMOTE_BRANCH : $(git rev-parse --short "$PUBLIC_REMOTE/$PUBLIC_REMOTE_BRANCH")"
+        echo "  本地 $PUBLIC_BRANCH        : $(git rev-parse --short "$PUBLIC_BRANCH")"
+        echo "  远端 tag v$VERSION         : $(git ls-remote "$PUBLIC_REMOTE" "refs/tags/v$VERSION^{}" | cut -f1 | cut -c1-8)  （sync 模式应为空）"
+        exit 0
+    fi
     echo "── 推送（先 tag 后分支；远程分支名不变，用显式 refspec public:master）──"
     git push "$PUBLIC_REMOTE" "refs/tags/$PUBLIC_TAG:refs/tags/v$VERSION"
     git push "$PUBLIC_REMOTE" "$PUBLIC_BRANCH:$PUBLIC_REMOTE_BRANCH"

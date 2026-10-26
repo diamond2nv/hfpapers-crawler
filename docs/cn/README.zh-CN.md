@@ -64,15 +64,16 @@ hfpclawer search
 `uv tool install hfpclawer` / `pip install hfpclawer` 取到的是**已发布版本**；
 `hfpclawer version` 告诉你手里到底是哪一版 —— 报行为差异时请带上这个号。
 
-**默认分支领先于最新发布版**：对齐切版之间的默认分支可能携带开发线内容，其
-`pyproject.toml` 里的 `version` **不是发布标记**。两条实操规则：
+**默认分支连续跟随开发线**：它的每个提交都是"开发线某个 release tag 的脱敏快照"，其
+`pyproject.toml` 的 `version` 描述的是**这棵树**，**不是发布标记**。发布标记是**发布 tag** +
+GitHub release + PyPI 上传，三者只对 `0.x.0`（`x` 为奇数）存在。两条实操规则：
 
 - 复现文档描述的行为 → 装已发布版本；
 - 需要默认分支的能力 → 用 git 安装并**固定 commit**，不要用"当前默认分支"。
 
-两条血统共用一个版本序列（PyPI 只收 `0.x.0` 且 `x` 为奇数），公开切版是开发线**自身 release tag**
-的快照，因此下一次对齐发布后，默认分支会重新成为该版本的快照。两次切版之间两个安装源可能存在差异，
-以 `hfpclawer version` 为准。
+**sync** 提交在消息里自报（`sync(public): vX.Y.Z — not a release`，带 `Public-Sync:` /
+`Dev-Tag:` trailer）；**release** 提交则是 `vX.Y.Z: public snapshot`。两者都快照开发线**自身
+release tag**，所以默认分支永远可追溯到某个开发版本；版本归属以 `hfpclawer version` 为准。
 
 ### 可选依赖
 

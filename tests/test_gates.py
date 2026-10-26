@@ -549,6 +549,18 @@ class TestChangelogWindowGate:
             "the window must state its own rule and state"
         )
 
+    def test_window_declares_its_actual_size(self):
+        """The declared byte count must survive its own digits (2026-10-26: declared 23610, file 23609)."""
+        text = self.CHANGELOG.read_text(encoding="utf-8")
+        m = re.search(r"bytes=(\d+) rotated=", text)
+        assert m, "the window must declare a byte size"
+        declared = int(m.group(1))
+        actual = len(text.encode())
+        assert declared == actual, (
+            f"window declares bytes={declared} but the file is {actual} B — "
+            "scripts/changelog_rotate.py iterates the header to a fixed point; re-run it"
+        )
+
     def test_no_entry_was_lost_across_rotations(self):
         """Rotation moves entries; it must never lose one (checked against HEAD)."""
         result = self._run("--verify-history")
